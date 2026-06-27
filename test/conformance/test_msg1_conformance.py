@@ -95,15 +95,6 @@ class TestSec21Type(TestCase):
         with self.assertRaises((ValueError, AssertionError)):
             Message("").serialize()
 
-    @pytest.mark.xfail(
-        strict=False,
-        reason="MSG-1 §2.1 'type … MUST match the syntax: ASCII letters, "
-               "digits, ., :, _, -; no whitespace'. ovos_bus_client.Message "
-               "(2.4.0a1) enforces non-emptiness on serialize() but NOT the "
-               "character/whitespace syntax — Message('a b').serialize() emits "
-               "{\"type\": \"a b\"} with an embedded space rather than flagging "
-               "a non-conformant topic.",
-    )
     def test_whitespace_in_type_is_nonconformant(self):
         """§2.1: ``type`` MUST contain no whitespace. A Message whose ``type``
         contains a space MUST NOT serialize to a conformant wire object — a

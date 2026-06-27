@@ -94,12 +94,12 @@ clauses are xfail and flip green when the contract lands.
 | `TestSec2FireAndForget` | §2 | A registration is fire-and-forget — no `.response`, ack, or error event. | green |
 | `TestSec5KeywordRegistration` | §5 | `ovos.intent.register.keyword` makes an intent matchable. | **xfail** (legacy `padatious:register_intent`) |
 | `TestSec6TemplateRegistration` | §6 | `ovos.intent.register.template` makes an intent matchable. | **xfail** (legacy `padatious:register_intent`) |
-| `TestSec7EntityRegistration` | §7, §2 | `ovos.entity.register` value-set hint is accepted with no ack/error. | **xfail** (legacy `register_vocab`) |
-| `TestSec82Deregister` | §8.2 | `ovos.intent.deregister` removes one intent. | **xfail** |
-| `TestSec83EntityDeregister` | §8.3 | `ovos.entity.deregister` removes one entity. | **xfail** |
-| `TestSec84SkillDeregister` | §8.4 | `ovos.skill.deregister` removes a whole skill's intents. | **xfail** (legacy `detach_skill`) |
+| `TestSec7EntityRegistration` | §7, §2 | `ovos.entity.register` value-set hint is accepted with no ack/error. | green |
+| `TestSec82Deregister` | §8.2 | `ovos.intent.deregister` removes one intent. | green |
+| `TestSec83EntityDeregister` | §8.3 | `ovos.entity.deregister` removes one entity. | green |
+| `TestSec84SkillDeregister` | §8.4 | `ovos.skill.deregister` removes a whole skill's intents. | green |
 | `TestSec85Disable` | §8.5 | `ovos.intent.disable` suppresses an intent. | **xfail** |
-| `TestSec85Enable` | §8.5 | `ovos.intent.enable` re-arms a disabled intent. | **xfail** |
+| `TestSec85Enable` | §8.5 | `ovos.intent.enable` re-arms a disabled intent. | green |
 | `TestSec10Introspection` | §10.1, §10.2 | `ovos.intent.list` / `ovos.intent.describe` introspection responds. | **xfail** (legacy `intent.service.intent.get`) |
 
 ## OVOS-CONVERSE-1 — `test_converse1_conformance.py`

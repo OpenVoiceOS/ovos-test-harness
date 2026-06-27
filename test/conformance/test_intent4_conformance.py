@@ -132,9 +132,6 @@ class TestSec82Deregister(TestCase):
     """§8.2: ``ovos.intent.deregister`` removes one intent so it no longer
     matches."""
 
-    @pytest.mark.xfail(strict=False,
-                       reason="ovos-core does not consume 'ovos.intent.deregister'; "
-                              "INTENT-4 §8.2")
     def test_spec_deregister_removes_intent(self):
         """After a spec-topic deregister, the intent must no longer match (§8.2)."""
         # register via the working mechanism so there is something to remove
@@ -212,10 +209,6 @@ class TestSec7EntityRegistration(TestCase):
     """§7: ``ovos.entity.register`` registers a value-set hint that the matcher
     can resolve as a named slot. Registration is fire-and-forget (§2)."""
 
-    @pytest.mark.xfail(strict=False,
-                       reason="ovos-core consumes entity registration via the legacy "
-                              "'padatious:register_entity'/'register_vocab'; INTENT-4 "
-                              "§7 defines 'ovos.entity.register'")
     def test_spec_entity_registration_no_ack(self):
         """Emitting an entity registration on the spec topic produces no ack and is
         accepted by an INTENT-4 consumer (§7, §2)."""
@@ -238,9 +231,6 @@ class TestSec7EntityRegistration(TestCase):
 class TestSec83EntityDeregister(TestCase):
     """§8.3: ``ovos.entity.deregister`` removes one entity value-set hint."""
 
-    @pytest.mark.xfail(strict=False,
-                       reason="ovos-core does not consume 'ovos.entity.deregister'; "
-                              "INTENT-4 §8.3")
     def test_spec_entity_deregister_no_error(self):
         """A spec-topic entity deregister is consumed without an error event (§8.3)."""
         register_padatious_entity(_MC.bus, ENTITY_NAME, ENTITY_SAMPLES)
@@ -256,9 +246,6 @@ class TestSec84SkillDeregister(TestCase):
     """§8.4: ``ovos.skill.deregister`` removes every intent and entity registered
     under one ``skill_id`` in a single broadcast."""
 
-    @pytest.mark.xfail(strict=False,
-                       reason="ovos-core removes a skill's registrations via the legacy "
-                              "'detach_skill'; INTENT-4 §8.4 defines 'ovos.skill.deregister'")
     def test_spec_skill_deregister_removes_all_intents(self):
         """After a spec-topic skill deregister, none of the skill's intents match (§8.4)."""
         register_padatious_intent(_MC.bus, KEYWORD_INTENT, KEYWORD_SAMPLES)
@@ -283,9 +270,6 @@ class TestSec85Enable(TestCase):
     """§8.5: ``ovos.intent.enable`` re-arms an intent previously suppressed by
     ``ovos.intent.disable``, restoring its match candidacy."""
 
-    @pytest.mark.xfail(strict=False,
-                       reason="ovos-core does not consume 'ovos.intent.disable'/"
-                              "'ovos.intent.enable'; INTENT-4 §8.5")
     def test_spec_enable_rearms_intent(self):
         """A disabled-then-enabled intent matches again (§8.5)."""
         register_padatious_intent(_MC.bus, KEYWORD_INTENT, KEYWORD_SAMPLES)
