@@ -40,6 +40,14 @@ ovos-spec-tools>=0.17.1a1
 # under ovos-bus-client 2.x (PyPI 1.0.0 raises TypeError on every match).
 # TODO flip to @dev once OpenVoiceOS/padacioso#... (the lru_cache fix) merges.
 git+https://github.com/OpenVoiceOS/padacioso@dev
+# audio input service under test (AUDIO-IN-1 conformance) — emits the spec
+# ovos.listener.* / ovos.utterance.handle topics natively on @dev.
+git+https://github.com/OpenVoiceOS/ovos-dinkum-listener@dev
+# audio output service under test (AUDIO-1 conformance) — PlaybackService.
+# @dev emits ovos.audio.output.* / ovos.mic.listen on the spec namespace but
+# still subscribes legacy names for b64/queue/play_sound/is_speaking/audio.stop
+# (those clauses xfail until the rename lands).
+git+https://github.com/OpenVoiceOS/ovos-audio@dev
 # pipeline engine fallback + test deps
 pytest
 pytest-json-report
