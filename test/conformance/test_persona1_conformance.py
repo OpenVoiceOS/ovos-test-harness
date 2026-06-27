@@ -132,11 +132,6 @@ class TestSec3PersonaIdField(TestCase):
                                       persona_id=ALICE), 6.0)
         self.assertIn("persona:query", types(recs))
 
-    @pytest.mark.xfail(strict=False,
-                       reason="PERSONA-1 §3/§5 MUST set session.persona_id via "
-                              "Match.updated_session on summon; the plugin tracks the "
-                              "active persona in an in-memory active_personas dict and "
-                              "never writes persona_id onto the session")
     def test_summon_sets_session_persona_id(self):
         """§5/§3 MUST: a summon sets ``session.persona_id`` via
         ``Match.updated_session`` — observable on the dispatch's carried session."""

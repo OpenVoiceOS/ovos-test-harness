@@ -245,11 +245,6 @@ class TestSec7AnswerCollection(TestCase):
         seq = types(_cq("cq-answer-request"))
         self.assertIn(f"{WIKI_ID}:common_query", seq)
 
-    @pytest.mark.xfail(strict=False,
-                       reason="COMMON-QUERY-1 §7.1 MUST collect answers on "
-                              "'<skill_id>.common_query.response'; the pinned plugin "
-                              "collects legacy 'question:query.response', and the contest "
-                              "crashes (blacklisted_skills None) before collection runs")
     def test_full_answer_response_collected(self):
         """§7.1 MUST: the plugin collects answers on
         ``<skill_id>.common_query.response`` and selects a winner (observable as a
@@ -271,10 +266,6 @@ class TestSec9And10WinningContest(TestCase):
     ``skill_id`` = the plugin's own ``pipeline_id`` and ``slots.answer`` = the
     selected answer string."""
 
-    @pytest.mark.xfail(strict=False,
-                       reason="COMMON-QUERY-1 §10 MUST speak the selected answer; in this "
-                              "stack the contest crashes (blacklisted_skills None) so no "
-                              "answer is ever selected or spoken")
     def test_winning_contest_speaks(self):
         """§10 MUST: the plugin handler speaks the selected answer via
         ``ovos.utterance.speak``."""

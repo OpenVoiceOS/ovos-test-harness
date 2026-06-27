@@ -367,14 +367,6 @@ class TestSec5_5SlotConsistency(TestCase):
     templates do not all declare the same slot set." A ``.intent`` definition,
     by contrast, "MAY declare different slot sets … A tool MUST NOT reject" it."""
 
-    @pytest.mark.xfail(strict=False,
-                       reason="INTENT-1 §5.5 MUST: 'A tool MUST reject a "
-                              ".dialog definition whose templates do not all "
-                              "declare the same slot set'; ovos-spec-tools "
-                              "enforces §5.5 only in lint_locale, not in the "
-                              "DialogRenderer/render load path — a renderer "
-                              "constructed over mixed-slot phrases does not "
-                              "reject the definition")
     def test_dialog_mixed_slot_sets_rejected(self):
         """A ``.dialog`` whose phrases declare different slot sets MUST be
         rejected by a dialog renderer — the §5.5 verification is a property of

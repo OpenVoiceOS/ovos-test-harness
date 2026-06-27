@@ -48,17 +48,15 @@ INTENT-4-producer + an ovos-core consumer — see
 |--------|---------------|------------------------------|------|
 | §5 | `ovos.intent.register.keyword` makes an intent matchable | consumes keyword registration via the legacy `padatious:register_intent`/`register_intent` | `TestSec5KeywordRegistration` |
 | §6 | `ovos.intent.register.template` makes an intent matchable | consumes registrations via the legacy `padatious:register_intent` | `TestSec6TemplateRegistration` |
-| §7 | `ovos.entity.register` value-set hint accepted | consumes entity registration via the legacy `padatious:register_entity`/`register_vocab` | `TestSec7EntityRegistration` |
-| §8.2 | `ovos.intent.deregister` removes one intent | does not consume `ovos.intent.deregister` | `TestSec82Deregister` |
-| §8.3 | `ovos.entity.deregister` removes one entity | does not consume `ovos.entity.deregister` | `TestSec83EntityDeregister` |
-| §8.4 | `ovos.skill.deregister` removes a whole skill | removes a skill's registrations via the legacy `detach_skill` | `TestSec84SkillDeregister` |
 | §8.5 | `ovos.intent.disable` suppresses an intent | does not consume `ovos.intent.disable` | `TestSec85Disable` |
-| §8.5 | `ovos.intent.enable` re-arms a disabled intent | does not consume `ovos.intent.disable`/`ovos.intent.enable` | `TestSec85Enable` |
 | §10.1 | `ovos.intent.list` introspection responds | serves the legacy `intent.service.intent.get` | `TestSec10Introspection.test_intent_list_responds` |
 | §10.2 | `ovos.intent.describe` introspection responds | does not serve `ovos.intent.describe` | `TestSec10Introspection.test_intent_describe_responds` |
 
 > §2 (registrations are fire-and-forget — no ack/`.response`) is **green**: the
-> current core already satisfies it.
+> current core already satisfies it. The deregistration / re-arm consumer has
+> landed, so §7 (`ovos.entity.register`), §8.2 (`ovos.intent.deregister`),
+> §8.3 (`ovos.entity.deregister`), §8.4 (`ovos.skill.deregister`) and §8.5
+> `ovos.intent.enable` are now **green** and no longer listed above.
 
 ## OVOS-FALLBACK-1
 
