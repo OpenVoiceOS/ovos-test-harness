@@ -1,0 +1,37 @@
+# OVOS spec stack under test — the combo selector.
+#
+# Each line below is a *pin* for one repo in the integrated spec stack. This
+# file (NOT a `pip install .[test]`) is what gets installed in CI, so pip's
+# resolver is handed an explicit, fully-pinned set of git refs and never gets
+# the freedom to downgrade or re-resolve a transitive dep out from under the
+# combination we are trying to validate.
+#
+# To validate a DIFFERENT combination of unmerged branches: edit the refs here
+# and open a PR — CI then installs exactly that stack and runs the full spec
+# conformance suite against it. As each branch merges, flip its ref to @dev.
+#
+# Limitation: two branches of the SAME repo cannot both be installed; pick one
+# ref per repo.
+
+# core with STOP-1 + PIPELINE-1 conformance source (combined integration branch)
+git+https://github.com/OpenVoiceOS/ovos-core@test/spec-stack-integration-proof
+# INTENT-4 producer (emits ovos.intent.register.* etc.)
+git+https://github.com/OpenVoiceOS/ovos-workshop@feat/intent-4-producer
+# session spec fields (active_handlers / converse_handlers / response_mode)
+git+https://github.com/OpenVoiceOS/ovos-bus-client@feat/session-spec-fields
+# pipeline engines (workshop-9-compatible)
+git+https://github.com/OpenVoiceOS/ovos-adapt-pipeline-plugin@fix/allow-ovos-workshop-9
+git+https://github.com/OpenVoiceOS/ovos-padatious-pipeline-plugin@fix/allow-ovos-workshop-9
+# fixture skills (ovos-workshop cap lifted to <10)
+git+https://github.com/OpenVoiceOS/ovos-skill-parrot@fix/allow-ovos-workshop-10
+git+https://github.com/OpenVoiceOS/ovos-skill-fallback-unknown@fix/allow-ovos-workshop-10
+git+https://github.com/OpenVoiceOS/ovos-skill-count@fix/allow-ovos-workshop-10
+git+https://github.com/OpenVoiceOS/ovos-skill-hello-world@fix/allow-ovos-workshop-10
+# e2e harness lib (None-iter-guard fix)
+git+https://github.com/TigreGotico/ovoscope@fix/none-iter-guard
+# published spec vocabulary
+ovos-spec-tools>=0.16.1a2
+# pipeline engine fallback + test deps
+padacioso
+pytest
+pytest-json-report

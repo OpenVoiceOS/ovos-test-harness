@@ -1,0 +1,37 @@
+name: integration
+
+# Cross-repo spec-conformance integration run. Installs the EXACT stack pinned
+# in requirements.txt (git refs of unmerged branches) and runs the full spec
+# conformance suite against that combination. This repo deliberately does NOT
+# use the shared gh-automations ovoscope reusable workflow: the whole point is
+# to install its own explicit, fully-pinned stack so pip never re-resolves it.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system deps (padatious needs swig + libfann)
+        run: sudo apt-get update && sudo apt-get install -y swig libfann-dev
+
+      - name: Install the stack under test
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run conformance suite
+        run: pytest test/ -v --tb=short
