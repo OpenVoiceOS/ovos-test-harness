@@ -26,7 +26,7 @@ git+https://github.com/OpenVoiceOS/ovos-padatious-pipeline-plugin@fix/allow-ovos
 git+https://github.com/OpenVoiceOS/ovos-skill-parrot@fix/allow-ovos-workshop-10
 git+https://github.com/OpenVoiceOS/ovos-skill-fallback-unknown@fix/allow-ovos-workshop-10
 git+https://github.com/OpenVoiceOS/ovos-skill-count@fix/allow-ovos-workshop-10
-git+https://github.com/OpenVoiceOS/ovos-skill-hello-world@fix/allow-ovos-workshop-10
+git+https://github.com/OpenVoiceOS/ovos-skill-hello-world@dev
 # e2e harness lib (None-iter-guard fix landed on dev)
 git+https://github.com/OpenVoiceOS/ovoscope@dev
 # published spec vocabulary
