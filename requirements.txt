@@ -32,6 +32,19 @@ git+https://github.com/OpenVoiceOS/ovos-skill-parrot@dev
 git+https://github.com/OpenVoiceOS/ovos-skill-fallback-unknown@dev
 git+https://github.com/OpenVoiceOS/ovos-skill-count@dev
 git+https://github.com/OpenVoiceOS/ovos-skill-hello-world@dev
+# COMMON-QUERY-1 pipeline plugin under test (ovos.common_query.* contest).
+# Loaded as pipeline_id "ovos-common-query-pipeline-plugin"; the CQ skill-side
+# driver is injected by the suite as an in-process CommonQuerySkill fixture, so
+# no extra skill package is pinned for it.
+git+https://github.com/OpenVoiceOS/ovos-common-query-pipeline-plugin@dev
+# PERSONA-1 pipeline plugin under test (persona match/dispatch + ovos.persona.*).
+# Loaded as pipeline_ids "ovos-persona-pipeline-plugin-high"/"-low". A throwaway
+# echo persona is injected by the suite via pipeline_config (personas_path), so
+# no solver backend or network is required.
+#   NOTE: @dev caps ovos-workshop<9.0.0, which conflicts with the ovos-core
+#   integration branch (needs workshop>=9). fix/workshop-9-compat lifts the cap
+#   to <10.0.0; flip to @dev once OpenVoiceOS/ovos-persona merges it.
+git+https://github.com/OpenVoiceOS/ovos-persona@fix/workshop-9-compat
 # e2e harness lib (None-iter-guard fix landed on dev)
 git+https://github.com/OpenVoiceOS/ovoscope@dev
 # GUI service (NamespaceManager) — drives the GUI-1 service-contract clauses
