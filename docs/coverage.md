@@ -17,9 +17,8 @@ Status legend:
 
 ## Top-level matrix
 
-The architecture `dev` branch carries 20 specs. Eight conformance suites are
-implemented (covering nine specs — SESSION-1 and SESSION-2 share one suite); the
-remaining specs are the documented roadmap.
+The architecture `dev` branch carries 20 specs. All 20 are now covered by 19
+conformance suites (SESSION-1 and SESSION-2 share one suite).
 
 | Architecture spec | Spec ID | Suite | Status |
 |-------------------|---------|-------|--------|
@@ -30,19 +29,19 @@ remaining specs are the documented roadmap.
 | Fallback Pipeline Plugin | OVOS-FALLBACK-1 | `test_fallback1_conformance.py` | implemented |
 | Session Specification | OVOS-SESSION-1 | `test_session_conformance.py` | implemented |
 | Session Lifecycle & State Ownership | OVOS-SESSION-2 | `test_session_conformance.py` | implemented |
-| Bus Message | OVOS-MSG-1 | — | roadmap |
-| Audio Input Service | OVOS-AUDIO-IN-1 | — | roadmap |
-| Audio Output Service | OVOS-AUDIO-1 | — | roadmap |
+| Bus Message | OVOS-MSG-1 | `test_msg1_conformance.py` | implemented |
+| Audio Input Service | OVOS-AUDIO-IN-1 | `test_audio_in_conformance.py` | implemented |
+| Audio Output Service | OVOS-AUDIO-1 | `test_audio_out_conformance.py` | implemented |
 | Bus Bridge & Opaque Relay | OVOS-BRIDGE-1 | `test_bridge1_conformance.py` | implemented |
-| Common Query Pipeline Plugin | OVOS-COMMON-QUERY-1 | — | roadmap |
+| Common Query Pipeline Plugin | OVOS-COMMON-QUERY-1 | `test_common_query1_conformance.py` | implemented |
 | GUI Display Subsystem | OVOS-GUI-1 | `test_gui1_conformance.py` | implemented |
-| Sentence Template Grammar | OVOS-INTENT-1 | — | roadmap |
-| Locale Resource Formats | OVOS-INTENT-2 | — | roadmap |
-| Intent Definition | OVOS-INTENT-3 | — | roadmap |
-| Intent Context | OVOS-CONTEXT-1 | — | roadmap |
-| OVOS Common Playback (OCP) | OVOS-OCP-1 | — | roadmap |
-| Persona Pipeline Plugin | OVOS-PERSONA-1 | — | roadmap |
-| Transformer Plugins | OVOS-TRANSFORM-1 | — | roadmap |
+| Sentence Template Grammar | OVOS-INTENT-1 | `test_intent1_conformance.py` | implemented |
+| Locale Resource Formats | OVOS-INTENT-2 | `test_intent2_conformance.py` | implemented |
+| Intent Definition | OVOS-INTENT-3 | `test_intent3_conformance.py` | implemented |
+| Intent Context | OVOS-CONTEXT-1 | `test_context1_conformance.py` | implemented |
+| OVOS Common Playback (OCP) | OVOS-OCP-1 | `test_ocp1_conformance.py` | implemented |
+| Persona Pipeline Plugin | OVOS-PERSONA-1 | `test_persona1_conformance.py` | implemented |
+| Transformer Plugins | OVOS-TRANSFORM-1 | `test_transform1_conformance.py` | implemented |
 
 ---
 
