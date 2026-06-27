@@ -17,8 +17,8 @@ Status legend:
 
 ## Top-level matrix
 
-The architecture `dev` branch carries 20 specs. Six conformance suites are
-implemented (covering seven specs — SESSION-1 and SESSION-2 share one suite); the
+The architecture `dev` branch carries 20 specs. Eight conformance suites are
+implemented (covering nine specs — SESSION-1 and SESSION-2 share one suite); the
 remaining specs are the documented roadmap.
 
 | Architecture spec | Spec ID | Suite | Status |
@@ -33,9 +33,9 @@ remaining specs are the documented roadmap.
 | Bus Message | OVOS-MSG-1 | — | roadmap |
 | Audio Input Service | OVOS-AUDIO-IN-1 | — | roadmap |
 | Audio Output Service | OVOS-AUDIO-1 | — | roadmap |
-| Bus Bridge & Opaque Relay | OVOS-BRIDGE-1 | — | roadmap |
+| Bus Bridge & Opaque Relay | OVOS-BRIDGE-1 | `test_bridge1_conformance.py` | implemented |
 | Common Query Pipeline Plugin | OVOS-COMMON-QUERY-1 | — | roadmap |
-| GUI Display Subsystem | OVOS-GUI-1 | — | roadmap |
+| GUI Display Subsystem | OVOS-GUI-1 | `test_gui1_conformance.py` | implemented |
 | Sentence Template Grammar | OVOS-INTENT-1 | — | roadmap |
 | Locale Resource Formats | OVOS-INTENT-2 | — | roadmap |
 | Intent Definition | OVOS-INTENT-3 | — | roadmap |
@@ -151,9 +151,61 @@ the legacy carrier are green, clauses naming the spec field skip until
 
 ---
 
+## OVOS-GUI-1 — `test_gui1_conformance.py`
+
+*GUI Display Subsystem Specification.* A bus-protocol spec with two observable
+surfaces: the **producer wire shape** (driven through the real
+`ovos_bus_client.apis.gui.GUIInterface` on a `FakeBus`) and the **GUI service
+contract** (driven through `ovos_gui.namespace.NamespaceManager` on the core
+bus). Rendering, adapter fan-out, and the QML client transport are not
+bus-observable and are excluded with `# not bus-observable` notes.
+
+| Class | Clause(s) | Asserts | Status |
+|-------|-----------|---------|--------|
+| `TestSec2VoiceFirst` | §2.3 | The producer emits its wire protocol with no display/adapter attached (functions headless). | green |
+| `TestSec3ClosedVocabulary` | §3.1, §3.2 | A producer names only closed-vocabulary `SYSTEM_*` templates; the emitted name has the `SYSTEM_` prefix. | xfail (legacy `SYSTEM_*Frame` names) / green (prefix) |
+| `TestSec33TypingRules` | §3.3 | A producer omits absent optional keys rather than emitting JSON `null`. | xfail (`__idle: null`, `None` content keys) |
+| `TestSec35ImageDelivery` | §3.5 | `http(s)` image URLs pass through; a local asset is resolved to a `data:` URI, never a bare filesystem path. | green (http) / xfail (local→fs path) |
+| `TestSec41ReservedKeys` | §4.1 | Every GUI Message carries `__from` naming the producing namespace. | green |
+| `TestSec42Messages` | §4.2 | `gui.value.set` carries the flat content map + `__from`; `gui.page.show` carries `page_names`/`index` with a `SYSTEM_*` first entry; `gui.clear.namespace` carries `__from`. | green |
+| `TestSec81ProducerConformance` | §8.1 | Producer-MUST roll-up: `gui.page.show` present; all template names in the closed vocabulary. | green / xfail (vocabulary) |
+| `TestSec32ServiceTemplateGate` | §3.2, §4.2, §8.3 | The service dispatches only `SYSTEM_*` page names; a non-`SYSTEM_` page is not loaded as a namespace. | xfail (loads any page) / green (SYSTEM_ loads) |
+| `TestSec41ServiceStripsReservedKeys` | §4.1 | The service declares the reserved `__from`/`__idle` keys it strips. | green |
+| `TestSec43Sec5PerSessionRouting` | §4.3, §5.1, §8.3 | The service maintains an independent namespace stack per `session_id`. | xfail (single global stack) |
+| `TestSec83ServiceConformance` | §8.3, §6.1, §4.3 | The service starts with zero adapters (headless); emits `gui.namespace.removed` on clear. | green |
+| `TestSec72InteractionResponse` | §7.2 | Interaction response carries the originating `session_id`. | skip (adapter-emitted, not bus-observable) |
+
+Not encoded (excluded with `# not bus-observable` notes): §6.1–§6.9 adapter
+discovery / construction / fan-out / degradation / exception isolation / state
+query / connection-status / idle-display ownership, and §7.1 media transport —
+all of which live inside an adapter or on the backend's QML client transport.
+
+---
+
+## OVOS-BRIDGE-1 — `test_bridge1_conformance.py`
+
+*Bus Bridge and Opaque Relay Specification.* BRIDGE-1 is mostly **emergent** —
+behaviours arising when MSG-1 / SESSION-1 / SESSION-2 compose across a bus
+boundary. No bridge component is in the stack (the reference is HiveMind), so the
+suite asserts the **bus-observable composition primitives the bridge relies on**
+against the real ovos-core orchestrator, and documents the bridge-only MUSTs with
+`# not bus-observable (no bridge in stack)` skips.
+
+| Class | Clause(s) | Asserts | Status |
+|-------|-----------|---------|--------|
+| `TestSec31SourceStamping` | §3.1 | Unique `context.source` stamped per inbound; a present `source` is honoured for response routing. | green (routing) / skip (stamping needs a bridge) |
+| `TestSec32OutboundRouting` | §3.2 | The orchestrator `.reply()`s with `destination` set to the inbound `source`; MSG-1 derivations swap/preserve source/destination. | green |
+| `TestSec33SiteId` | §3.3 | `site_id` survives the orchestrator round and every derivation unchanged; opaque string round-trips. Absent yields no default. | green / xfail (defaults to `'unknown'`) |
+| `TestSec34SessionPreservation` | §3.4, §3.4.2 | Inbound session is authoritative for the round; responses include the session. Managing-mode synthesis needs a bridge. | green / skip (synthesis) |
+| `TestSec44SatelliteRegistration` | §4.4 | `ovos.skill.deregister` is the spec-named deregister topic. Disconnect emission needs a bridge. | green / skip (emission) |
+| `TestSec5Ordering` | §5 | Grace-period discard and FIFO ordering. | skip (bridge-internal, not bus-observable) |
+| `TestSec6Msg1Conformance` | §6 | Every orchestrator emission is a valid MSG-1 envelope; the carried session is a valid SESSION-1 object. | green |
+
+---
+
 ## Roadmap specs
 
-The remaining 13 architecture specs have no conformance suite yet. They define
+The remaining 11 architecture specs have no conformance suite yet. They define
 conformant behavior the harness intends to certify the same way:
 
 - **OVOS-MSG-1** — Bus Message: topic-shape and identifier-component rules
@@ -161,9 +213,7 @@ conformant behavior the harness intends to certify the same way:
   spec's message shapes.
 - **OVOS-AUDIO-IN-1** — Audio Input Service: the listener bus surface.
 - **OVOS-AUDIO-1** — Audio Output Service: the TTS/playback bus surface.
-- **OVOS-BRIDGE-1** — Bus Bridge and Opaque Relay.
 - **OVOS-COMMON-QUERY-1** — Common Query Pipeline Plugin: the query/answer cycle.
-- **OVOS-GUI-1** — GUI Display Subsystem.
 - **OVOS-INTENT-1 / -2 / -3** — Sentence Template Grammar, Locale Resource Formats,
   Intent Definition.
 - **OVOS-CONTEXT-1** — Intent Context.

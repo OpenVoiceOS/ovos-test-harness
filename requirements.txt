@@ -34,6 +34,11 @@ git+https://github.com/OpenVoiceOS/ovos-skill-count@dev
 git+https://github.com/OpenVoiceOS/ovos-skill-hello-world@dev
 # e2e harness lib (None-iter-guard fix landed on dev)
 git+https://github.com/OpenVoiceOS/ovoscope@dev
+# GUI service (NamespaceManager) — drives the GUI-1 service-contract clauses
+# (SYSTEM_ prefix gating, per-session namespace stack, reserved-key stripping).
+# The producer-side GUI-1 clauses need only ovos-bus-client's GUIInterface; if
+# this install is unavailable the GUI service classes skip cleanly.
+git+https://github.com/OpenVoiceOS/ovos-gui@dev
 # published spec vocabulary
 ovos-spec-tools>=0.17.1a1
 # padacioso matcher: drops the unhashable-Session lru_cache key so it matches
