@@ -20,6 +20,11 @@ git+https://github.com/OpenVoiceOS/ovos-workshop@feat/intent-4-producer
 # session spec fields (active_handlers / converse_handlers / response_mode)
 ovos-bus-client>=2.4.0a1
 # pipeline engines (workshop-9-compatible)
+# adapt @dev carries the None-blacklist guard (#47): the INTENT-3 e2e registers a
+# keyword intent for a session whose blacklisted_intents/blacklisted_skills are
+# None, and adapt's match filter does `intent_type not in sess.blacklisted_intents`
+# — a TypeError on None that the matcher swallows, so the positive match silently
+# never fires while the negative cases pass. @dev guards it with `(… or [])`.
 git+https://github.com/OpenVoiceOS/ovos-adapt-pipeline-plugin@dev
 git+https://github.com/OpenVoiceOS/ovos-padatious-pipeline-plugin@dev
 # fixture skills (ovos-workshop cap lifted to <10)
@@ -30,7 +35,7 @@ git+https://github.com/OpenVoiceOS/ovos-skill-hello-world@dev
 # e2e harness lib (None-iter-guard fix landed on dev)
 git+https://github.com/OpenVoiceOS/ovoscope@dev
 # published spec vocabulary
-ovos-spec-tools>=0.16.1a2
+ovos-spec-tools>=0.17.1a1
 # padacioso matcher: drops the unhashable-Session lru_cache key so it matches
 # under ovos-bus-client 2.x (PyPI 1.0.0 raises TypeError on every match).
 # TODO flip to @dev once OpenVoiceOS/padacioso#... (the lru_cache fix) merges.
