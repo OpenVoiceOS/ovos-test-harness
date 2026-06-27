@@ -27,11 +27,14 @@ git+https://github.com/OpenVoiceOS/ovos-skill-parrot@fix/allow-ovos-workshop-10
 git+https://github.com/OpenVoiceOS/ovos-skill-fallback-unknown@fix/allow-ovos-workshop-10
 git+https://github.com/OpenVoiceOS/ovos-skill-count@fix/allow-ovos-workshop-10
 git+https://github.com/OpenVoiceOS/ovos-skill-hello-world@fix/allow-ovos-workshop-10
-# e2e harness lib (None-iter-guard fix)
-git+https://github.com/TigreGotico/ovoscope@fix/none-iter-guard
+# e2e harness lib (None-iter-guard fix landed on dev)
+git+https://github.com/OpenVoiceOS/ovoscope@dev
 # published spec vocabulary
 ovos-spec-tools>=0.16.1a2
+# padacioso matcher: drops the unhashable-Session lru_cache key so it matches
+# under ovos-bus-client 2.x (PyPI 1.0.0 raises TypeError on every match).
+# TODO flip to @dev once OpenVoiceOS/padacioso#... (the lru_cache fix) merges.
+git+https://github.com/JarbasAl/padacioso@fix/allow-ovos-bus-client-2x
 # pipeline engine fallback + test deps
-padacioso
 pytest
 pytest-json-report
