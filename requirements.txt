@@ -18,7 +18,7 @@ git+https://github.com/OpenVoiceOS/ovos-core@test/spec-stack-integration-proof
 # INTENT-4 producer (emits ovos.intent.register.* etc.)
 git+https://github.com/OpenVoiceOS/ovos-workshop@feat/intent-4-producer
 # session spec fields (active_handlers / converse_handlers / response_mode)
-git+https://github.com/OpenVoiceOS/ovos-bus-client@feat/session-spec-fields
+ovos-bus-client>=2.4.0a1
 # pipeline engines (workshop-9-compatible)
 git+https://github.com/OpenVoiceOS/ovos-adapt-pipeline-plugin@dev
 git+https://github.com/OpenVoiceOS/ovos-padatious-pipeline-plugin@dev
