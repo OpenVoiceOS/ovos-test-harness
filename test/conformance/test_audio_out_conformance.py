@@ -38,6 +38,7 @@ Coverage map (clause -> status against ovos-audio @dev):
 - §5.1  emit ``ovos.audio.output.started`` on playback start .... green
 - §5.2  emit ``ovos.audio.output.ended`` on playback end ........ green
 - §4.4  emit ``ovos.mic.listen`` after listen:true playback ..... green
+- §4.1  queue is FIFO + sequential .............................. green
 - §6   subscribe ``ovos.stop`` (universal stop) ................. green
 - §3.4  subscribe ``ovos.utterance.speak.b64`` ................. xfail (speak:b64_audio)
 - §3.4/§4.3 emit ``ovos.audio.speech`` for b64 delivery ........ xfail (message.response)
@@ -240,6 +241,16 @@ class TestSec41QueuedSound(TestCase):
         with _no_bridge() as h:
             self.assertTrue(_subscribed(h, AUDIO_QUEUE))
 
+    def test_queue_is_fifo_sequential(self):
+        """"FIFO. Items are dequeued in the order they were enqueued.
+        Sequential. Each item plays to completion before the next item begins"
+        (§4.1, MUST). Two ``ovos.utterance.speak`` items play in enqueue order."""
+        with _no_bridge() as h:
+            h.speak("first sentence", timeout=8.0)
+            h.speak("second sentence", timeout=8.0)
+            self.assertEqual(h.mock_tts.spoken_utterances,
+                             ["first sentence", "second sentence"])
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # §4.2 — Instant sounds (ovos.audio.play_sound)
@@ -292,3 +303,14 @@ class TestSec53SpeakingStatus(TestCase):
 # not bus-observable: §3.1 dialog-transformer chain
 # not bus-observable: §3.3 TTS-transformer chain
 # not bus-observable: §3.2 TTS synthesis fallback (SHOULD, deployment-internal)
+#
+# §4.4/§6 "suppress ovos.mic.listen when playback ends due to a stop signal"
+# (MUST) is not *deterministically* observable with MockTTS: the silent WAV
+# completes playback in ~0ms, so a stop signal almost always lands after the
+# utterance has already finished (and after mic.listen has fired) rather than
+# mid-playback. Reliably exercising the stop-during-playback path needs a TTS
+# whose audio has a non-trivial, controllable duration — a harness capability
+# ovoscope does not yet expose (see report). Asserting it against MockTTS would
+# be a flaky race, so it is documented here rather than written as a vacuous or
+# nondeterministic test.
+# not reliably bus-observable (harness gap): §4.4/§6 stop suppresses ovos.mic.listen
