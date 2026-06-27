@@ -111,6 +111,75 @@ These skip rather than `xfail` because the field's mere presence — not a behav
 change — is what is missing; once the bus-client branch is pinned in, they run and
 go green.
 
+## OVOS-GUI-1
+
+The GUI-1 suite asserts the spec wire shape against the installed `GUIInterface`
+producer and the `ovos_gui.namespace.NamespaceManager` service. The current impl
+predates the closed-vocabulary and per-session-routing model of GUI-1:
+
+### §3.1 / §8.1 — closed template vocabulary
+- **Spec mandates:** a producer names only the `SYSTEM_*` templates of the closed
+  §3.4 catalogue (`SYSTEM_text`, `SYSTEM_image`, `SYSTEM_face`, …).
+- **Current impl:** `GUIInterface` emits legacy CamelCase frame names
+  (`SYSTEM_TextFrame`, `SYSTEM_ImageFrame`, `SYSTEM_Face`, …) outside the catalogue.
+- **Tests:** `TestSec3ClosedVocabulary.test_show_{text,image,face}_names_closed_vocabulary_template`,
+  `TestSec81ProducerConformance.test_all_template_names_in_closed_vocabulary`
+- **`reason`:** *"GUI-1 §3.1 MUST name only closed-vocabulary templates; …emits
+  the legacy 'SYSTEM_*Frame' …not the spec 'SYSTEM_*'"*
+
+### §3.3 — absent optional keys omitted, never null
+- **Spec mandates:** a producer omits an absent optional key rather than emitting it
+  as JSON `null`.
+- **Current impl:** `GUIInterface` emits `'__idle': None` and sets unset optional
+  content keys (`title`/`caption`/`fill`…) to `None`.
+- **Test:** `TestSec33TypingRules.test_absent_optional_keys_are_omitted_not_null`
+
+### §3.5 — local image resolved to a `data:` URI
+- **Spec mandates:** a producer resolves a local asset to a `data:` URI and MUST NOT
+  place a bare filesystem path on the wire.
+- **Current impl:** `GUIInterface.show_image` resolves a local file to its absolute
+  filesystem path and emits that path verbatim on `image`.
+- **Test:** `TestSec35ImageDelivery.test_local_image_resolved_to_data_uri`
+
+### §3.2 / §4.2 / §8.3 — service dispatches only `SYSTEM_*` templates
+- **Spec mandates:** the GUI service recognises a template by the `SYSTEM_` prefix
+  and MUST NOT dispatch a `gui.page.show` whose first page is not `SYSTEM_*`.
+- **Current impl:** `NamespaceManager.handle_show_page` validates only that
+  `page_names` is a list with `__from`, and loads any page name as a namespace.
+- **Test:** `TestSec32ServiceTemplateGate.test_non_system_page_not_loaded_as_template`
+
+### §4.3 / §5.1 / §8.3 — independent namespace stack per `session_id`
+- **Spec mandates:** the GUI service maintains an independent namespace stack per
+  `session_id` and routes a GUI Message solely by its `session_id`.
+- **Current impl:** `NamespaceManager` keeps a single flat
+  `loaded_namespaces`/`active_namespaces` and never reads `context.session` — two
+  sessions collide on one global stack.
+- **Test:** `TestSec43Sec5PerSessionRouting.test_independent_stack_per_session`
+
+## OVOS-BRIDGE-1
+
+The bus-observable composition primitives the bridge relies on (MSG-1 `.reply()`
+source/destination swap, `site_id` survival through derivations, session
+preservation across the orchestrator round) are already conformant in the stack.
+One gap:
+
+### §3.3 — absent `site_id` MUST NOT infer a default
+- **Spec mandates:** when neither client nor bridge supplies a `site_id` the field
+  is absent; consumers treat absence as an unknown group and MUST NOT infer a
+  default.
+- **Current impl:** `ovos-bus-client` `Session` defaults `site_id` to the sentinel
+  string `'unknown'` instead of leaving the field absent.
+- **Test:** `TestSec33SiteId.test_absent_site_id_yields_no_default`
+- **`reason`:** *"BRIDGE-1 §3.3 MUST NOT infer a default: an unsupplied site_id is
+  absent; ovos-bus-client Session defaults site_id to the sentinel string
+  'unknown' instead of leaving the field absent"*
+
+The bridge's own MUSTs that require a bridge component to exist (§3.1 source
+stamping, §3.4.2 managing-mode synthesis, §4.4 disconnect deregister emission, §5
+grace-period discard) are not executable here — no bridge is installed (the
+reference implementation is HiveMind) — and are recorded as `# not bus-observable
+(no bridge in stack)` skips rather than gaps.
+
 ## How a gap closes
 
 1. Pin the implementation branch(es) that close the gap in `requirements.txt`
