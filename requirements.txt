@@ -26,7 +26,30 @@ ovos-bus-client>=2.4.0a1
 # — a TypeError on None that the matcher swallows, so the positive match silently
 # never fires while the negative cases pass. @dev guards it with `(… or [])`.
 git+https://github.com/OpenVoiceOS/ovos-adapt-pipeline-plugin@dev
-git+https://github.com/OpenVoiceOS/ovos-padatious-pipeline-plugin@dev
+# padatious @feat/intent-4-adoption carries the §6 template spec-topic consumer,
+# so its per-plugin INTENT-4 registration-compliance spec test is GREEN. It is
+# NOT load-bearing for the orchestrator suites (those drive PADACIOSO_HIGH), so
+# repinning it off @dev does not disturb them. Flip to @dev once the adoption
+# PR (OpenVoiceOS/ovos-padatious-pipeline-plugin#72) merges.
+git+https://github.com/OpenVoiceOS/ovos-padatious-pipeline-plugin@feat/intent-4-adoption
+# Per-plugin INTENT-4 registration-compliance matchers (test_intent4_plugins_
+# conformance.py). Each is pinned at the ref whose spec-test status its registry
+# entry documents:
+#   nebulento / palavreado / markov — INTENT-4 adoption merged to @dev -> spec
+#                            test GREEN (§6 template / §5 keyword consumers live
+#                            on @dev).
+#   ovos-m2v-pipeline      — @feat/intent-4-adoption -> spec test GREEN (runs in
+#                            prototype mode against the smallest model2vec model).
+#   linha-fina             — @dev DOES carry the §6 consumer, but a real plugin
+#                            bug (lru_cache keyed on the unhashable Session, the
+#                            same defect padacioso fixed) raises TypeError under
+#                            bus-client 2.x and blocks ALL matching, so BOTH its
+#                            per-plugin tests xfail until the cache-key fix lands.
+git+https://github.com/OpenVoiceOS/nebulento@dev
+git+https://github.com/OpenVoiceOS/palavreado@dev
+git+https://github.com/OpenVoiceOS/ovos-m2v-pipeline@feat/intent-4-adoption
+git+https://github.com/OpenVoiceOS/linha-fina@dev
+git+https://github.com/OpenVoiceOS/ovos-markov-pipeline-plugin@dev
 # fixture skills (ovos-workshop cap lifted to <10)
 git+https://github.com/OpenVoiceOS/ovos-skill-parrot@dev
 git+https://github.com/OpenVoiceOS/ovos-skill-fallback-unknown@dev

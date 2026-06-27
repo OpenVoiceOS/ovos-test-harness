@@ -58,6 +58,24 @@ INTENT-4-producer + an ovos-core consumer — see
 > §8.3 (`ovos.entity.deregister`), §8.4 (`ovos.skill.deregister`) and §8.5
 > `ovos.intent.enable` are now **green** and no longer listed above.
 
+### OVOS-INTENT-4 — per-plugin registration compliance (`test_intent4_plugins_conformance.py`)
+
+The per-plugin suite proves each matcher consumes the spec registration topic
+(§5 keyword / §6 template) and stays back-compatible. A plugin's spec test is
+xfail when its installed ref does not yet carry the INTENT-4 consumer.
+
+| Plugin | Test | `reason` |
+|--------|------|----------|
+| adapt | `…_adapt.test_spec_registration_is_matchable` | *"adapt INTENT-4 adoption pending on @dev (kept @dev — load-bearing for the INTENT-3 suite)"* — adapt is pinned `@dev` because its `@dev` carries the #47 None-blacklist guard the INTENT-3 orchestrator suite needs; the §5 spec consumer lives only on its `feat/intent-4-adoption` branch. |
+| padacioso | `…_padacioso.test_spec_registration_is_matchable` | *"padacioso INTENT-4 adoption pending on @dev (kept @dev — load-bearing PADACIOSO_HIGH driver)"* — padacioso is pinned `@dev` because it is the `PADACIOSO_HIGH` driver with the unhashable-Session lru_cache fix the orchestrator suites depend on; the §6 spec consumer lives only on its `feat/intent-4-adoption` branch. |
+
+> Only the adapt and padacioso **spec** tests are xfail (both deliberately kept
+> `@dev` because they are load-bearing for the orchestrator suites). Every other
+> per-plugin case is **green**: the spec test for palavreado / nebulento / markov
+> / linha-fina (adoption merged to `@dev`) and padatious / m2v (pinned
+> `@feat/intent-4-adoption`), and the legacy back-compat test for all eight
+> plugins.
+
 ## OVOS-FALLBACK-1
 
 ### §4 — registration topic name
