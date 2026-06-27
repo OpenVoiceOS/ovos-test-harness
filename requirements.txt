@@ -41,10 +41,9 @@ git+https://github.com/OpenVoiceOS/ovos-common-query-pipeline-plugin@dev
 # Loaded as pipeline_ids "ovos-persona-pipeline-plugin-high"/"-low". A throwaway
 # echo persona is injected by the suite via pipeline_config (personas_path), so
 # no solver backend or network is required.
-#   NOTE: @dev caps ovos-workshop<9.0.0, which conflicts with the ovos-core
-#   integration branch (needs workshop>=9). fix/workshop-9-compat lifts the cap
-#   to <10.0.0; flip to @dev once OpenVoiceOS/ovos-persona merges it.
-git+https://github.com/OpenVoiceOS/ovos-persona@fix/workshop-9-compat
+#   @dev now lifts the ovos-workshop cap to <10.0.0 (the workshop-9 compat fix
+#   merged), so it resolves against the workshop>=9 integration branch.
+git+https://github.com/OpenVoiceOS/ovos-persona@dev
 # e2e harness lib (None-iter-guard fix landed on dev)
 git+https://github.com/OpenVoiceOS/ovoscope@dev
 # GUI service (NamespaceManager) — drives the GUI-1 service-contract clauses
