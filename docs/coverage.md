@@ -17,14 +17,15 @@ Status legend:
 
 ## Top-level matrix
 
-The architecture `dev` branch carries 20 specs. All 20 are now covered by 19
-conformance suites (SESSION-1 and SESSION-2 share one suite).
+The architecture `dev` branch carries 20 specs. All 20 are covered by 20
+conformance suites (SESSION-1 and SESSION-2 share one suite; INTENT-4 is covered
+by both an orchestrator suite and a per-plugin registration-compliance suite).
 
 | Architecture spec | Spec ID | Suite | Status |
 |-------------------|---------|-------|--------|
 | Utterance Lifecycle and Pipeline | OVOS-PIPELINE-1 | `test_pipeline1_conformance.py` | implemented |
 | Stop Pipeline Plugin | OVOS-STOP-1 | `test_stop1_conformance.py` | implemented |
-| Intent & Entity Registration Bus Contract | OVOS-INTENT-4 | `test_intent4_conformance.py` | implemented |
+| Intent & Entity Registration Bus Contract | OVOS-INTENT-4 | `test_intent4_conformance.py` (orchestrator) + `test_intent4_plugins_conformance.py` (per-plugin) | implemented |
 | Active Handlers & Interactive Response | OVOS-CONVERSE-1 | `test_converse1_conformance.py` | implemented |
 | Fallback Pipeline Plugin | OVOS-FALLBACK-1 | `test_fallback1_conformance.py` | implemented |
 | Session Specification | OVOS-SESSION-1 | `test_session_conformance.py` | implemented |
@@ -100,6 +101,32 @@ clauses are xfail and flip green when the contract lands.
 | `TestSec85Disable` | §8.5 | `ovos.intent.disable` suppresses an intent. | **xfail** |
 | `TestSec85Enable` | §8.5 | `ovos.intent.enable` re-arms a disabled intent. | green |
 | `TestSec10Introspection` | §10.1, §10.2 | `ovos.intent.list` / `ovos.intent.describe` introspection responds. | **xfail** (legacy `intent.service.intent.get`) |
+
+## OVOS-INTENT-4 (per-plugin) — `test_intent4_plugins_conformance.py`
+
+*Per-plugin registration compliance.* Where the orchestrator suite above asserts
+the INTENT-4 bus contract against ovos-core, this data-driven suite asserts it
+against **each individual intent-pipeline plugin**: that the matcher consumes the
+INTENT-4 spec registration topic (§5 keyword / §6 template) and becomes matchable,
+and that the legacy registration path still matches (back-compat). One
+`E2EPipelineHarness` subclass is generated per plugin from the module-level
+`PLUGINS` registry; a plugin absent from the installed combo SKIPS its own case.
+
+Engine kind selects the spec topic: **keyword** engines (adapt, palavreado)
+consume `ovos.intent.register.keyword`; **template** engines (padacioso,
+nebulento, padatious, m2v, linha-fina, markov) consume
+`ovos.intent.register.template`.
+
+| Plugin | Engine | `test_spec_registration_is_matchable` | `test_legacy_registration_still_matches` |
+|--------|--------|----------------------------------------|-------------------------------------------|
+| adapt | keyword | **xfail** (kept `@dev` — load-bearing for the INTENT-3 suite; §5 consumer not on `@dev`) | green |
+| palavreado | keyword | green (`@dev`, adoption merged) | green |
+| padacioso | template | **xfail** (kept `@dev` — load-bearing `PADACIOSO_HIGH` driver; §6 consumer not on `@dev`) | green |
+| nebulento | template | green (`@dev`, adoption merged) | green |
+| padatious | template | green (`@feat/intent-4-adoption`) | green |
+| m2v | template | green (`@feat/intent-4-adoption`, prototype mode, real `minishlab/potion-base-2M`) | green |
+| linha-fina | template | green (`@dev`, adoption merged) | green |
+| markov | template | green (`@dev`, adoption merged) | green |
 
 ## OVOS-CONVERSE-1 — `test_converse1_conformance.py`
 
