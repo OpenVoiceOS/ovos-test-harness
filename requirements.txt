@@ -38,8 +38,8 @@ git+https://github.com/OpenVoiceOS/ovos-padatious-pipeline-plugin@feat/intent-4-
 #   nebulento / palavreado / markov — INTENT-4 adoption merged to @dev -> spec
 #                            test GREEN (§6 template / §5 keyword consumers live
 #                            on @dev).
-#   ovos-m2v-pipeline      — @feat/intent-4-adoption -> spec test GREEN (runs in
-#                            prototype mode against the smallest model2vec model).
+#   ovos-m2v-pipeline      — INTENT-4 adoption merged to @dev -> spec test GREEN
+#                            (runs in prototype mode against the smallest model2vec model).
 #   linha-fina             — @dev DOES carry the §6 consumer, but a real plugin
 #                            bug (lru_cache keyed on the unhashable Session, the
 #                            same defect padacioso fixed) raises TypeError under
@@ -47,7 +47,7 @@ git+https://github.com/OpenVoiceOS/ovos-padatious-pipeline-plugin@feat/intent-4-
 #                            per-plugin tests xfail until the cache-key fix lands.
 git+https://github.com/OpenVoiceOS/nebulento@dev
 git+https://github.com/OpenVoiceOS/palavreado@dev
-git+https://github.com/OpenVoiceOS/ovos-m2v-pipeline@feat/intent-4-adoption
+git+https://github.com/OpenVoiceOS/ovos-m2v-pipeline@dev
 git+https://github.com/OpenVoiceOS/linha-fina@dev
 git+https://github.com/OpenVoiceOS/ovos-markov-pipeline-plugin@dev
 # fixture skills (ovos-workshop cap lifted to <10)
