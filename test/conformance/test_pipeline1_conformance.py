@@ -59,12 +59,18 @@ from ._conformance import (
 )
 
 SKILL_ID = "ovos-conformance-echo.test"
-GREET_INTENT = "conformance.skill:greet"
+# The dispatch-topic skill_id (the intent-name prefix) MUST equal the handling
+# skill's skill_id: PIPELINE-1 §8 correlates the framework done-signal
+# (mycroft.skill.handler.complete/.error, stamped with the skill's skill_id) to
+# the in-flight dispatch by skill_id. A mismatched prefix (which never happens in
+# production, where a skill's intents are namespaced under its own skill_id)
+# breaks that correlation so the orchestrator never fires its §9.5 end-marker.
+GREET_INTENT = f"{SKILL_ID}:greet"
 GREET_SKILL_ID, GREET_NAME = GREET_INTENT.split(":")
 GREET_SAMPLES = ["hello", "hi", "hey", "greetings", "good morning"]
 
 
-BOOM_INTENT = "conformance.skill:boom"
+BOOM_INTENT = f"{SKILL_ID}:boom"
 BOOM_SKILL_ID, BOOM_NAME = BOOM_INTENT.split(":")
 BOOM_SAMPLES = ["detonate the test", "make it explode", "boom now please"]
 

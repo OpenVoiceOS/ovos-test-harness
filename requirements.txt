@@ -20,8 +20,12 @@
 # conformance is rebased on current dev (spec-tools>=1.1.0a1,<2.0.0), carries
 # the INTENT-4 §10 orchestrator manifest, and is the live STOP-1 PR branch.
 git+https://github.com/OpenVoiceOS/ovos-core@feat/stop-1-conformance
-# INTENT-4 producer (emits ovos.intent.register.* etc.)
-git+https://github.com/OpenVoiceOS/ovos-workshop@feat/intent-4-producer
+# INTENT-4 producer (emits ovos.intent.register.* etc.), stacked with the
+# PIPELINE-1 §9.5 fix that stops FallbackSkill/ConversationalSkill from
+# double-emitting ovos.utterance.handled when core (>=2.3.0a1) owns the
+# end-marker (ovos-workshop #453, based on feat/intent-4-producer #431). Flip to
+# @feat/intent-4-producer (or @dev) once #453 merges into the producer branch.
+git+https://github.com/OpenVoiceOS/ovos-workshop@fix/core-owns-utterance-handled-fallback-converse
 # session spec fields (active_handlers / converse_handlers / response_mode)
 ovos-bus-client>=2.4.0a1
 # pipeline engines (workshop-9-compatible)
@@ -71,7 +75,7 @@ git+https://github.com/OpenVoiceOS/ovos-common-query-pipeline-plugin@dev
 # no solver backend or network is required.
 #   @dev now lifts the ovos-workshop cap to <10.0.0 (the workshop-9 compat fix
 #   merged), so it resolves against the workshop>=9 integration branch.
-git+https://github.com/OpenVoiceOS/ovos-persona@dev
+git+https://github.com/OpenVoiceOS/ovos-persona@fix/pipeline1-handler-done-signal
 # e2e harness lib (None-iter-guard fix landed on dev)
 git+https://github.com/OpenVoiceOS/ovoscope@dev
 # GUI service (NamespaceManager) — drives the GUI-1 service-contract clauses
