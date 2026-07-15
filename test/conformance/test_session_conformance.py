@@ -48,10 +48,13 @@ def _has_field(name: str) -> bool:
     return name in _FIELDS
 
 
-def _skip_without(field: str):
-    return pytest.mark.skipif(
-        not _has_field(field),
+def _xfail_without(field: str):
+    # xfail (not skip) so the un-migrated clause stays a tracked failure that
+    # flips loudly (strict XPASS) once the field lands in ovos-bus-client.
+    return pytest.mark.xfail(
+        condition=not _has_field(field),
         reason=f"installed ovos-bus-client has no session.{field} field",
+        strict=True,
     )
 
 
@@ -110,7 +113,7 @@ class TestActiveHandlerRecency(TestCase):
         self.assertEqual(ids.count(PARROT_ID), 1, "duplicate active-skill entry")
         self.assertEqual(ids[0], PARROT_ID, "re-activated skill must be head")
 
-    @_skip_without("active_handlers")
+    @_xfail_without("active_handlers")
     def test_active_handlers_spec_field(self):
         """The spec field ``session.active_handlers`` carries the dispatched skill
         head-first (§7.1). Skipped until the spec field is populated."""
@@ -138,7 +141,7 @@ class TestConverseOwnerOrdering(TestCase):
         sess.activate_skill("b.skill")
         self.assertEqual(sess.active_skills[0][0], "b.skill")
 
-    @_skip_without("converse_handlers")
+    @_xfail_without("converse_handlers")
     def test_converse_handlers_spec_field(self):
         """``session.converse_handlers`` mirrors the converse owner ordering
         (§2.1). Skipped until the spec field is populated."""
@@ -181,7 +184,7 @@ class TestResponseMode(TestCase):
         self.assertIn(sess.utterance_states.get(PARROT_ID),
                       (None, UtteranceState.INTENT, UtteranceState.INTENT.value))
 
-    @_skip_without("response_mode")
+    @_xfail_without("response_mode")
     def test_response_mode_spec_field(self):
         """``session.response_mode`` names the owner holding response mode (§2.2).
         Skipped until the spec field is populated."""
@@ -198,7 +201,7 @@ class TestFallbackHandlersField(TestCase):
     """FALLBACK-1 §4: ``session.fallback_handlers`` orders the pool when present.
     The field is optional (omission == registered-priority order)."""
 
-    @_skip_without("fallback_handlers")
+    @_xfail_without("fallback_handlers")
     def test_fallback_handlers_spec_field(self):
         """``session.fallback_handlers`` is carried on the session (§4). Skipped
         until the spec field is populated."""
