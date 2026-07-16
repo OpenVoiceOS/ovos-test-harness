@@ -18,12 +18,11 @@ test decorators so this page stays accurate.
 
 ## OVOS-STOP-1
 
-### §3.1 / §5.2 — global-stop self-dispatch topic
-- **Spec mandates:** global stop is dispatched on `<stop_plugin_id>:global_stop`.
-- **Current core:** self-dispatches the legacy `stop:global`.
-- **Test:** `TestSec5GlobalStop.test_global_stop_dispatch_topic`
-- **`reason`:** *"ovos-core self-dispatches the legacy 'stop:global'; STOP-1
-  §3.1/§5.2 use '<stop_plugin_id>:global_stop'"*
+> §3.1/§5.2 (global stop dispatched on `<stop_plugin_id>:global_stop`) is now
+> **green** against the STOP-1 conformance branch and no longer listed here;
+> `TestSec5GlobalStop.test_global_stop_dispatch_topic` is plain conformance.
+> The per-skill stop clauses (§4.2/§4.3 — pong collection, `<skill_id>:stop`
+> dispatch, active-vs-global selection) are green.
 
 ### §2 — reserved intent name `stop`
 - **Spec mandates:** a registration naming the reserved `stop` is malformed and
@@ -37,20 +36,19 @@ test decorators so this page stays accurate.
 ## OVOS-INTENT-4
 
 INTENT-4 defines a fixed registration/introspection bus contract under
-`ovos.intent.*` / `ovos.entity.*`. ovos-core does not yet expose it: registration
-is the in-process, plugin-specific `padatious:register_intent` / `register_vocab`,
-and introspection is the legacy `intent.service.intent.get`. All of the following
-flip green once the bus contract lands (e.g. via the `ovos-workshop`
-INTENT-4-producer + an ovos-core consumer — see
-[testing-combos.md](testing-combos.md)).
+`ovos.intent.*` / `ovos.entity.*`. Against the `ovos-workshop`
+INTENT-4-producer branch + the ovos-core INTENT-4 §10 manifest consumer + the
+padacioso §6 template consumer (@dev), most of it is now **green**: §6 template
+registration, §8.5 `ovos.intent.disable`, and §10.1/§10.2 introspection
+(`ovos.intent.list` / `ovos.intent.describe`) all pass and are no longer listed.
+Only the §5 keyword-registration spec topic remains a gap — the driver in the
+suite is `PADACIOSO_HIGH` (a template engine), so keyword registration via the
+spec topic is not matchable through it, and core still consumes keyword
+registration via the legacy path.
 
 | Clause | Spec mandates | Current core (the `reason`) | Test |
 |--------|---------------|------------------------------|------|
 | §5 | `ovos.intent.register.keyword` makes an intent matchable | consumes keyword registration via the legacy `padatious:register_intent`/`register_intent` | `TestSec5KeywordRegistration` |
-| §6 | `ovos.intent.register.template` makes an intent matchable | consumes registrations via the legacy `padatious:register_intent` | `TestSec6TemplateRegistration` |
-| §8.5 | `ovos.intent.disable` suppresses an intent | does not consume `ovos.intent.disable` | `TestSec85Disable` |
-| §10.1 | `ovos.intent.list` introspection responds | serves the legacy `intent.service.intent.get` | `TestSec10Introspection.test_intent_list_responds` |
-| §10.2 | `ovos.intent.describe` introspection responds | does not serve `ovos.intent.describe` | `TestSec10Introspection.test_intent_describe_responds` |
 
 > §2 (registrations are fire-and-forget — no ack/`.response`) is **green**: the
 > current core already satisfies it. The deregistration / re-arm consumer has
@@ -72,9 +70,32 @@ xfail when its installed ref does not yet carry the INTENT-4 consumer.
 > Only the adapt and padacioso **spec** tests are xfail (both deliberately kept
 > `@dev` because they are load-bearing for the orchestrator suites). Every other
 > per-plugin case is **green**: the spec test for palavreado / nebulento / markov
-> / linha-fina (adoption merged to `@dev`) and padatious / m2v (pinned
-> `@feat/intent-4-adoption`), and the legacy back-compat test for all eight
-> plugins.
+> / linha-fina / padatious / m2v (INTENT-4 adoption merged to `@dev`), and the
+> legacy back-compat test for all eight plugins.
+
+## OVOS-CONTEXT-1
+
+The **carrier** clauses (§2 entry/`session.intent_context` field, §3 key shapes,
+§4.1 forward/reply propagation, §8 read-only carry-through) are **green** — they
+ride on `ovos-bus-client`'s spec session.
+
+The **engine gating** clauses (§6 `requires_context`, §6.1 `excludes_context`)
+are now **green** too: against the merged per-engine gating (padacioso `@dev` +
+`ovos-spec-tools` `gate_satisfied`), `TestSec6RequiresContext` and
+`TestSec61ExcludesContext` register an intent carrying the gate declaration
+inline and assert **both** directions — suppression when the gate is unsatisfied
+and a match when it is satisfied — so a pass cannot come from an engine that
+never consults the gate.
+
+The remaining gaps are **orchestrator-side** (ovos-core still uses the legacy
+frame-based `IntentContextManager`; the flat decaying `session.intent_context`
+model is not yet consumed — awaiting the CONTEXT-1 store PR):
+
+| Clause | Spec mandates | Test |
+|--------|---------------|------|
+| §5.3 | `ovos.session.sync` merges `intent_context` entry-by-entry (set / null-delete) | `TestSec53SessionSyncMerge` |
+| §4 | per-utterance decay: prune dead entries before match, decrement `turns_remaining` after | `TestSec4Decay` |
+| §7 | a `requires_context` key naming an unfilled slot is promoted into `Match.slots` | `TestSec7ContextSuppliedSlot` |
 
 ## OVOS-FALLBACK-1
 

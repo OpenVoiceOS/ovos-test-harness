@@ -13,10 +13,19 @@
 # Limitation: two branches of the SAME repo cannot both be installed; pick one
 # ref per repo.
 
-# core with STOP-1 + PIPELINE-1 conformance source (combined integration branch)
-git+https://github.com/OpenVoiceOS/ovos-core@test/spec-stack-integration-proof
-# INTENT-4 producer (emits ovos.intent.register.* etc.)
-git+https://github.com/OpenVoiceOS/ovos-workshop@feat/intent-4-producer
+# core with STOP-1 conformance source (PR #777). The old combined
+# test/spec-stack-integration-proof branch is stale: it still caps
+# ovos-spec-tools<1.0.0, which cannot co-resolve with the spec-tools 1.x stack
+# (ovos-adapt-parser 1.5.0a1 requires ovos-spec-tools>=1.4.0a1). feat/stop-1-
+# conformance is rebased on current dev (spec-tools>=1.1.0a1,<2.0.0), carries
+# the INTENT-4 §10 orchestrator manifest, and is the live STOP-1 PR branch.
+git+https://github.com/OpenVoiceOS/ovos-core@feat/stop-1-conformance
+# INTENT-4 producer (emits ovos.intent.register.* etc.), stacked with the
+# PIPELINE-1 §9.5 fix that stops FallbackSkill/ConversationalSkill from
+# double-emitting ovos.utterance.handled when core (>=2.3.0a1) owns the
+# end-marker (ovos-workshop #453, based on feat/intent-4-producer #431). Flip to
+# @feat/intent-4-producer (or @dev) once #453 merges into the producer branch.
+git+https://github.com/OpenVoiceOS/ovos-workshop@fix/core-owns-utterance-handled-fallback-converse
 # session spec fields (active_handlers / converse_handlers / response_mode)
 ovos-bus-client>=2.4.0a1
 # pipeline engines (workshop-9-compatible)
@@ -26,12 +35,12 @@ ovos-bus-client>=2.4.0a1
 # — a TypeError on None that the matcher swallows, so the positive match silently
 # never fires while the negative cases pass. @dev guards it with `(… or [])`.
 git+https://github.com/OpenVoiceOS/ovos-adapt-pipeline-plugin@dev
-# padatious @feat/intent-4-adoption carries the §6 template spec-topic consumer,
-# so its per-plugin INTENT-4 registration-compliance spec test is GREEN. It is
-# NOT load-bearing for the orchestrator suites (those drive PADACIOSO_HIGH), so
-# repinning it off @dev does not disturb them. Flip to @dev once the adoption
-# PR (OpenVoiceOS/ovos-padatious-pipeline-plugin#72) merges.
-git+https://github.com/OpenVoiceOS/ovos-padatious-pipeline-plugin@feat/intent-4-adoption
+# padatious @dev (1.8.0a1) now carries the §6 INTENT-4 template spec-topic
+# consumer AND the merged OVOS-CONTEXT-1 requires/excludes_context gating (#80),
+# and allows ovos-spec-tools>=1.4.0a1 — so it co-resolves with the 1.x stack.
+# The stale feat/intent-4-adoption branch capped spec-tools<1.0.0. It is NOT
+# load-bearing for the orchestrator suites (those drive PADACIOSO_HIGH).
+git+https://github.com/OpenVoiceOS/ovos-padatious-pipeline-plugin@dev
 # Per-plugin INTENT-4 registration-compliance matchers (test_intent4_plugins_
 # conformance.py). Each is pinned at the ref whose spec-test status its registry
 # entry documents:
@@ -66,7 +75,7 @@ git+https://github.com/OpenVoiceOS/ovos-common-query-pipeline-plugin@dev
 # no solver backend or network is required.
 #   @dev now lifts the ovos-workshop cap to <10.0.0 (the workshop-9 compat fix
 #   merged), so it resolves against the workshop>=9 integration branch.
-git+https://github.com/OpenVoiceOS/ovos-persona@dev
+git+https://github.com/OpenVoiceOS/ovos-persona@fix/pipeline1-handler-done-signal
 # e2e harness lib (None-iter-guard fix landed on dev)
 git+https://github.com/OpenVoiceOS/ovoscope@dev
 # GUI service (NamespaceManager) — drives the GUI-1 service-contract clauses

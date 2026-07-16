@@ -346,62 +346,95 @@ class TestSec4Decay(TestCase):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# §6 / §6.1 — Gating contracts (engine behaviour — unimplemented -> xfail)
+# §6 / §6.1 — Gating contracts (engine behaviour)
 # ─────────────────────────────────────────────────────────────────────────────
+#
+# These clauses are the falsifiable heart of CONTEXT-1: an engine that reads
+# ``session.intent_context`` MUST suppress a candidate whose declared
+# ``requires_context`` / ``excludes_context`` gate is not satisfied. The
+# suppression is only meaningful when the intent actually *carries* a gate
+# declaration — a plain intent has nothing to gate and would (correctly) match
+# regardless. So each test here registers the intent **with** its gate
+# declaration inline on the ``padatious:register_intent`` payload (the engine
+# stores it per OVOS-CONTEXT-1 §6) and then asserts *both* directions: the gate
+# suppresses when unsatisfied and permits when satisfied. Both directions matter
+# — a match-when-live that passes only because the gate is never consulted would
+# be a false green, so it is paired with the suppression assertion that can only
+# pass on an engine that truly honours the declaration.
+#
+# The gate key ``said_it`` is a bare string -> §3.1 private scope, resolved
+# against the declaring intent's owner_id (``ctx.skill``, from the intent name)
+# to the stored key ``ctx.skill:said_it``.
 
 GATED_INTENT = "ctx.skill:gated"
 GATED_SAMPLES = ["the secret phrase", "open sesame now", "do the gated thing"]
+# the stored key a private ``said_it`` declaration resolves to (§3.1)
+GATE_KEY = "ctx.skill:said_it"
+
+
+def _register_gated_intent(requires=None, excludes=None, settle: float = 1.0):
+    """Register GATED_INTENT carrying an inline CONTEXT-1 §6 gate declaration.
+
+    ovoscope's ``register_padatious_intent`` emits a plain registration with no
+    gate; the gate keys ride on the same ``padatious:register_intent`` payload
+    the engine consumes, so emit it directly.
+    """
+    data = {"name": GATED_INTENT, "samples": GATED_SAMPLES, "lang": "en-US"}
+    if requires is not None:
+        data["requires_context"] = requires
+    if excludes is not None:
+        data["excludes_context"] = excludes
+    _MC.bus.emit(Message("padatious:register_intent", data))
+    time.sleep(settle)
 
 
 class TestSec6RequiresContext(TestCase):
     """§6: an engine MUST NOT report an intent as matched unless every
     ``requires_context`` key has a live entry, resolved per §3.1."""
 
-    @pytest.mark.xfail(strict=False,
-                       reason="CONTEXT-1 §6 MUST gate an intent declaring "
-                              "requires_context on a live context entry; the "
-                              "installed padacioso/adapt engines do not read "
-                              "session.intent_context nor honour a "
-                              "requires_context declaration (legacy adapt uses "
-                              "its own context-entity matching), so the gate is "
-                              "not enforced — the intent matches regardless.")
     def test_requires_context_blocks_without_entry(self):
         """§6: with no live entry at the gate key, an intent declaring
         ``requires_context`` MUST NOT match. MUST."""
-        register_padatious_intent(_MC.bus, GATED_INTENT, GATED_SAMPLES)
-        time.sleep(1)
+        _register_gated_intent(requires=["said_it"])
         # no intent_context set -> the gate is unsatisfied -> MUST NOT dispatch
         recs = capture(_MC, utterance("the secret phrase", "ic-gate-block",
                                       [PADACIOSO_HIGH]), 3.0)
         self.assertNotIn(GATED_INTENT, types(recs))
 
-    # The complementary "matches when the gate IS live" direction is deliberately
-    # NOT asserted as a conformance test: on the non-conformant stack the intent
-    # matches anyway (the gate is never consulted), so a "matches-when-live" test
-    # passes for the wrong reason and could never reveal the divergence. The
-    # falsifiable half of the §6 contract is the *suppression* asserted above.
-    # not a conformance discriminator: §6 positive (match-when-live)
+    def test_requires_context_permits_with_live_entry(self):
+        """§6: with a live entry at the gate key, the same declaring intent
+        matches — the gate is a *conditional*, not a permanent block. Paired
+        with the suppression case so a pass cannot come from an engine that
+        simply never consults the gate. MUST."""
+        _register_gated_intent(requires=["said_it"])
+        ic = {GATE_KEY: _entry(None, turns_remaining=5)}
+        recs = capture(_MC, utterance("the secret phrase", "ic-gate-open",
+                                      [PADACIOSO_HIGH], intent_context=ic), 3.0)
+        self.assertIn(GATED_INTENT, types(recs))
 
 
 class TestSec61ExcludesContext(TestCase):
     """§6.1: an engine MUST NOT report an intent as matched if any
     ``excludes_context`` key is live in the session, resolved per §3.1."""
 
-    @pytest.mark.xfail(strict=False,
-                       reason="CONTEXT-1 §6.1 MUST suppress an intent declaring "
-                              "excludes_context when the excluded key is live; "
-                              "the installed engines do not honour "
-                              "excludes_context against session.intent_context.")
     def test_excludes_context_blocks_when_entry_live(self):
         """§6.1: with the excluded key live in the session, the intent declaring
         ``excludes_context`` MUST NOT match (fire-once / modal-suppression
         pattern). MUST."""
-        register_padatious_intent(_MC.bus, GATED_INTENT, GATED_SAMPLES)
-        time.sleep(1)
-        ic = {"ctx.skill:said_it": _entry(None, turns_remaining=5)}
+        _register_gated_intent(excludes=["said_it"])
+        ic = {GATE_KEY: _entry(None, turns_remaining=5)}
         recs = capture(_MC, utterance("open sesame now", "ic-excl-block",
                                       [PADACIOSO_HIGH], intent_context=ic), 3.0)
         self.assertNotIn(GATED_INTENT, types(recs))
+
+    def test_excludes_context_permits_when_entry_absent(self):
+        """§6.1: with the excluded key absent, the same declaring intent
+        matches. Paired with the suppression case so the block above cannot be a
+        false green from an engine that never consults the exclusion. MUST."""
+        _register_gated_intent(excludes=["said_it"])
+        recs = capture(_MC, utterance("open sesame now", "ic-excl-open",
+                                      [PADACIOSO_HIGH]), 3.0)
+        self.assertIn(GATED_INTENT, types(recs))
 
 
 # §3.1 scope resolution (private vs shared key selection) is the resolution

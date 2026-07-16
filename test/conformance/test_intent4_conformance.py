@@ -113,10 +113,6 @@ class TestSec6TemplateRegistration(TestCase):
     """§6: a template intent registered on ``ovos.intent.register.template``
     becomes matchable; a match dispatches ``<skill_id>:<intent_name>``."""
 
-    @pytest.mark.xfail(strict=False,
-                       reason="ovos-core consumes registrations via the legacy "
-                              "'padatious:register_intent'; INTENT-4 §6 defines "
-                              "'ovos.intent.register.template'")
     def test_spec_topic_registration_is_matchable(self):
         """Registering via the spec topic makes the intent matchable (§6)."""
         _register_template("ovos.intent.register.template", TEMPLATE_INTENT, TEMPLATE_SAMPLES)
@@ -153,9 +149,6 @@ class TestSec85Disable(TestCase):
     """§8.5: ``ovos.intent.disable`` temporarily suppresses an intent without
     removing its definition."""
 
-    @pytest.mark.xfail(strict=False,
-                       reason="ovos-core does not consume 'ovos.intent.disable'; "
-                              "INTENT-4 §8.5")
     def test_spec_disable_suppresses_intent(self):
         """A disabled intent is excluded from match candidacy (§8.5)."""
         register_padatious_intent(_MC.bus, TEMPLATE_INTENT, TEMPLATE_SAMPLES)
@@ -298,17 +291,11 @@ class TestSec10Introspection(TestCase):
     """§10 / §11: the orchestrator MUST serve ``ovos.intent.list`` and
     ``ovos.intent.describe`` against its passive registration manifest."""
 
-    @pytest.mark.xfail(strict=False,
-                       reason="ovos-core serves the legacy 'intent.service.intent.get'; "
-                              "INTENT-4 §10.1 defines 'ovos.intent.list'")
     def test_intent_list_responds(self):
         """A query on ``ovos.intent.list`` yields an ``ovos.intent.list.response`` (§10.1)."""
         recs = capture(_MC, Message("ovos.intent.list", {}, {"source": "A"}), 2.0)
         self.assertIn("ovos.intent.list.response", types(recs))
 
-    @pytest.mark.xfail(strict=False,
-                       reason="ovos-core does not serve 'ovos.intent.describe'; "
-                              "INTENT-4 §10.2")
     def test_intent_describe_responds(self):
         """A query on ``ovos.intent.describe`` yields an
         ``ovos.intent.describe.response`` (§10.2)."""

@@ -82,9 +82,6 @@ class TestSec5GlobalStop(TestCase):
         recs = capture(_MC, utterance("stop", "stop-global-bcast", [STOP_HIGH]), 4.0)
         self.assertIn("ovos.stop", types(recs))
 
-    @pytest.mark.xfail(strict=False,
-                       reason="ovos-core self-dispatches the legacy 'stop:global'; "
-                              "STOP-1 §3.1/§5.2 use '<stop_plugin_id>:global_stop'")
     def test_global_stop_dispatch_topic(self):
         """Global stop is dispatched on ``<stop_plugin_id>:global_stop`` (§3.1, §5.2)."""
         recs = capture(_MC, utterance("stop", "stop-global-disp", [STOP_HIGH]), 4.0)
@@ -122,8 +119,9 @@ class TestSec42PingPong(TestCase):
             _MC.bus.remove("ovos.stop.ping", _responder)
         seq = types(recs)
         self.assertIn("ovos.stop.pong", seq)
-        # the collected, stoppable skill is dispatched its per-skill stop (§4.3)
-        self.assertIn(f"{skill_id}.stop", seq)
+        # the collected, stoppable skill is dispatched its per-skill stop (§4.3):
+        # STOP-1 §4.3 / the §3 topic table dispatch it on ``<skill_id>:stop``.
+        self.assertIn(f"{skill_id}:stop", seq)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -132,21 +130,21 @@ class TestSec42PingPong(TestCase):
 
 class TestSec43PerSkillStop(TestCase):
     """§4.1 step 3 / §4.3: once a stoppable skill is selected, the stop plugin
-    dispatches a targeted stop on ``<skill_id>.stop`` (not the universal
+    dispatches a targeted stop on ``<skill_id>:stop`` (not the universal
     broadcast). With at least one active skill, a generic ``stop`` is per-skill,
     not global."""
 
     def test_per_skill_stop_topic(self):
-        """With an active skill, ``stop`` dispatches ``<skill_id>.stop`` (§4.3)."""
+        """With an active skill, ``stop`` dispatches ``<skill_id>:stop`` (§4.3)."""
         recs = capture(_MC, _stop_with_active("stop-perskill", "fake.skill"), 4.0)
-        self.assertIn("fake.skill.stop", types(recs))
+        self.assertIn("fake.skill:stop", types(recs))
 
     def test_active_skill_does_not_global_stop(self):
         """A generic ``stop`` with an active skill targets that skill — the
         universal ``ovos.stop`` broadcast is NOT emitted (§4 step ordering)."""
         recs = capture(_MC, _stop_with_active("stop-noglobal", "fake.skill"), 4.0)
         seq = types(recs)
-        self.assertIn("fake.skill.stop", seq)
+        self.assertIn("fake.skill:stop", seq)
         self.assertNotIn("ovos.stop", seq)
 
     def test_no_active_skill_goes_global(self):
