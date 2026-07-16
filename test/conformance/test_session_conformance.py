@@ -11,14 +11,13 @@ session back on its responses:
 - ``response_mode`` / get-response capture .......... CONVERSE-1 §2.2
 - ``updated_session`` echoed on responses .......... SESSION-2
 
-ovos-core currently models active/converse ownership with the legacy
-``session.active_skills`` list and response capture with
-``session.utterance_states``; the spec field *names* (``active_handlers``,
-``converse_handlers``, ``fallback_handlers``, ``response_mode``) are not yet
-populated by the installed bus-client. Clauses that depend on the legacy
-mechanism are green; clauses that name the spec session field skip cleanly
-until ``feat/session-spec-fields`` is installed. Drivers are described in
-``_conformance.py``.
+The installed bus-client carries the spec session fields (``active_handlers``,
+``converse_handlers``, ``fallback_handlers``, ``response_mode``) and, per
+SESSION-1 §3.4, omits them from the serialized form when empty (empty ≡
+omission), so presence is only asserted on populated sessions. The one clause
+the stack does not yet populate — ``converse_handlers`` — is tracked as a
+strict xfail so it flips loudly when the orchestrator starts draining it.
+Drivers are described in ``_conformance.py``.
 """
 import time
 from unittest import TestCase
@@ -40,20 +39,6 @@ from ._conformance import (
 
 PARROT_ID = "ovos-skill-parrot.openvoiceos"
 CONVERSE_PIPELINE = ["ovos-converse-pipeline-plugin", PADACIOSO_HIGH]
-
-_FIELDS = Session("probe").serialize()
-
-
-def _has_field(name: str) -> bool:
-    return name in _FIELDS
-
-
-def _skip_without(field: str):
-    return pytest.mark.skipif(
-        not _has_field(field),
-        reason=f"installed ovos-bus-client has no session.{field} field",
-    )
-
 
 _MC = None
 
@@ -110,10 +95,9 @@ class TestActiveHandlerRecency(TestCase):
         self.assertEqual(ids.count(PARROT_ID), 1, "duplicate active-skill entry")
         self.assertEqual(ids[0], PARROT_ID, "re-activated skill must be head")
 
-    @_skip_without("active_handlers")
     def test_active_handlers_spec_field(self):
         """The spec field ``session.active_handlers`` carries the dispatched skill
-        head-first (§7.1). Skipped until the spec field is populated."""
+        head-first (§7.1)."""
         recs = capture(_MC, utterance("start parrot mode", "se-active-spec",
                                       CONVERSE_PIPELINE), 4.0)
         sess = _last_session(recs)
@@ -138,10 +122,14 @@ class TestConverseOwnerOrdering(TestCase):
         sess.activate_skill("b.skill")
         self.assertEqual(sess.active_skills[0][0], "b.skill")
 
-    @_skip_without("converse_handlers")
+    @pytest.mark.xfail(
+        reason="the stack does not yet drain the converse owner ordering into "
+               "session.converse_handlers (CONVERSE-1 §2.1)",
+        strict=True,
+    )
     def test_converse_handlers_spec_field(self):
         """``session.converse_handlers`` mirrors the converse owner ordering
-        (§2.1). Skipped until the spec field is populated."""
+        (§2.1). Strict-xfailed until the orchestrator populates the field."""
         recs = capture(_MC, utterance("start parrot mode", "se-cv-spec",
                                       CONVERSE_PIPELINE), 4.0)
         sess = _last_session(recs)
@@ -181,13 +169,23 @@ class TestResponseMode(TestCase):
         self.assertIn(sess.utterance_states.get(PARROT_ID),
                       (None, UtteranceState.INTENT, UtteranceState.INTENT.value))
 
-    @_skip_without("response_mode")
     def test_response_mode_spec_field(self):
         """``session.response_mode`` names the owner holding response mode (§2.2).
-        Skipped until the spec field is populated."""
+        Empty response mode is omitted from the serialized form (SESSION-1 §3.4:
+        empty ≡ omission), so presence is asserted only while an owner holds it."""
         sess = Session("se-respmode-spec")
         sess.lang = "en-US"
-        self.assertIn("response_mode", sess.serialize())
+        # no owner -> the field is omitted, not serialized empty (§3.4)
+        self.assertNotIn("response_mode", sess.serialize())
+
+        sess.enable_response_mode(PARROT_ID)
+        mode = sess.serialize().get("response_mode")
+        self.assertIsNotNone(mode, "response_mode not serialized while held")
+        owner = mode.get("skill_id") if isinstance(mode, dict) else mode
+        self.assertEqual(owner, PARROT_ID)
+
+        sess.disable_response_mode(PARROT_ID)
+        self.assertNotIn("response_mode", sess.serialize())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -198,13 +196,21 @@ class TestFallbackHandlersField(TestCase):
     """FALLBACK-1 §4: ``session.fallback_handlers`` orders the pool when present.
     The field is optional (omission == registered-priority order)."""
 
-    @_skip_without("fallback_handlers")
     def test_fallback_handlers_spec_field(self):
-        """``session.fallback_handlers`` is carried on the session (§4). Skipped
-        until the spec field is populated."""
+        """``session.fallback_handlers`` is carried on the session and round-trips
+        through serialization (§4). An empty pool is omitted from the serialized
+        form (SESSION-1 §3.4: empty ≡ omission)."""
         sess = Session("se-fb-field")
         sess.lang = "en-US"
-        self.assertIn("fallback_handlers", sess.serialize())
+        # empty pool -> omitted, not serialized as [] (§3.4)
+        self.assertNotIn("fallback_handlers", sess.serialize())
+
+        sess.fallback_handlers = ["fallback.a", "fallback.b"]
+        data = sess.serialize()
+        self.assertEqual(data.get("fallback_handlers"),
+                         ["fallback.a", "fallback.b"])
+        self.assertEqual(Session.deserialize(data).fallback_handlers,
+                         ["fallback.a", "fallback.b"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
