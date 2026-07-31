@@ -269,7 +269,7 @@ class TestSec7GuestFallback(TestCase):
         """§7 with PIPELINE-1 §9.5: the guest path is an ordinary path — it
         ends with exactly one ``ovos.utterance.handled``."""
         recs = capture(_MC, utterance("zxqw blah blah", "uid-guest-eof",
-                                      [PADACIOSO_HIGH]), 4.0)
+                                      [PADACIOSO_HIGH]), 4.0, eof_types=None)
         self.assertEqual(types(recs).count("ovos.utterance.handled"), 1)
 
     def test_no_sentinel_user_id_appears_on_the_round(self):

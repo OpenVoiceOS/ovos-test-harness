@@ -176,12 +176,12 @@ class TestSec95EndMarker(TestCase):
 
     def test_exactly_one_handled_on_no_match(self):
         """No-match path terminates with exactly one end-marker (§6.4, §9.5)."""
-        recs = capture(_MC, utterance("zxqw blah blah", "p1-eof-nm", [PADACIOSO_HIGH]), 4.0)
+        recs = capture(_MC, utterance("zxqw blah blah", "p1-eof-nm", [PADACIOSO_HIGH]), 4.0, eof_types=None)
         self.assertEqual(types(recs).count("ovos.utterance.handled"), 1)
 
     def test_exactly_one_handled_on_stop(self):
         """Stop (global) path terminates with exactly one end-marker (§6.4, §9.5)."""
-        recs = capture(_MC, utterance("stop", "p1-eof-stop", [STOP_HIGH]), 4.0)
+        recs = capture(_MC, utterance("stop", "p1-eof-stop", [STOP_HIGH]), 4.0, eof_types=None)
         self.assertEqual(types(recs).count("ovos.utterance.handled"), 1)
 
 
@@ -307,7 +307,7 @@ class TestSec64Cancelled(TestCase):
 
     def test_cancelled_terminates_once(self):
         """The cancelled path terminates with exactly one end-marker (§6.4, §9.5)."""
-        recs = capture(_MC, self._cancelled_entry("p1-cancel-eof"), 3.0)
+        recs = capture(_MC, self._cancelled_entry("p1-cancel-eof"), 3.0, eof_types=None)
         self.assertEqual(types(recs).count("ovos.utterance.handled"), 1)
 
     def test_cancelled_does_not_dispatch(self):
@@ -346,5 +346,6 @@ class TestSec81HandlerError(TestCase):
             _MC,
             utterance("make it explode", "p1-err-eof", [PADACIOSO_HIGH]),
             4.0,
+            eof_types=None,
         )
         self.assertEqual(types(recs).count("ovos.utterance.handled"), 1)

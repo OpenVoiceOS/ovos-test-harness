@@ -155,7 +155,7 @@ class TestSec4ConverseRoundTrip(TestCase):
         """The converse-consumed follow-up terminates with exactly one
         ``ovos.utterance.handled`` (§6.4 / PIPELINE-1 §9.5)."""
         sess = _activate_parrot("cv-eof")
-        recs = capture(_MC, _followup(sess, "echo me please"), 4.0)
+        recs = capture(_MC, _followup(sess, "echo me please"), 4.0, eof_types=None)
         self.assertEqual(types(recs).count("ovos.utterance.handled"), 1)
 
 
