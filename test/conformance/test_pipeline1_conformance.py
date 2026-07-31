@@ -103,18 +103,24 @@ _MC = None
 
 def setUpModule():
     global _MC
-    LOG.set_level("CRITICAL")
+    LOG.set_level("ERROR")
     use_spec_namespace()  # assert the ovos.* spec topics
-    _MC = get_minicroft([SKILL_ID], extra_skills={SKILL_ID: _EchoSkill})
-    register_padatious_intent(_MC.bus, GREET_INTENT, GREET_SAMPLES)
-    register_padatious_intent(_MC.bus, BOOM_INTENT, BOOM_SAMPLES)
-    time.sleep(2)
+    try:
+        _MC = get_minicroft([SKILL_ID], extra_skills={SKILL_ID: _EchoSkill})
+        register_padatious_intent(_MC.bus, GREET_INTENT, GREET_SAMPLES)
+        register_padatious_intent(_MC.bus, BOOM_INTENT, BOOM_SAMPLES)
+        time.sleep(2)
+    except BaseException:
+        reset_namespace()
+        raise
 
 
 def tearDownModule():
-    if _MC is not None:
-        _MC.stop()
-    reset_namespace()
+    try:
+        if _MC is not None:
+            _MC.stop()
+    finally:
+        reset_namespace()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

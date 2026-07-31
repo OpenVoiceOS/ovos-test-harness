@@ -67,7 +67,7 @@ from ovos_plugin_manager.templates.transformers import (
 
 
 def setUpModule():
-    LOG.set_level("CRITICAL")
+    LOG.set_level("ERROR")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

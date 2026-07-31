@@ -95,7 +95,7 @@ def _build_listener():
 
 
 def setUpModule():
-    LOG.set_level("CRITICAL")
+    LOG.set_level("ERROR")
 
 
 def _types(recs):

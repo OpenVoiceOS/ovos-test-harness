@@ -39,16 +39,22 @@ _MC = None
 
 def setUpModule():
     global _MC
-    LOG.set_level("CRITICAL")
+    LOG.set_level("ERROR")
     use_spec_namespace()  # assert the ovos.* spec topics
-    _MC = get_minicroft([])
-    time.sleep(1)
+    try:
+        _MC = get_minicroft([])
+        time.sleep(1)
+    except BaseException:
+        reset_namespace()
+        raise
 
 
 def tearDownModule():
-    if _MC is not None:
-        _MC.stop()
-    reset_namespace()
+    try:
+        if _MC is not None:
+            _MC.stop()
+    finally:
+        reset_namespace()
 
 
 def _stop_with_active(session_id: str, active_skill: str) -> Message:

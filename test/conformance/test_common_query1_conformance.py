@@ -149,17 +149,23 @@ _MC = None
 
 def setUpModule():
     global _MC
-    LOG.set_level("CRITICAL")
+    LOG.set_level("ERROR")
     use_spec_namespace()
-    _MC = get_minicroft([UNKNOWN_ID], extra_skills={WIKI_ID: _FakeWikiSkill})
-    # let the plugin's startup ping/pong register the fixture as a CQ skill
-    time.sleep(3)
+    try:
+        _MC = get_minicroft([UNKNOWN_ID], extra_skills={WIKI_ID: _FakeWikiSkill})
+        # let the plugin's startup ping/pong register the fixture as a CQ skill
+        time.sleep(3)
+    except BaseException:
+        reset_namespace()
+        raise
 
 
 def tearDownModule():
-    if _MC is not None:
-        _MC.stop()
-    reset_namespace()
+    try:
+        if _MC is not None:
+            _MC.stop()
+    finally:
+        reset_namespace()
 
 
 def _cq(session_id: str, text: str = QUESTION, timeout: float = 8.0):

@@ -58,7 +58,7 @@ TEMPLATE_SAMPLES = ["turn on the lights", "switch on the lights", "lights on ple
 
 def setUpModule():
     global _MC
-    LOG.set_level("CRITICAL")
+    LOG.set_level("ERROR")
     _MC = get_minicroft([])
     time.sleep(1)
 

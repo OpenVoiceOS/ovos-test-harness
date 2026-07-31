@@ -317,24 +317,30 @@ class TestE2EVocOccurrence(TestCase):
     def setUpClass(cls):
         from ovos_utils.log import LOG
         from ovoscope import get_minicroft, register_padatious_intent
-        from ._conformance import use_spec_namespace
-        LOG.set_level("CRITICAL")
+        from ._conformance import reset_namespace, use_spec_namespace
+        LOG.set_level("ERROR")
         use_spec_namespace()
-        cls._mc = get_minicroft([])
-        time.sleep(1)
-        # The driver is padacioso (template family), but the §4.3 occurrence
-        # property is the same: a phrase present as contiguous whole words
-        # matches. Register an intent whose sample is the phrase under test.
-        cls._intent = "intent2.skill:greet"
-        register_padatious_intent(cls._mc.bus, cls._intent, ["good morning"])
-        time.sleep(1.5)
+        try:
+            cls._mc = get_minicroft([])
+            time.sleep(1)
+            # The driver is padacioso (template family), but the §4.3 occurrence
+            # property is the same: a phrase present as contiguous whole words
+            # matches. Register an intent whose sample is the phrase under test.
+            cls._intent = "intent2.skill:greet"
+            register_padatious_intent(cls._mc.bus, cls._intent, ["good morning"])
+            time.sleep(1.5)
+        except BaseException:
+            reset_namespace()
+            raise
 
     @classmethod
     def tearDownClass(cls):
         from ._conformance import reset_namespace
-        if getattr(cls, "_mc", None) is not None:
-            cls._mc.stop()
-        reset_namespace()
+        try:
+            if getattr(cls, "_mc", None) is not None:
+                cls._mc.stop()
+        finally:
+            reset_namespace()
 
     def test_phrase_occurrence_matches(self):
         """An utterance carrying the vocabulary phrase is matched (§4.3

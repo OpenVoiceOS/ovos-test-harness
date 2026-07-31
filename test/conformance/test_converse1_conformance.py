@@ -57,16 +57,22 @@ _MC = None
 
 def setUpModule():
     global _MC
-    LOG.set_level("CRITICAL")
+    LOG.set_level("ERROR")
     use_spec_namespace()
-    _MC = get_minicroft([PARROT_ID])
-    time.sleep(2)
+    try:
+        _MC = get_minicroft([PARROT_ID])
+        time.sleep(2)
+    except BaseException:
+        reset_namespace()
+        raise
 
 
 def tearDownModule():
-    if _MC is not None:
-        _MC.stop()
-    reset_namespace()
+    try:
+        if _MC is not None:
+            _MC.stop()
+    finally:
+        reset_namespace()
 
 
 def _activate_parrot(session_id: str) -> Session:

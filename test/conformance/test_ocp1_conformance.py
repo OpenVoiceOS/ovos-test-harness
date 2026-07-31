@@ -69,7 +69,7 @@ def _entry(uri="http://example.com/conformance.mp3"):
 
 
 def setUpModule():
-    LOG.set_level("CRITICAL")
+    LOG.set_level("ERROR")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

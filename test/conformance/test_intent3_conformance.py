@@ -217,35 +217,41 @@ class TestE2EKeywordConstraints(TestCase):
             register_adapt_intent,
             register_adapt_vocab,
         )
-        from ._conformance import use_spec_namespace
-        LOG.set_level("CRITICAL")
+        from ._conformance import reset_namespace, use_spec_namespace
+        LOG.set_level("ERROR")
         use_spec_namespace()
-        cls._mc = get_minicroft([])
-        time.sleep(1)
+        try:
+            cls._mc = get_minicroft([])
+            time.sleep(1)
 
-        # vocabularies
-        register_adapt_vocab(cls._mc.bus, "SetKeyword", ["set", "change"])
-        register_adapt_vocab(cls._mc.bus, "BrightnessKeyword",
-                             ["brightness", "light level"])
-        register_adapt_vocab(cls._mc.bus, "UpKeyword", ["up", "higher"])
-        register_adapt_vocab(cls._mc.bus, "DownKeyword", ["down", "lower"])
-        register_adapt_vocab(cls._mc.bus, "QuestionKeyword", ["what is", "how"])
+            # vocabularies
+            register_adapt_vocab(cls._mc.bus, "SetKeyword", ["set", "change"])
+            register_adapt_vocab(cls._mc.bus, "BrightnessKeyword",
+                                 ["brightness", "light level"])
+            register_adapt_vocab(cls._mc.bus, "UpKeyword", ["up", "higher"])
+            register_adapt_vocab(cls._mc.bus, "DownKeyword", ["down", "lower"])
+            register_adapt_vocab(cls._mc.bus, "QuestionKeyword", ["what is", "how"])
 
-        cls._intent = "set_brightness"
-        builder = (IntentBuilder(cls._intent)
-                   .require("SetKeyword")
-                   .require("BrightnessKeyword")
-                   .one_of("UpKeyword", "DownKeyword")
-                   .exclude("QuestionKeyword"))
-        register_adapt_intent(cls._mc.bus, builder)
-        time.sleep(1.5)
+            cls._intent = "set_brightness"
+            builder = (IntentBuilder(cls._intent)
+                       .require("SetKeyword")
+                       .require("BrightnessKeyword")
+                       .one_of("UpKeyword", "DownKeyword")
+                       .exclude("QuestionKeyword"))
+            register_adapt_intent(cls._mc.bus, builder)
+            time.sleep(1.5)
+        except BaseException:
+            reset_namespace()
+            raise
 
     @classmethod
     def tearDownClass(cls):
         from ._conformance import reset_namespace
-        if getattr(cls, "_mc", None) is not None:
-            cls._mc.stop()
-        reset_namespace()
+        try:
+            if getattr(cls, "_mc", None) is not None:
+                cls._mc.stop()
+        finally:
+            reset_namespace()
 
     def _dispatch_types(self, text, sid):
         from ._conformance import capture, types, utterance
@@ -308,25 +314,31 @@ class TestE2ETemplateGeneralizes(TestCase):
     def setUpClass(cls):
         from ovos_utils.log import LOG
         from ovoscope import get_minicroft, register_padatious_intent
-        from ._conformance import use_spec_namespace
-        LOG.set_level("CRITICAL")
+        from ._conformance import reset_namespace, use_spec_namespace
+        LOG.set_level("ERROR")
         use_spec_namespace()
-        cls._mc = get_minicroft([])
-        time.sleep(1)
-        cls._intent = "intent3.skill:play_music"
-        register_padatious_intent(cls._mc.bus, cls._intent, [
-            "play {query}",
-            "put on {query}",
-            "i want to listen to {query}",
-        ])
-        time.sleep(1.5)
+        try:
+            cls._mc = get_minicroft([])
+            time.sleep(1)
+            cls._intent = "intent3.skill:play_music"
+            register_padatious_intent(cls._mc.bus, cls._intent, [
+                "play {query}",
+                "put on {query}",
+                "i want to listen to {query}",
+            ])
+            time.sleep(1.5)
+        except BaseException:
+            reset_namespace()
+            raise
 
     @classmethod
     def tearDownClass(cls):
         from ._conformance import reset_namespace
-        if getattr(cls, "_mc", None) is not None:
-            cls._mc.stop()
-        reset_namespace()
+        try:
+            if getattr(cls, "_mc", None) is not None:
+                cls._mc.stop()
+        finally:
+            reset_namespace()
 
     def test_known_phrasing_matches_and_fills_slot(self):
         """A phrasing among the samples matches and fills ``{query}`` — the

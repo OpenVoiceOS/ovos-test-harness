@@ -80,7 +80,7 @@ _B64_WAV = base64.b64encode(b"RIFF\x00\x00\x00\x00WAVE").decode("utf-8")
 
 
 def setUpModule():
-    LOG.set_level("CRITICAL")
+    LOG.set_level("ERROR")
 
 
 def _subscribed(harness, topic):
