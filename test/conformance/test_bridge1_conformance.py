@@ -41,8 +41,8 @@ Coverage map (MUST clause -> status against the installed stack):
 - §3.2  response routed to inbound source via .reply() ........... green (MSG-1 derivation)
 - §3.2  destination preserved through forward derivation ......... green
 - §3.3  site_id present after inbound MUST NOT be overwritten .... green (survives derivations)
-- §3.3  the session carries a site_id field at all .............. xfail (conditional: only when the bus-client Session lacks the field)
-- §3.3  site_id absent -> consumers MUST NOT infer a default ..... xfail (defaults to 'unknown')
+- §3.3  the session carries a site_id field at all .............. green
+- §3.3  site_id absent -> consumers MUST NOT infer a default ..... green
 - §3.3  consumers MUST NOT ascribe structure to site_id ......... green (opaque string)
 - §3.4  inbound bus Message carries a valid session object ....... green (orchestrator round)
 - §3.4  outbound responses include the session .................. green (echoed)
@@ -74,7 +74,6 @@ PARROT_ID = "ovos-skill-parrot.openvoiceos"
 CONVERSE_PIPELINE = ["ovos-converse-pipeline-plugin", PADACIOSO_HIGH]
 
 _MC = None
-_HAS_SITE_ID = "site_id" in Session("probe").serialize()
 
 
 def setUpModule():
@@ -201,12 +200,6 @@ class TestSec32OutboundRouting(TestCase):
 # §3.3 — site_id assignment
 # =============================================================================
 
-# BRIDGE-1 §3.3 mandates the session field; its absence is a conformance
-# failure of the installed bus-client, not a reason to skip the clause.
-@pytest.mark.xfail(not _HAS_SITE_ID,
-                   reason="BRIDGE-1 §3.3 MUST: the installed ovos-bus-client "
-                          "Session has no site_id field",
-                   strict=True)
 class TestSec33SiteId(TestCase):
     """§3.3: ``site_id`` is the opaque group identifier owned by this spec.
     Once present on an inbound message after bridge processing, downstream
@@ -239,11 +232,6 @@ class TestSec33SiteId(TestCase):
             carried = Session.deserialize(deriv.context["session"])
             self.assertEqual(carried.site_id, "office-floor-2")
 
-    @pytest.mark.xfail(strict=True,
-                       reason="BRIDGE-1 §3.3 MUST NOT infer a default: an "
-                              "unsupplied site_id is absent; ovos-bus-client "
-                              "Session defaults site_id to the sentinel string "
-                              "'unknown' instead of leaving the field absent")
     def test_absent_site_id_yields_no_default(self):
         """§3.3 MUST NOT infer a default: when neither client nor bridge
         supplies a ``site_id`` the field is absent — a fresh session has no

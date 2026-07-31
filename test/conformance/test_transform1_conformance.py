@@ -34,13 +34,13 @@ Coverage map (clause -> status against the installed ovos-core services):
 - §3.3 metadata chain: context-in -> context-out, mutation kept .. green
 - §3.4 intent chain: Match.captures may be enriched .............. green
 - §3.4 Match.skill_id / intent_name MUST NOT change (enforced) ... xfail (service does not enforce)
-- §4   chain runs ascending priority (lower number first) ........ xfail (service sorts descending)
+- §4   chain runs ascending priority (lower number first) ........ green
 - §7   a raising transformer is caught; chain proceeds ........... green
 - §7   raising transformer == returned its input unchanged ....... green
-- §7   a wrong-shape return is treated like a raise ............... xfail (no shape check)
-- §1.3 <type>_transformer_ids stamped on touched Message ......... xfail (not stamped)
+- §7   a wrong-shape return is treated like a raise ............... green
+- §1.3 <type>_transformer_ids stamped on touched Message ......... green
 - §8.1 canceled/cancel_reason propagate through the chain ........ green
-- §8.1 orchestrator stamps cancel_by from the emitting id ........ xfail (not stamped)
+- §8.1 orchestrator stamps cancel_by from the emitting id ........ green
 - §5   per-session <type>_transformers override fields ........... skip (bus-client lacks fields)
 
 Non-bus-observable prose is noted inline with ``# not bus-observable:``.
@@ -296,15 +296,6 @@ class TestSec4Ordering(TestCase):
     """§4: a chain runs in ASCENDING priority order — priority=1 before
     priority=50 before priority=100. Lower number = earlier."""
 
-    @pytest.mark.xfail(
-        reason="OVOS-TRANSFORM-1 §4 MUST: 'a chain runs in ascending priority "
-               "order: a transformer with priority=1 runs before one with "
-               "priority=50 ... lower number = earlier in the chain'. "
-               "UtteranceTransformersService.plugins sorts by priority with "
-               "reverse=True (descending), so a priority=90 transformer runs "
-               "before a priority=10 one — the inverse of the spec order.",
-        strict=True,
-    )
     def test_ascending_priority_order(self):
         """§4 MUST: the chain runs ascending by priority — the lower-priority
         number runs first."""
@@ -443,17 +434,6 @@ class TestSec7ErrorHandling(TestCase):
         self.assertNotIn("boom", ctx,
                          "a raising transformer leaked context mutations")
 
-    @pytest.mark.xfail(
-        reason="OVOS-TRANSFORM-1 §7 MUST: 'a transformer that returns an output "
-               "of the wrong shape — wrong type, missing required field, list "
-               "shrunk to empty for a non-empty input — is treated the same as a "
-               "raised exception ... proceed with the prior transformer's output'. "
-               "UtteranceTransformersService.transform does `utterances, data = "
-               "module.transform(...)` with no shape validation: a 2-element "
-               "non-(list, dict) return (e.g. a 2-char string) unpacks silently "
-               "and corrupts the chain output instead of being rejected.",
-        strict=True,
-    )
     def test_shape_violation_treated_like_a_raise(self):
         """§7 MUST: a transformer that returns the wrong shape is treated the same
         as a raised exception — the chain output keeps the (list, dict) contract,
@@ -486,15 +466,6 @@ class TestSec13SelfIdentification(TestCase):
     transformer_id is the last element of the matching ``<type>_transformer_ids``
     list. The orchestrator SHOULD enforce this at load time."""
 
-    @pytest.mark.xfail(
-        reason="OVOS-TRANSFORM-1 §1.3 MUST: a transformer MUST ensure its "
-               "transformer_id is the last element of the corresponding "
-               "<type>_transformer_ids list on every touched Message, and the "
-               "orchestrator SHOULD enforce it. UtteranceTransformersService "
-               "merges only the data the plugin returns and never appends to "
-               "utterance_transformer_ids, so chain provenance is not recorded.",
-        strict=True,
-    )
     def test_utterance_transformer_ids_stamped(self):
         """§1.3 MUST: after the utterance chain runs, context carries
         ``utterance_transformer_ids`` ending with the last transformer's id."""
@@ -534,14 +505,6 @@ class TestSec8Cancellation(TestCase):
         self.assertTrue(ctx.get("canceled"))
         self.assertEqual(ctx.get("cancel_reason"), "policy_block")
 
-    @pytest.mark.xfail(
-        reason="OVOS-TRANSFORM-1 §8.1 / §9 MUST: on observing a cancellation "
-               "signal the orchestrator MUST stamp cancel_by from the emitting "
-               "transformer's transformer_id (not any value the transformer "
-               "supplied). The transformer service propagates canceled/"
-               "cancel_reason but never stamps cancel_by.",
-        strict=True,
-    )
     def test_cancel_by_stamped_by_orchestrator(self):
         """§8.1 MUST: the orchestrator stamps ``cancel_by`` with the emitting
         transformer's id when it observes the cancellation signal."""

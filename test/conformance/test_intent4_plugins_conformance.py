@@ -37,9 +37,9 @@ carries the spec-topic consumer) has a GREEN spec test. A plugin pinned at a ref
 WITHOUT the adoption marks its ``test_spec_registration_is_matchable``
 ``@pytest.mark.xfail(strict=True, reason=...)`` — it flips to a pass once the
 adoption ref is pinned. ``adapt`` and ``padacioso`` are deliberately kept at
-``@dev`` (they are load-bearing for the orchestrator suites), so their spec
-tests xfail until their adoption branch can be pinned without disturbing those
-suites.
+``@dev`` (they are load-bearing for the orchestrator suites); @dev now also
+consumes the spec registration topic for both, so their spec tests are green
+without needing a separate adoption branch pin.
 
 A plugin that fails to import (not installed in the combo under test) is SKIPPED
 via :func:`pytest.importorskip` at class-build time, so it never errors the
@@ -113,9 +113,8 @@ PLUGINS: Dict[str, Dict[str, Any]] = {
         "keyword": _LIGHTS_KEYWORD,
         # adapt is pinned @dev (load-bearing for the orchestrator suites: it
         # carries the #47 None-blacklist guard the INTENT-3 suite relies on).
-        # @dev does not yet consume the §5 spec topic, so the spec test xfails.
-        "spec_xfail": "adapt INTENT-4 adoption pending on @dev "
-                      "(kept @dev — load-bearing for the INTENT-3 suite)",
+        # @dev now also consumes the §5 spec topic -> spec test green.
+        "spec_xfail": None,
     },
     "palavreado": {
         "module": "palavreado",
@@ -141,8 +140,8 @@ PLUGINS: Dict[str, Dict[str, Any]] = {
         "samples": _HELLO,
         # padacioso is pinned @dev (load-bearing: it is the PADACIOSO_HIGH
         # driver with the lru_cache fix the orchestrator suites depend on).
-        "spec_xfail": "padacioso INTENT-4 adoption pending on @dev "
-                      "(kept @dev — load-bearing PADACIOSO_HIGH driver)",
+        # @dev now also consumes the §6 spec topic -> spec test green.
+        "spec_xfail": None,
         "fuzzy": True,
     },
     "nebulento": {
