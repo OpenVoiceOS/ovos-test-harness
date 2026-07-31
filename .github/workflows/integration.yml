@@ -43,6 +43,10 @@ jobs:
           # the rest of the stack requires; install it WITHOUT deps so it cannot
           # downgrade the pinned stack. It runs fine against bus-client 2.x.
           pip install --no-deps ovos-media
+          # --no-deps also skips ovos-media's harmless leaf deps; install the
+          # ones ovos_media.player actually imports so OCP-1 really runs
+          # (the install-floor test fails the build if this import breaks).
+          pip install ovos-gui-api-client
 
       - name: Record the installed stack
         run: pip freeze > stack-freeze.txt

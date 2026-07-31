@@ -79,7 +79,9 @@ def reset_namespace():
     previous = _NAMESPACE_STACK.pop()
     cfg = Configuration()
     if previous is _SENTINEL:
-        cfg.pop("legacy_namespace", None)
+        # Configuration.pop() does not accept a default argument
+        if "legacy_namespace" in cfg:
+            del cfg["legacy_namespace"]
     else:
         cfg["legacy_namespace"] = previous
 
