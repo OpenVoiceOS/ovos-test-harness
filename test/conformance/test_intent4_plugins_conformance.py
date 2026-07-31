@@ -35,11 +35,11 @@ xfail discipline (mirrors ``_conformance.py``)
 A plugin whose INTENT-4 adoption is INSTALLED (its ``requirements.txt`` pin
 carries the spec-topic consumer) has a GREEN spec test. A plugin pinned at a ref
 WITHOUT the adoption marks its ``test_spec_registration_is_matchable``
-``@pytest.mark.xfail(strict=False, reason=...)`` — it flips to a pass once the
+``@pytest.mark.xfail(strict=True, reason=...)`` — it flips to a pass once the
 adoption ref is pinned. ``adapt`` and ``padacioso`` are deliberately kept at
-``@dev`` (they are load-bearing for the orchestrator suites), so their spec
-tests xfail until their adoption branch can be pinned without disturbing those
-suites.
+``@dev`` (they are load-bearing for the orchestrator suites); @dev now also
+consumes the spec registration topic for both, so their spec tests are green
+without needing a separate adoption branch pin.
 
 A plugin that fails to import (not installed in the combo under test) is SKIPPED
 via :func:`pytest.importorskip` at class-build time, so it never errors the
@@ -58,6 +58,7 @@ ovoscope = pytest.importorskip(
 from ovoscope import E2EPipelineHarness  # noqa: E402
 from ovos_bus_client.message import Message  # noqa: E402
 from ovos_spec_tools import SpecMessage  # noqa: E402
+from ovos_utils.log import LOG  # noqa: E402
 
 REGISTER_KEYWORD = str(SpecMessage.INTENT_REGISTER_KEYWORD)
 REGISTER_TEMPLATE = str(SpecMessage.INTENT_REGISTER_TEMPLATE)
@@ -112,9 +113,8 @@ PLUGINS: Dict[str, Dict[str, Any]] = {
         "keyword": _LIGHTS_KEYWORD,
         # adapt is pinned @dev (load-bearing for the orchestrator suites: it
         # carries the #47 None-blacklist guard the INTENT-3 suite relies on).
-        # @dev does not yet consume the §5 spec topic, so the spec test xfails.
-        "spec_xfail": "adapt INTENT-4 adoption pending on @dev "
-                      "(kept @dev — load-bearing for the INTENT-3 suite)",
+        # @dev now also consumes the §5 spec topic -> spec test green.
+        "spec_xfail": None,
     },
     "palavreado": {
         "module": "palavreado",
@@ -140,8 +140,8 @@ PLUGINS: Dict[str, Dict[str, Any]] = {
         "samples": _HELLO,
         # padacioso is pinned @dev (load-bearing: it is the PADACIOSO_HIGH
         # driver with the lru_cache fix the orchestrator suites depend on).
-        "spec_xfail": "padacioso INTENT-4 adoption pending on @dev "
-                      "(kept @dev — load-bearing PADACIOSO_HIGH driver)",
+        # @dev now also consumes the §6 spec topic -> spec test green.
+        "spec_xfail": None,
         "fuzzy": True,
     },
     "nebulento": {
@@ -274,7 +274,14 @@ def _build_case(key: str, spec: Dict[str, Any]) -> type:
     """
     try:
         __import__(spec["module"])
-    except Exception as exc:  # not installed / import error -> skip this case
+    except ImportError as exc:
+        # Not installed in this combo -> this one case skips. Any other
+        # exception is a broken plugin and must propagate. The skip is itself
+        # a CI failure when the full stack is expected: see
+        # test/test_install_floor.py.
+        LOG.exception("INTENT-4 plugin %s (%s) is not importable; its "
+                      "registration-compliance case will skip",
+                      key, spec["module"])
         return _missing_case(key, spec, exc)
 
     engine_kind = spec["engine_kind"]
@@ -396,14 +403,14 @@ def _build_case(key: str, spec: Dict[str, Any]) -> type:
     # Apply xfail to the spec test for plugins without the adoption installed.
     if spec.get("spec_xfail"):
         _Case.test_spec_registration_is_matchable = pytest.mark.xfail(
-            strict=False, reason=spec["spec_xfail"]
+            strict=True, reason=spec["spec_xfail"]
         )(_Case.test_spec_registration_is_matchable)
 
     # Apply xfail to the legacy test for a plugin whose legacy path is itself
     # broken against the installed stack (documented real divergence).
     if spec.get("legacy_xfail"):
         _Case.test_legacy_registration_still_matches = pytest.mark.xfail(
-            strict=False, reason=spec["legacy_xfail"]
+            strict=True, reason=spec["legacy_xfail"]
         )(_Case.test_legacy_registration_still_matches)
 
     return _Case

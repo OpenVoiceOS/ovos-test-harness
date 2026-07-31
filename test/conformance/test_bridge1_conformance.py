@@ -33,7 +33,7 @@ bus-observable (no bridge in stack)`` note and skipped, so the file is a
 complete §6 ledger even though only the composition layer is executable here.
 
 xfail discipline mirrors the other suites: assert what the spec mandates, run
-it, and ``xfail(strict=False)`` only where the impl diverges — never weaken to
+it, and ``xfail(strict=True)`` only where the impl diverges — never weaken to
 the legacy behaviour.
 
 Coverage map (MUST clause -> status against the installed stack):
@@ -41,7 +41,8 @@ Coverage map (MUST clause -> status against the installed stack):
 - §3.2  response routed to inbound source via .reply() ........... green (MSG-1 derivation)
 - §3.2  destination preserved through forward derivation ......... green
 - §3.3  site_id present after inbound MUST NOT be overwritten .... green (survives derivations)
-- §3.3  site_id absent -> consumers MUST NOT infer a default ..... xfail (defaults to 'unknown')
+- §3.3  the session carries a site_id field at all .............. green
+- §3.3  site_id absent -> consumers MUST NOT infer a default ..... green
 - §3.3  consumers MUST NOT ascribe structure to site_id ......... green (opaque string)
 - §3.4  inbound bus Message carries a valid session object ....... green (orchestrator round)
 - §3.4  outbound responses include the session .................. green (echoed)
@@ -73,21 +74,26 @@ PARROT_ID = "ovos-skill-parrot.openvoiceos"
 CONVERSE_PIPELINE = ["ovos-converse-pipeline-plugin", PADACIOSO_HIGH]
 
 _MC = None
-_HAS_SITE_ID = "site_id" in Session("probe").serialize()
 
 
 def setUpModule():
     global _MC
-    LOG.set_level("CRITICAL")
+    LOG.set_level("ERROR")
     use_spec_namespace()
-    _MC = get_minicroft([PARROT_ID])
-    time.sleep(2)
+    try:
+        _MC = get_minicroft([PARROT_ID])
+        time.sleep(2)
+    except BaseException:
+        reset_namespace()
+        raise
 
 
 def tearDownModule():
-    if _MC is not None:
-        _MC.stop()
-    reset_namespace()
+    try:
+        if _MC is not None:
+            _MC.stop()
+    finally:
+        reset_namespace()
 
 
 def _last_session(recs):
@@ -194,9 +200,6 @@ class TestSec32OutboundRouting(TestCase):
 # §3.3 — site_id assignment
 # =============================================================================
 
-@pytest.mark.skipif(not _HAS_SITE_ID,
-                    reason="installed ovos-bus-client has no session.site_id "
-                           "field")
 class TestSec33SiteId(TestCase):
     """§3.3: ``site_id`` is the opaque group identifier owned by this spec.
     Once present on an inbound message after bridge processing, downstream
@@ -229,11 +232,6 @@ class TestSec33SiteId(TestCase):
             carried = Session.deserialize(deriv.context["session"])
             self.assertEqual(carried.site_id, "office-floor-2")
 
-    @pytest.mark.xfail(strict=False,
-                       reason="BRIDGE-1 §3.3 MUST NOT infer a default: an "
-                              "unsupplied site_id is absent; ovos-bus-client "
-                              "Session defaults site_id to the sentinel string "
-                              "'unknown' instead of leaving the field absent")
     def test_absent_site_id_yields_no_default(self):
         """§3.3 MUST NOT infer a default: when neither client nor bridge
         supplies a ``site_id`` the field is absent — a fresh session has no

@@ -18,7 +18,7 @@ keyword pipeline, in :class:`TestE2EVocOccurrence`, guarded behind the full
 stack the harness installs in CI.
 
 xfail discipline: each test asserts what the spec mandates and runs it; a
-divergence is ``@pytest.mark.xfail(strict=False, ...)`` quoting the clause and
+divergence is ``@pytest.mark.xfail(strict=True, ...)`` quoting the clause and
 the actual behaviour. Assertions are never weakened.
 
 Coverage map (clause -> status against ovos-spec-tools):
@@ -41,6 +41,7 @@ Coverage map (clause -> status against ovos-spec-tools):
 - §5    empty resource file MUST be malformed ..................... green
 """
 import importlib.util
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -61,14 +62,28 @@ _HAS_STACK = importlib.util.find_spec("ovoscope") is not None and \
     importlib.util.find_spec("ovos_workshop") is not None
 
 
+# Every throwaway locale tree this module creates, removed in tearDownModule.
+_TMP_LOCALES = []
+
+
+def tearDownModule():
+    """Remove every temp locale tree the §2-§9 fixtures created."""
+    while _TMP_LOCALES:
+        shutil.rmtree(_TMP_LOCALES.pop(), ignore_errors=True)
+
+
 def _make_locale(files: dict) -> Path:
     """Write a throwaway ``locale/`` tree and return the ``locale/`` path.
 
     ``files`` maps a relative path under ``locale/`` (e.g. ``"en-US/yes.voc"``)
     to file content — ``str`` written UTF-8, ``bytes`` written verbatim (for
     BOM/CRLF fixtures).
+
+    The tree is tracked and removed in ``tearDownModule``.
     """
-    root = Path(tempfile.mkdtemp()) / "locale"
+    tmp = tempfile.mkdtemp()
+    _TMP_LOCALES.append(tmp)
+    root = Path(tmp) / "locale"
     for rel, content in files.items():
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -317,24 +332,30 @@ class TestE2EVocOccurrence(TestCase):
     def setUpClass(cls):
         from ovos_utils.log import LOG
         from ovoscope import get_minicroft, register_padatious_intent
-        from ._conformance import use_spec_namespace
-        LOG.set_level("CRITICAL")
+        from ._conformance import reset_namespace, use_spec_namespace
+        LOG.set_level("ERROR")
         use_spec_namespace()
-        cls._mc = get_minicroft([])
-        time.sleep(1)
-        # The driver is padacioso (template family), but the §4.3 occurrence
-        # property is the same: a phrase present as contiguous whole words
-        # matches. Register an intent whose sample is the phrase under test.
-        cls._intent = "intent2.skill:greet"
-        register_padatious_intent(cls._mc.bus, cls._intent, ["good morning"])
-        time.sleep(1.5)
+        try:
+            cls._mc = get_minicroft([])
+            time.sleep(1)
+            # The driver is padacioso (template family), but the §4.3 occurrence
+            # property is the same: a phrase present as contiguous whole words
+            # matches. Register an intent whose sample is the phrase under test.
+            cls._intent = "intent2.skill:greet"
+            register_padatious_intent(cls._mc.bus, cls._intent, ["good morning"])
+            time.sleep(1.5)
+        except BaseException:
+            reset_namespace()
+            raise
 
     @classmethod
     def tearDownClass(cls):
         from ._conformance import reset_namespace
-        if getattr(cls, "_mc", None) is not None:
-            cls._mc.stop()
-        reset_namespace()
+        try:
+            if getattr(cls, "_mc", None) is not None:
+                cls._mc.stop()
+        finally:
+            reset_namespace()
 
     def test_phrase_occurrence_matches(self):
         """An utterance carrying the vocabulary phrase is matched (§4.3

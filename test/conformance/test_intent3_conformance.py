@@ -18,7 +18,7 @@ pipeline (and padacioso for template intents), guarded behind the full stack.
 Both facets are used exactly where the spec locates the requirement.
 
 xfail discipline: each test asserts what the spec mandates and runs it; a
-divergence is ``@pytest.mark.xfail(strict=False, ...)`` quoting the clause and
+divergence is ``@pytest.mark.xfail(strict=True, ...)`` quoting the clause and
 the actual behaviour. Assertions are never weakened. Pure-prose, non-testable
 clauses (ownership, one-handler binding, deployment matters) are noted with a
 ``# note: §X`` comment rather than asserted.
@@ -27,13 +27,13 @@ Coverage map (clause -> status):
 - §3   qualified name parses unambiguously into two parts (no ``:``) green (direct)
 - §3   intent identified by triple (skill id, intent name, language) green (direct)
 - §4.2 keyword payload exposes all four constraint roles ........... green (direct)
-- §4.2 keyword intent MUST declare a required or one-of constraint . xfail (no validation)
-- §4.2 a vocabulary MUST appear under at most one role ............. xfail (no validation)
+- §4.2 keyword intent MUST declare a required/one-of constraint ... xfail (no validation)
+- §4.2 a vocabulary MUST appear under at most one role ............ xfail (no validation)
 - §4.2 required vocabulary absent → MUST NOT match ................. green (e2e)
 - §4.2 one-of group unsatisfied → MUST NOT match ................... green (e2e)
 - §4.2 excluded vocabulary present → MUST NOT match ................ green (e2e)
 - §4.3 each matched vocabulary doubles as a captured slot .......... green (e2e)
-- §5.1 template intent generalizes beyond its samples ............. green (e2e)
+- §5.1 template intent generalizes beyond its samples ............. xfail (padacioso is a literal matcher; padatious would pass)
 - §5.3 required slot absent → match MUST NOT fire .................. (note: engine-specific)
 - §5.3 a required slot MUST be declared by some template ........... (note: registration-time)
 - §6.2 engine reports at most one matched intent per utterance .... green (e2e)
@@ -126,7 +126,7 @@ class TestSec4KeywordDefinition(TestCase):
         self.assertEqual(intent.at_least_one, [("u", "d")])
         self.assertEqual(intent.excludes, ["q"])
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="INTENT-3 §4.2 MUST: 'A keyword intent MUST "
                               "declare at least one required or one-of "
                               "constraint: an intent with only optional and "
@@ -142,7 +142,7 @@ class TestSec4KeywordDefinition(TestCase):
             (IntentBuilder("x").optionally("a").exclude("b").build()
              .to_keyword_payload())
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="INTENT-3 §4.2 MUST: 'A vocabulary MUST appear "
                               "under at most one role within a single intent … "
                               "[listing it twice] is contradictory and "
@@ -217,35 +217,41 @@ class TestE2EKeywordConstraints(TestCase):
             register_adapt_intent,
             register_adapt_vocab,
         )
-        from ._conformance import use_spec_namespace
-        LOG.set_level("CRITICAL")
+        from ._conformance import reset_namespace, use_spec_namespace
+        LOG.set_level("ERROR")
         use_spec_namespace()
-        cls._mc = get_minicroft([])
-        time.sleep(1)
+        try:
+            cls._mc = get_minicroft([])
+            time.sleep(1)
 
-        # vocabularies
-        register_adapt_vocab(cls._mc.bus, "SetKeyword", ["set", "change"])
-        register_adapt_vocab(cls._mc.bus, "BrightnessKeyword",
-                             ["brightness", "light level"])
-        register_adapt_vocab(cls._mc.bus, "UpKeyword", ["up", "higher"])
-        register_adapt_vocab(cls._mc.bus, "DownKeyword", ["down", "lower"])
-        register_adapt_vocab(cls._mc.bus, "QuestionKeyword", ["what is", "how"])
+            # vocabularies
+            register_adapt_vocab(cls._mc.bus, "SetKeyword", ["set", "change"])
+            register_adapt_vocab(cls._mc.bus, "BrightnessKeyword",
+                                 ["brightness", "light level"])
+            register_adapt_vocab(cls._mc.bus, "UpKeyword", ["up", "higher"])
+            register_adapt_vocab(cls._mc.bus, "DownKeyword", ["down", "lower"])
+            register_adapt_vocab(cls._mc.bus, "QuestionKeyword", ["what is", "how"])
 
-        cls._intent = "set_brightness"
-        builder = (IntentBuilder(cls._intent)
-                   .require("SetKeyword")
-                   .require("BrightnessKeyword")
-                   .one_of("UpKeyword", "DownKeyword")
-                   .exclude("QuestionKeyword"))
-        register_adapt_intent(cls._mc.bus, builder)
-        time.sleep(1.5)
+            cls._intent = "set_brightness"
+            builder = (IntentBuilder(cls._intent)
+                       .require("SetKeyword")
+                       .require("BrightnessKeyword")
+                       .one_of("UpKeyword", "DownKeyword")
+                       .exclude("QuestionKeyword"))
+            register_adapt_intent(cls._mc.bus, builder)
+            time.sleep(1.5)
+        except BaseException:
+            reset_namespace()
+            raise
 
     @classmethod
     def tearDownClass(cls):
         from ._conformance import reset_namespace
-        if getattr(cls, "_mc", None) is not None:
-            cls._mc.stop()
-        reset_namespace()
+        try:
+            if getattr(cls, "_mc", None) is not None:
+                cls._mc.stop()
+        finally:
+            reset_namespace()
 
     def _dispatch_types(self, text, sid):
         from ._conformance import capture, types, utterance
@@ -308,25 +314,31 @@ class TestE2ETemplateGeneralizes(TestCase):
     def setUpClass(cls):
         from ovos_utils.log import LOG
         from ovoscope import get_minicroft, register_padatious_intent
-        from ._conformance import use_spec_namespace
-        LOG.set_level("CRITICAL")
+        from ._conformance import reset_namespace, use_spec_namespace
+        LOG.set_level("ERROR")
         use_spec_namespace()
-        cls._mc = get_minicroft([])
-        time.sleep(1)
-        cls._intent = "intent3.skill:play_music"
-        register_padatious_intent(cls._mc.bus, cls._intent, [
-            "play {query}",
-            "put on {query}",
-            "i want to listen to {query}",
-        ])
-        time.sleep(1.5)
+        try:
+            cls._mc = get_minicroft([])
+            time.sleep(1)
+            cls._intent = "intent3.skill:play_music"
+            register_padatious_intent(cls._mc.bus, cls._intent, [
+                "play {query}",
+                "put on {query}",
+                "i want to listen to {query}",
+            ])
+            time.sleep(1.5)
+        except BaseException:
+            reset_namespace()
+            raise
 
     @classmethod
     def tearDownClass(cls):
         from ._conformance import reset_namespace
-        if getattr(cls, "_mc", None) is not None:
-            cls._mc.stop()
-        reset_namespace()
+        try:
+            if getattr(cls, "_mc", None) is not None:
+                cls._mc.stop()
+        finally:
+            reset_namespace()
 
     def test_known_phrasing_matches_and_fills_slot(self):
         """A phrasing among the samples matches and fills ``{query}`` — the

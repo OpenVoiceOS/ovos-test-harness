@@ -17,7 +17,7 @@ Status legend:
 
 ## Top-level matrix
 
-The architecture `dev` branch carries 20 specs. All 20 are covered by 20
+The architecture `dev` branch carries 21 specs. All 21 are covered by 21
 conformance suites (SESSION-1 and SESSION-2 share one suite; INTENT-4 is covered
 by both an orchestrator suite and a per-plugin registration-compliance suite).
 
@@ -43,6 +43,7 @@ by both an orchestrator suite and a per-plugin registration-compliance suite).
 | OVOS Common Playback (OCP) | OVOS-OCP-1 | `test_ocp1_conformance.py` | implemented |
 | Persona Pipeline Plugin | OVOS-PERSONA-1 | `test_persona1_conformance.py` | implemented |
 | Transformer Plugins | OVOS-TRANSFORM-1 | `test_transform1_conformance.py` | implemented |
+| User Identity Resolution | OVOS-USER-ID-1 | `test_user_id1_conformance.py` | implemented |
 
 ---
 
@@ -229,23 +230,24 @@ against the real ovos-core orchestrator, and documents the bridge-only MUSTs wit
 
 ---
 
-## Roadmap specs
+## OVOS-USER-ID-1 — `test_user_id1_conformance.py`
 
-The remaining 11 architecture specs have no conformance suite yet. They define
-conformant behavior the harness intends to certify the same way:
+*User Identity Resolution Specification.* Asserts the §9 conformance clauses.
+No recognition plugin and no bridge is installed, so the producer-side clauses
+(§3 level derivation, §5 resolution, §5.1 persistence, §6 Layer-2 injection)
+carry a `# not bus-observable` skip. The consumer-side MUSTs — absent
+`user_id` is a guest, absent `auth_level` reads as `0`, no component errors on
+either — run end-to-end against the orchestrator.
 
-- **OVOS-MSG-1** — Bus Message: topic-shape and identifier-component rules
-  (`source`/`destination`, no central correlation id) that underpin every other
-  spec's message shapes.
-- **OVOS-AUDIO-IN-1** — Audio Input Service: the listener bus surface.
-- **OVOS-AUDIO-1** — Audio Output Service: the TTS/playback bus surface.
-- **OVOS-COMMON-QUERY-1** — Common Query Pipeline Plugin: the query/answer cycle.
-- **OVOS-INTENT-1 / -2 / -3** — Sentence Template Grammar, Locale Resource Formats,
-  Intent Definition.
-- **OVOS-CONTEXT-1** — Intent Context.
-- **OVOS-OCP-1** — OVOS Common Playback (the virtual media player).
-- **OVOS-PERSONA-1** — Persona Pipeline Plugin.
-- **OVOS-TRANSFORM-1** — Transformer Plugins.
+| Class | Clause(s) | Asserts | Status |
+|-------|-----------|---------|--------|
+| `TestSec2IdentityFields` | §2, §9 | An unresolved identity leaves `user_id` absent (no sentinel); per-signal fields absent until a recognizer sets them; the carrier declares the fields. | green / xfail (conditional: bus-client Session lacks the fields) |
+| `TestSec3AuthLevel` | §3, §9 | A consumer reads an absent `auth_level` as `0`; an anonymous session presents `0`; a carried level survives the round unchanged. | green / skip (level derivation needs a plugin) |
+| `TestSec5And6Resolution` | §5, §5.1, §6 | The plugin writes its fields before the pipeline; identity persists across utterances; a bridge may inject directly. | skip (no recognition plugin, no bridge) |
+| `TestSec7GuestFallback` | §7, §9 | An anonymous utterance completes the round with no error event, terminates exactly once, and never invents a `user_id`. | green |
+| `TestSec9Consumers` | §9, MSG-1 §5 | Identity fields ride every forward/reply/response derivation unchanged; an identified utterance completes the round like an anonymous one. | green |
+
+---
 
 ## See also
 

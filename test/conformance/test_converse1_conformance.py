@@ -16,7 +16,7 @@ During the transition both the legacy and the spec topic names are emitted.
 Coverage map (clause -> status against current ovos-core):
 - §2.1 most-recently-active owner is polled first ............... green
 - §3   activating a skill records it as an active/converse owner  green
-- §4   an active owner consumes the follow-up before intent match  green
+- §4   an active owner consumes the follow-up before intent match ... xfail (falls through to ovos.intent.unmatched)
 - §4   a declining owner falls through to the normal pipeline ... green
 - §6.4 exactly one ``ovos.utterance.handled`` per utterance ..... green
 - §2.1 ``session.converse_handlers`` reflects the owner ......... xfail (active_skills)
@@ -34,6 +34,7 @@ from ovoscope import get_minicroft
 from ._conformance import (
     ENTRY_TOPIC,
     PADACIOSO_HIGH,
+    assert_absent,
     capture,
     reset_namespace,
     types,
@@ -47,9 +48,14 @@ CONVERSE_PIPELINE = ["ovos-converse-pipeline-plugin", PADACIOSO_HIGH]
 
 # whether the installed bus-client exposes the CONVERSE-1 session field
 _HAS_CONVERSE_HANDLERS = "converse_handlers" in Session("probe").serialize()
-_requires_converse_field = pytest.mark.skipif(
+# A spec-mandated session field that the installed bus-client does not carry
+# is a conformance failure, not an environment precondition — track it as a
+# strict xfail so it flips to a pass the moment the field lands.
+_requires_converse_field = pytest.mark.xfail(
     not _HAS_CONVERSE_HANDLERS,
-    reason="installed ovos-bus-client has no session.converse_handlers field",
+    reason="CONVERSE-1 §2.1 MUST: the installed ovos-bus-client Session has no "
+           "converse_handlers field",
+    strict=True,
 )
 
 _MC = None
@@ -57,16 +63,22 @@ _MC = None
 
 def setUpModule():
     global _MC
-    LOG.set_level("CRITICAL")
+    LOG.set_level("ERROR")
     use_spec_namespace()
-    _MC = get_minicroft([PARROT_ID])
-    time.sleep(2)
+    try:
+        _MC = get_minicroft([PARROT_ID])
+        time.sleep(2)
+    except BaseException:
+        reset_namespace()
+        raise
 
 
 def tearDownModule():
-    if _MC is not None:
-        _MC.stop()
-    reset_namespace()
+    try:
+        if _MC is not None:
+            _MC.stop()
+    finally:
+        reset_namespace()
 
 
 def _activate_parrot(session_id: str) -> Session:
@@ -117,6 +129,13 @@ class TestSec4ConverseRoundTrip(TestCase):
     the owner consumes the follow-up utterance. The parrot owner echoes it on
     ``ovos.utterance.speak`` and the utterance terminates with one end-marker."""
 
+    @pytest.mark.xfail(strict=True,
+                       reason="CONVERSE-1 §4.3 MUST: a claimed follow-up "
+                              "dispatches '<skill_id>:converse'; ovos-core @dev "
+                              "does not claim the follow-up for the active owner "
+                              "and instead falls through to "
+                              "'ovos.intent.unmatched' (stack drift since "
+                              "2026-07-16)")
     def test_followup_consumed_by_active_owner(self):
         """A follow-up utterance is routed through ``converse:skill`` to the
         active owner before normal intent matching (§4)."""
@@ -153,8 +172,8 @@ class TestSec4Decline(TestCase):
         sess.pipeline = CONVERSE_PIPELINE
         recs = capture(_MC, _followup(sess, "zxqw blah blah"), 4.0)
         seq = types(recs)
-        self.assertNotIn("converse:skill", seq)
-        self.assertIn("ovos.utterance.handled", seq)
+        assert_absent(recs, "converse:skill")
+        self.assertIn("ovos.utterance.handled", seq)  # positive control
 
 
 # ─────────────────────────────────────────────────────────────────────────────

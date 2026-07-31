@@ -29,7 +29,7 @@ never reach the core bus a conformance test can observe.
 
 xfail discipline (see ``docs/writing-conformance-tests.md``): every assertion
 states what the spec **mandates**; where the installed producer/service
-diverges the test is ``@pytest.mark.xfail(strict=False, reason=...)`` citing
+diverges the test is ``@pytest.mark.xfail(strict=True, reason=...)`` citing
 the spec clause + the actual behaviour, so it flips green the moment the impl
 conforms. Assertions are never weakened to the legacy behaviour.
 
@@ -134,7 +134,7 @@ class TestSec3ClosedVocabulary(TestCase):
     only templates from §3.4, and every template name MUST begin with the
     reserved ``SYSTEM_`` prefix and appear verbatim in the catalogue."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="GUI-1 §3.1 MUST name only closed-vocabulary "
                               "templates; GUIInterface.show_text emits the "
                               "legacy 'SYSTEM_TextFrame', not the spec "
@@ -147,7 +147,7 @@ class TestSec3ClosedVocabulary(TestCase):
         self.assertIsNotNone(page)
         self.assertIn(page.data["page_names"][0], CLOSED_VOCABULARY)
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="GUI-1 §3.1 MUST name only closed-vocabulary "
                               "templates; show_image emits 'SYSTEM_ImageFrame' "
                               "not the spec 'SYSTEM_image'")
@@ -159,7 +159,7 @@ class TestSec3ClosedVocabulary(TestCase):
         self.assertIsNotNone(page)
         self.assertIn(page.data["page_names"][0], CLOSED_VOCABULARY)
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="GUI-1 §3.1 MUST name only closed-vocabulary "
                               "templates; show_face emits 'SYSTEM_Face' not "
                               "the spec 'SYSTEM_face'")
@@ -185,7 +185,7 @@ class TestSec33TypingRules(TestCase):
     """§3.3: a producer MUST NOT emit an absent optional key as JSON ``null``
     to mean "absent" — it omits the key instead."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="GUI-1 §3.3 MUST omit absent optional keys "
                               "rather than emit null; GUIInterface emits "
                               "'__idle': None and sets unset optional content "
@@ -213,7 +213,7 @@ class TestSec35ImageDelivery(TestCase):
         self.assertIsNotNone(vals)
         self.assertEqual(vals.data.get("image"), "https://example.org/cat.png")
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="GUI-1 §3.5 MUST resolve a local asset to a "
                               "data: URI and MUST NOT place a filesystem path "
                               "on the wire; GUIInterface.show_image resolves a "
@@ -312,7 +312,7 @@ class TestSec81ProducerConformance(TestCase):
         recs = _capture_producer(lambda g: g.show_text("hi", "T"))
         self.assertIn(GUI_PAGE_SHOW, [m.msg_type for m in recs])
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="GUI-1 §8.1 MUST name only the closed §3.4 "
                               "vocabulary; GUIInterface emits legacy "
                               "'SYSTEM_*Frame' page names outside the catalogue")
@@ -333,10 +333,18 @@ class TestSec81ProducerConformance(TestCase):
 # =============================================================================
 
 def _service_available():
+    """Whether the GUI service is importable.
+
+    Only ImportError counts as "not installed"; any other exception is a
+    broken install and must propagate. The skip it produces is itself a CI
+    failure — see test/test_install_floor.py.
+    """
     try:
         import ovos_gui.namespace  # noqa: F401
         return True
-    except Exception:
+    except ImportError:
+        LOG.exception("ovos-gui is not importable; the GUI-1 service clauses "
+                      "will skip")
         return False
 
 
@@ -362,10 +370,32 @@ def _gui_service():
     return _NM
 
 
+def _reset_gui_service():
+    """Clear the shared service's namespace state.
+
+    NamespaceManager binds the backend GUI websocket on construction, so the
+    module reuses one instance and its namespace maps are shared mutable
+    state: without this reset one test's page stays loaded and the next test's
+    assertion about ``loaded_namespaces`` reads the previous test's result.
+    """
+    if _NM is None:
+        return
+    _NM.loaded_namespaces.clear()
+    del _NM.active_namespaces[:]
+
+
+def tearDownModule():
+    """Drop the shared GUI service so it cannot leak into another module."""
+    global _NM
+    _reset_gui_service()
+    _NM = None
+
+
 def _run_service(emits):
-    """Replay ``emits`` (a list of Messages) on the shared service's core bus
-    and return (manager, core_recs)."""
+    """Replay ``emits`` (a list of Messages) on a clean shared service's core
+    bus and return (manager, core_recs)."""
     nm = _gui_service()
+    _reset_gui_service()
     recs = []
 
     def _rec(m):
@@ -394,7 +424,7 @@ class TestSec32ServiceTemplateGate(TestCase):
     ``SYSTEM_`` prefix and MUST NOT dispatch a ``gui.page.show`` whose first
     page name is not a ``SYSTEM_*`` template."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="GUI-1 §3.2/§4.2/§8.3 MUST dispatch only "
                               "SYSTEM_* page names as templates; "
                               "NamespaceManager.handle_show_page validates only "
@@ -438,7 +468,7 @@ class TestSec43Sec5PerSessionRouting(TestCase):
     independent namespace stack, and a GUI Message is routed solely by its
     ``session_id`` (an absent/empty session defaulting to ``"default"``)."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="GUI-1 §4.3/§5.1/§8.3 MUST maintain an "
                               "independent namespace stack per session_id; "
                               "NamespaceManager keeps a single flat "

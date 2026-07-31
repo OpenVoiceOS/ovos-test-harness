@@ -18,8 +18,21 @@ omission), so presence is only asserted on populated sessions. The one clause
 the stack does not yet populate — ``converse_handlers`` — is tracked as a
 strict xfail so it flips loudly when the orchestrator starts draining it.
 Drivers are described in ``_conformance.py``.
+
+Coverage map (clause -> status against the installed stack):
+- PIPELINE-1 §7.1 dispatch records the skill as active ........... green
+- PIPELINE-1 §7.1 re-activation dedups head-first ................ green
+- PIPELINE-1 §7.1 session.active_handlers carries the skill ...... green
+- CONVERSE-1 §2.1 owners ordered most-recently-activated first ... green
+- CONVERSE-1 §2.1 session.converse_handlers mirrors the ordering .. xfail (not drained yet)
+- CONVERSE-1 §2.2 get-response sets the response state ........... green
+- CONVERSE-1 §2.2 session.response_mode carries the state ........ green
+- FALLBACK-1 §4   session.fallback_handlers carries the pool ..... green
+- SESSION-2       session_id preserved on the response ........... green
+- SESSION-2       a session mutation rides the forward ........... green
 """
 import time
+from typing import Optional
 from unittest import TestCase
 
 import pytest
@@ -45,24 +58,44 @@ _MC = None
 
 def setUpModule():
     global _MC
-    LOG.set_level("CRITICAL")
+    LOG.set_level("ERROR")
     use_spec_namespace()
-    _MC = get_minicroft([PARROT_ID])
-    time.sleep(2)
+    try:
+        _MC = get_minicroft([PARROT_ID])
+        time.sleep(2)
+    except BaseException:
+        reset_namespace()
+        raise
 
 
 def tearDownModule():
-    if _MC is not None:
-        _MC.stop()
-    reset_namespace()
+    try:
+        if _MC is not None:
+            _MC.stop()
+    finally:
+        reset_namespace()
 
 
-def _last_session(recs) -> Session:
+def _last_session(recs) -> Optional[Session]:
     """The most recent serialized session carried on the captured messages."""
     for m in reversed(recs):
         if m.context.get("session"):
             return Session.deserialize(m.context["session"])
     return None
+
+
+def _require_session(case, recs) -> Session:
+    """``_last_session`` or a clear failure.
+
+    Without this guard a strict-xfail test that never got a session at all
+    dies with ``AttributeError: 'NoneType'`` — which counts as the expected
+    failure and hides the real reason. Failing here names the actual problem.
+    """
+    sess = _last_session(recs)
+    case.assertIsNotNone(
+        sess, "no session was echoed on any captured response; the turn did "
+              f"not complete. saw: {[m.msg_type for m in recs]}")
+    return sess
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -100,7 +133,7 @@ class TestActiveHandlerRecency(TestCase):
         head-first (§7.1)."""
         recs = capture(_MC, utterance("start parrot mode", "se-active-spec",
                                       CONVERSE_PIPELINE), 4.0)
-        sess = _last_session(recs)
+        sess = _require_session(self, recs)
         handlers = sess.serialize().get("active_handlers") or []
         owners = [h.get("skill_id") if isinstance(h, dict) else h for h in handlers]
         self.assertIn(PARROT_ID, owners)
@@ -132,7 +165,7 @@ class TestConverseOwnerOrdering(TestCase):
         (§2.1). Strict-xfailed until the orchestrator populates the field."""
         recs = capture(_MC, utterance("start parrot mode", "se-cv-spec",
                                       CONVERSE_PIPELINE), 4.0)
-        sess = _last_session(recs)
+        sess = _require_session(self, recs)
         handlers = sess.serialize().get("converse_handlers") or []
         owners = [h.get("skill_id") if isinstance(h, dict) else h for h in handlers]
         self.assertIn(PARROT_ID, owners)

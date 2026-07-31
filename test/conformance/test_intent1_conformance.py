@@ -17,7 +17,7 @@ ovos-core stack the harness installs in CI.
 
 xfail discipline (see ``_conformance.py``): each test asserts what the spec
 *mandates* and runs it against spec-tools; where the implementation diverges
-the test is ``@pytest.mark.xfail(strict=False, ...)`` quoting the clause and
+the test is ``@pytest.mark.xfail(strict=True, ...)`` quoting the clause and
 the actual behaviour, flipping to a pass when the impl is corrected. Assertions
 are never weakened to make a divergence pass.
 
@@ -42,7 +42,7 @@ Coverage map (clause -> status against ovos-spec-tools):
 - §4.1 whitespace normalized / duplicates removed ................ green
 - §4.2 worked example sample set exact ........................... green
 - §5.1 dialog: unfilled slot MUST NOT render ..................... green
-- §5.5 dialog: mixed slot sets MUST be rejected .................. xfail (load_dialog)
+- §5.5 dialog: mixed slot sets MUST be rejected .................. green
 - §5.5 intent: mixed slot sets MUST be accepted .................. green
 """
 import importlib.util
@@ -408,24 +408,30 @@ class TestE2EExpansionDrivesMatch(TestCase):
     def setUpClass(cls):
         from ovos_utils.log import LOG
         from ovoscope import get_minicroft, register_padatious_intent
-        from ._conformance import use_spec_namespace
-        LOG.set_level("CRITICAL")
+        from ._conformance import reset_namespace, use_spec_namespace
+        LOG.set_level("ERROR")
         use_spec_namespace()
-        cls._mc = get_minicroft([])
-        time.sleep(1)
-        # register an intent from a template whose expansion includes the
-        # utterance we will send (§4.2-style expansion → samples).
-        cls._intent = "intent1.skill:lights"
-        cls._samples = expand("(turn on|switch on) [the] lights")
-        register_padatious_intent(cls._mc.bus, cls._intent, cls._samples)
-        time.sleep(1.5)
+        try:
+            cls._mc = get_minicroft([])
+            time.sleep(1)
+            # register an intent from a template whose expansion includes the
+            # utterance we will send (§4.2-style expansion → samples).
+            cls._intent = "intent1.skill:lights"
+            cls._samples = expand("(turn on|switch on) [the] lights")
+            register_padatious_intent(cls._mc.bus, cls._intent, cls._samples)
+            time.sleep(1.5)
+        except BaseException:
+            reset_namespace()
+            raise
 
     @classmethod
     def tearDownClass(cls):
         from ._conformance import reset_namespace
-        if getattr(cls, "_mc", None) is not None:
-            cls._mc.stop()
-        reset_namespace()
+        try:
+            if getattr(cls, "_mc", None) is not None:
+                cls._mc.stop()
+        finally:
+            reset_namespace()
 
     def test_expanded_branch_matches(self):
         """An utterance equal to one expanded branch (§4.2) is matched and

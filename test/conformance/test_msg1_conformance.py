@@ -24,7 +24,7 @@ xfail discipline
 ----------------
 Each test asserts what the spec MANDATES and runs it against the live
 bus-client Message. Where the bus-client diverges from the spec the test is
-decorated ``@pytest.mark.xfail(strict=False, reason="MSG-1 §X MUST …; stack
+decorated ``@pytest.mark.xfail(strict=True, reason="MSG-1 §X MUST …; stack
 does …")`` so it flips to a pass automatically once the runtime is brought
 into conformance. Conformant clauses are green. Pure-prose, non-observable
 requirements are skipped with a ``# not bus-observable`` note.

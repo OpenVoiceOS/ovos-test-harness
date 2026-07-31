@@ -31,7 +31,7 @@ Coverage map (clause -> status against the installed ``ovos-media`` player):
 - §6   SEI introspection responds ............................. green (informative)
 
 xfail discipline per ``_conformance.py``: a test asserts the clause the spec
-mandates, runs it, and is marked ``xfail(strict=False)`` only where the player
+mandates, runs it, and is marked ``xfail(strict=True)`` only where the player
 diverges — citing the clause and the actual behaviour. Non-bus-observable prose
 (multi-session isolation §5, the MPRIS bridge §6, arbitration §6.3) is noted but
 not asserted because a single-player ``FakeBus`` harness cannot exhibit it.
@@ -49,12 +49,16 @@ from ovos_utils.ocp import MediaEntry, MediaState, PlayerState, PlaybackType
 # The Virtual Media Player (OVOS-OCP-1 §2/§3/§4) lives in ovos-media, installed
 # --no-deps by the integration workflow (it pins an incompatible bus-client; see
 # requirements.txt). If it is absent the OCPPlayerHarness cannot start, so the
-# whole module skips cleanly rather than erroring — the enum/contract tests that
-# need only ovos-utils.ocp still run.
+# player clauses skip and the enum/contract tests that need only ovos-utils.ocp
+# still run. Only ImportError skips: any other exception is a broken install
+# and must surface. test/test_install_floor.py makes the skip itself a CI
+# failure when the full stack is supposed to be present.
 try:
     import ovos_media.player  # noqa: F401
     _HAS_OCP_PLAYER = True
-except Exception:
+except ImportError:
+    LOG.exception("ovos-media is not importable; the OVOS-OCP-1 Virtual Media "
+                  "Player clauses will skip")
     _HAS_OCP_PLAYER = False
 
 _requires_player = pytest.mark.skipif(
@@ -69,7 +73,7 @@ def _entry(uri="http://example.com/conformance.mp3"):
 
 
 def setUpModule():
-    LOG.set_level("CRITICAL")
+    LOG.set_level("ERROR")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -207,7 +211,7 @@ class TestSec43ControlRequests(TestCase):
         reason="OVOS-OCP-1 §4.3 MUST: 'issuing pause with nothing playing is a "
                "no-op, not an error'; the ovos-media player transitions to "
                "PAUSED on a bare pause request with no now-playing media.",
-        strict=False,
+        strict=True,
     )
     def test_pause_is_noop_with_no_media(self):
         """§4.3 MUST: ``pause`` with no media present is a no-op — the player

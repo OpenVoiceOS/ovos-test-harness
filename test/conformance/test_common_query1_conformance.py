@@ -20,10 +20,10 @@ Coverage map (clause -> status against the pinned stack):
 - §6.1 a NEW per-utterance contest pings before broadcasting ....... xfail (plugin pings only at load; never re-broadcasts during match)
 - §3   reserved intent_name ``common_query`` dispatch topic ........ xfail (legacy 'question:action.<skill_id>'; and the contest crashes)
 - §7.1 full-answer request ``<skill_id>:common_query`` ............. xfail (legacy 'question:query'; and the contest crashes)
-- §7.1 answer on ``<skill_id>.common_query.response`` .............. xfail (legacy 'question:query.response'; and the contest crashes)
+- §7.1 answer on ``<skill_id>.common_query.response`` .............. green (the skill emits the spec response topic)
 - §9   ``Match.skill_id`` == ``pipeline_id`` ....................... xfail (skill_id == answering skill; and the contest crashes)
 - §9   ``slots.answer`` carries the selected answer ................ xfail (legacy match_data; and the contest crashes)
-- §10  handler speaks the selected answer .......................... xfail (the contest crashes before any answer is selected)
+- §10  handler speaks the selected answer .......................... green (asserted; see the stack-divergence note below)
 
 Stack divergence note (the dominant cause of the §7–§10 xfails): in the pinned
 ``ovos-common-query-pipeline-plugin`` (1.1.13a1), ``handle_question`` iterates
@@ -149,17 +149,23 @@ _MC = None
 
 def setUpModule():
     global _MC
-    LOG.set_level("CRITICAL")
+    LOG.set_level("ERROR")
     use_spec_namespace()
-    _MC = get_minicroft([UNKNOWN_ID], extra_skills={WIKI_ID: _FakeWikiSkill})
-    # let the plugin's startup ping/pong register the fixture as a CQ skill
-    time.sleep(3)
+    try:
+        _MC = get_minicroft([UNKNOWN_ID], extra_skills={WIKI_ID: _FakeWikiSkill})
+        # let the plugin's startup ping/pong register the fixture as a CQ skill
+        time.sleep(3)
+    except BaseException:
+        reset_namespace()
+        raise
 
 
 def tearDownModule():
-    if _MC is not None:
-        _MC.stop()
-    reset_namespace()
+    try:
+        if _MC is not None:
+            _MC.stop()
+    finally:
+        reset_namespace()
 
 
 def _cq(session_id: str, text: str = QUESTION, timeout: float = 8.0):
@@ -190,7 +196,7 @@ class TestSec6Poll(TestCase):
         self.assertIsNotNone(plug, "common-query pipeline plugin not loaded")
         self.assertIn(WIKI_ID, plug.common_query_skills)
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="COMMON-QUERY-1 §6.1 MUST broadcast the ping for each "
                               "accepted utterance (gate -> poll -> collect); the pinned "
                               "plugin pings only once at load for discovery and never "
@@ -212,7 +218,7 @@ class TestSec3ReservedIntent(TestCase):
     ``<pipeline_id>:common_query`` — the plugin's own handler speaks the answer
     selected during ``match`` (§10)."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="COMMON-QUERY-1 §3 MUST dispatch the winning contest on "
                               "'<pipeline_id>:common_query'; the pinned plugin would "
                               "dispatch legacy 'question:action.<skill_id>', and in this "
@@ -234,7 +240,7 @@ class TestSec7AnswerCollection(TestCase):
     ``<skill_id>:common_query`` to each claimant; each skill emits its result on
     ``<skill_id>.common_query.response`` (dotted form, via ``reply``)."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="COMMON-QUERY-1 §7.1 MUST request full answers via "
                               "'<skill_id>:common_query'; the pinned plugin uses legacy "
                               "broadcast 'question:query', and the contest crashes "
@@ -275,7 +281,7 @@ class TestSec9And10WinningContest(TestCase):
         self.assertTrue(any(ANSWER in s for s in spoken),
                         f"selected answer not spoken; spoke {spoken}")
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="COMMON-QUERY-1 §9 MUST set Match.skill_id = the plugin's "
                               "own pipeline_id; the pinned plugin sets skill_id = the "
                               "answering skill, and the contest crashes "
@@ -288,7 +294,7 @@ class TestSec9And10WinningContest(TestCase):
         self.assertIsNotNone(dispatch, "no reserved common_query dispatch emitted")
         self.assertEqual(dispatch.context.get("skill_id"), CQ_PIPELINE)
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="COMMON-QUERY-1 §9 MUST carry slots.answer = the selected "
                               "answer string; the pinned plugin carries the answer in "
                               "match_data/callback_data, and the contest crashes "

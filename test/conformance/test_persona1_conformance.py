@@ -18,20 +18,20 @@ Coverage map (clause -> status against the pinned stack):
 - §4   no-persona mode: stage returns None on a neutral utterance ... green
 - §7.1 unset persona_id -> None (no-persona mode) ................... green
 - §7.1 route 1 summon command is detected and claimed .............. green
-- §7.1 route 1 release command is detected and claimed ............. xfail (active persona is session-resident #185; not carried across turns)
+- §7.1 route 1 release command is detected and claimed .............. green
 - §7.1 route 1 check (active persona) command is claimed ........... green
 - §7.1 route 1 one-off `ask` query is claimed and answered ......... green
 - §5   summon dispatch is answered (confirmation spoken) ........... green
 - §7.2 active persona claims a neutral (non-command) utterance ..... green
 - §7.4 Match.lang is the resolved language of the match ............ green
 - §8.1 handler speaks the response on `ovos.utterance.speak` ....... green
-- §3/§5 summon sets `session.persona_id` via updated_session ....... xfail (in-memory active_personas dict; persona_id never set on session)
-- §6   release clears `session.persona_id` ......................... xfail (clears in-memory dict; persona_id never touched on session)
+- §3/§5 summon sets `session.persona_id` via updated_session ....... green
+- §6   release clears `session.persona_id` .......................... green
 - §7.1 unsupported persona_id -> None .............................. xfail (still claims via persona:query / fallback)
-- §11  summon broadcasts `ovos.persona.activated` .................. xfail (emits 'persona.openvoiceos.activate')
-- §11  dismiss broadcasts `ovos.persona.dismissed` ................. xfail (no dismiss broadcast)
-- §8.5 out-of-band `ovos.persona.query` -> `ovos.persona.answer` ... xfail (MAY; not implemented — no answer)
-- §8.7 `ovos.persona.list` -> `ovos.persona.list.response` ......... xfail (SHOULD; not implemented — no response)
+- §11  summon broadcasts `ovos.persona.activated` .................. green
+- §11  dismiss broadcasts `ovos.persona.dismissed` ................. green
+- §8.5 out-of-band `ovos.persona.query` -> `ovos.persona.answer` ... green
+- §8.7 `ovos.persona.list` -> `ovos.persona.list.response` ......... green
 """
 import time
 from unittest import TestCase
@@ -73,16 +73,24 @@ ALICE = "Alice"
 
 # A persona definition driven by the always-on failure solver: it answers every
 # query with a fixed string, so the match -> dispatch -> speak flow completes
-# with no network or model. Written under a temp personas_path passed to the
-# plugin via pipeline_config in setUpModule.
+# with no network or model. Written to a temp personas_path in setUpModule and
+# removed in tearDownModule — creating it at import time would leak a
+# directory on every collection, including a --collect-only run.
 import json  # noqa: E402
 import os  # noqa: E402
+import shutil  # noqa: E402
 import tempfile  # noqa: E402
 
-_PERSONAS_DIR = tempfile.mkdtemp(prefix="persona-conf-")
-with open(os.path.join(_PERSONAS_DIR, f"{ALICE}.json"), "w") as _f:
-    json.dump({"name": ALICE,
-               "solvers": ["ovos-solver-failure-plugin"]}, _f)
+_PERSONAS_DIR = None
+
+
+def _write_personas() -> str:
+    """Create the throwaway personas directory and return its path."""
+    path = tempfile.mkdtemp(prefix="persona-conf-")
+    with open(os.path.join(path, f"{ALICE}.json"), "w") as f:
+        json.dump({"name": ALICE,
+                   "solvers": ["ovos-solver-failure-plugin"]}, f)
+    return path
 
 # A neutral utterance that does NOT trip the summon/ask/list/check intent
 # matchers, so it exercises the active-persona catch-all (route 2) rather than
@@ -93,21 +101,32 @@ _MC = None
 
 
 def setUpModule():
-    global _MC
-    LOG.set_level("CRITICAL")
+    global _MC, _PERSONAS_DIR
+    LOG.set_level("ERROR")
+    _PERSONAS_DIR = _write_personas()
     use_spec_namespace()
-    _MC = get_minicroft(
-        [],
-        pipeline_config={"persona": {"personas_path": _PERSONAS_DIR,
-                                     "handle_fallback": True}},
-    )
-    time.sleep(2)
+    try:
+        _MC = get_minicroft(
+            [],
+            pipeline_config={"persona": {"personas_path": _PERSONAS_DIR,
+                                         "handle_fallback": True}},
+        )
+        time.sleep(2)
+    except BaseException:
+        reset_namespace()
+        raise
 
 
 def tearDownModule():
-    if _MC is not None:
-        _MC.stop()
-    reset_namespace()
+    try:
+        if _MC is not None:
+            _MC.stop()
+    finally:
+        try:
+            reset_namespace()
+        finally:
+            if _PERSONAS_DIR:
+                shutil.rmtree(_PERSONAS_DIR, ignore_errors=True)
 
 
 def _persona_dispatch_types(recs):
@@ -160,7 +179,7 @@ class TestSec4NoPersonaMode(TestCase):
                          f"persona stage claimed in no-persona mode: {types(recs)}")
         self.assertIn("ovos.utterance.handled", types(recs))
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="PERSONA-1 §7.1 MUST return None when session.persona_id "
                               "is set to an UNSUPPORTED value; the plugin still claims "
                               "(persona:query / fallback) instead of declining")
@@ -195,10 +214,6 @@ class TestSec5Summon(TestCase):
         recs = capture(_MC, utterance("summon Alice", "p-summon-speak", PIPELINE), 5.0)
         self.assertIn("ovos.utterance.speak", types(recs))
 
-    @pytest.mark.xfail(strict=False,
-                       reason="PERSONA-1 §11 advisory: a persona that becomes active "
-                              "SHOULD broadcast 'ovos.persona.activated'; the plugin "
-                              "emits 'persona.openvoiceos.activate' instead")
     def test_summon_broadcasts_activated(self):
         """§11: activation is announced (best-effort) on ``ovos.persona.activated``."""
         recs = capture(_MC, utterance("summon Alice", "p-summon-act", PIPELINE), 5.0)
@@ -219,28 +234,12 @@ class TestSec6Dismiss(TestCase):
         time.sleep(1.5)
         return capture(_MC, utterance(release_utt, session_id, PIPELINE), 5.0)
 
-    @pytest.mark.xfail(strict=False,
-                       reason="PERSONA-1 §6/§7.1 route 1 MUST claim a release while a "
-                              "persona is active. ovos-persona @dev made the active persona "
-                              "session-resident via session.persona_id (#185): the release "
-                              "matcher gates on `active_persona`, which is now read from the "
-                              "inbound session rather than an in-process active_personas dict. "
-                              "Because this harness summons and releases in separate turns and "
-                              "the stateless `utterance()` helper does not carry the summon's "
-                              "Match.updated_session (persona_id) into the next turn, the "
-                              "release utterance arrives with no active persona and is not "
-                              "claimed (ovos.intent.unmatched).")
     def test_release_is_claimed(self):
         """§6/§7.1 route 1 MUST: a release command (while a persona is active) is
         detected and claimed — the plugin dispatches its release handler."""
         recs = self._summon_then("p-release", "stop talking to alice")
         self.assertIn("persona:release", types(recs))
 
-    @pytest.mark.xfail(strict=False,
-                       reason="PERSONA-1 §6 MUST clear session.persona_id on dismiss via "
-                              "Match.updated_session; the plugin clears its in-memory "
-                              "active_personas dict and leaves the session's persona_id "
-                              "(here pre-set to Alice) untouched")
     def test_release_clears_session_persona_id(self):
         """§6 MUST: dismiss clears ``persona_id`` from the session via
         ``Match.updated_session``. Drive it with ``persona_id`` already set on the
@@ -327,11 +326,6 @@ class TestSec8Handler(TestCase):
                                       persona_id=ALICE), 6.0)
         self.assertEqual(types(recs).count("ovos.utterance.handled"), 1)
 
-    @pytest.mark.xfail(strict=False,
-                       reason="PERSONA-1 §8.5 MAY out-of-band query: when implemented "
-                              "the plugin MUST answer 'ovos.persona.query' on "
-                              "'ovos.persona.answer'; the pinned plugin does not "
-                              "implement the out-of-band interface (no answer emitted)")
     def test_out_of_band_query_answers(self):
         """§8.5: an out-of-band ``ovos.persona.query`` is answered on
         ``ovos.persona.answer`` (request/response, bypassing the pipeline)."""
@@ -349,10 +343,6 @@ class TestSec87Discovery(TestCase):
     """§8.7/§11: a persona plugin SHOULD respond to ``ovos.persona.list`` with the
     ``persona_id`` values it supports on ``ovos.persona.list.response``."""
 
-    @pytest.mark.xfail(strict=False,
-                       reason="PERSONA-1 §8.7/§11 SHOULD respond to 'ovos.persona.list' "
-                              "on 'ovos.persona.list.response'; the pinned plugin does "
-                              "not implement the discovery interface (no response)")
     def test_persona_list_responds(self):
         """§8.7 SHOULD: ``ovos.persona.list`` is answered on
         ``ovos.persona.list.response`` enumerating supported identities."""
@@ -368,10 +358,6 @@ class TestSec11DismissBroadcast(TestCase):
     """§11: a persona dismissed from a session SHOULD broadcast
     ``ovos.persona.dismissed`` (best-effort; consumers MUST NOT rely on it)."""
 
-    @pytest.mark.xfail(strict=False,
-                       reason="PERSONA-1 §11 advisory: dismiss SHOULD broadcast "
-                              "'ovos.persona.dismissed'; the pinned plugin emits no "
-                              "dismiss broadcast")
     def test_dismiss_broadcasts(self):
         """§11: a release broadcasts ``ovos.persona.dismissed`` (best-effort)."""
         _MC.bus.emit(utterance("summon Alice", "p-dismiss-bc", PIPELINE))

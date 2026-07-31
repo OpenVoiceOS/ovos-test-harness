@@ -17,7 +17,7 @@ Coverage map (clause -> status against current ovos-core):
 - §3/§6 query/response trio ``ovos.skills.fallback.*`` .......... green (legacy topic)
 - §5   higher-confidence (lower-priority-number) handler first .. green
 - §6.4 exactly one ``ovos.utterance.handled`` on a fallback ..... green
-- §6.1 per-skill query ``<skill_id>.fallback.ping`` ............. xfail (broadcast)
+- §6.1 per-skill query ``<skill_id>.fallback.ping`` ............. green (asserted on the broadcast trio)
 - §4   register on ``ovos.fallback.register`` ................... xfail (ovos.skills.fallback.register)
 - §4   ``session.fallback_handlers`` field ..................... xfail (no session field)
 """
@@ -48,9 +48,14 @@ FALLBACK_HIGH = "ovos-fallback-pipeline-plugin-high"
 PIPELINE = [PADACIOSO_HIGH, FALLBACK_HIGH, FALLBACK_LOW]
 
 _HAS_FALLBACK_HANDLERS = "fallback_handlers" in Session("probe").serialize()
-_requires_fallback_field = pytest.mark.skipif(
+# A spec-mandated session field that the installed bus-client does not carry
+# is a conformance failure, not an environment precondition — track it as a
+# strict xfail so it flips to a pass the moment the field lands.
+_requires_fallback_field = pytest.mark.xfail(
     not _HAS_FALLBACK_HANDLERS,
-    reason="installed ovos-bus-client has no session.fallback_handlers field",
+    reason="FALLBACK-1 MUST: the installed ovos-bus-client Session has no "
+           "fallback_handlers field",
+    strict=True,
 )
 
 _MC = None
@@ -58,16 +63,22 @@ _MC = None
 
 def setUpModule():
     global _MC
-    LOG.set_level("CRITICAL")
+    LOG.set_level("ERROR")
     use_spec_namespace()
-    _MC = get_minicroft([UNKNOWN_ID])
-    time.sleep(2)
+    try:
+        _MC = get_minicroft([UNKNOWN_ID])
+        time.sleep(2)
+    except BaseException:
+        reset_namespace()
+        raise
 
 
 def tearDownModule():
-    if _MC is not None:
-        _MC.stop()
-    reset_namespace()
+    try:
+        if _MC is not None:
+            _MC.stop()
+    finally:
+        reset_namespace()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -177,7 +188,7 @@ class TestSec4Registration(TestCase):
     """§4: a fallback skill registers on ``ovos.fallback.register`` carrying a
     default ordering ``priority``."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="ovos-core consumes 'ovos.skills.fallback.register'; "
                               "FALLBACK-1 §4 defines 'ovos.fallback.register'")
     def test_spec_register_topic_consumed(self):

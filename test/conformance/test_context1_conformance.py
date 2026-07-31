@@ -32,9 +32,30 @@ xfail discipline
 ----------------
 Every test asserts what CONTEXT-1 MANDATES and runs it. Carrier clauses the
 stack already satisfies are green. Orchestrator/engine clauses the stack does
-not yet implement are ``@pytest.mark.xfail(strict=False, reason=…)`` so they
+not yet implement are ``@pytest.mark.xfail(strict=True, reason=…)`` so they
 flip to pass once core/engines adopt the spec. Pure-prose, non-observable
 requirements are skipped with a ``# not bus-observable`` note.
+
+Coverage map (clause -> status against the installed stack):
+- §2   intent_context is a session field ......................... green (carrier)
+- §2   absent intent_context ≡ empty map ......................... green (carrier)
+- §2   entry fields round-trip through the session ............... green (carrier)
+- §2   a flag entry carries a null value ......................... green (carrier)
+- §2   liveness predicate over expires_at / turns_remaining ...... green (carrier)
+- §3   bare and prefixed keys both preserved ..................... green (carrier)
+- §3.1 a prefixed key has exactly one separator .................. green (carrier)
+- §4.1 intent_context rides forward derivations .................. green (carrier)
+- §4.1 intent_context rides reply derivations .................... green (carrier)
+- §4.1 intent_context rides an ordinary Message .................. green (carrier)
+- §5.3 ovos.session.sync sets an entry ........................... xfail (no sync merge handler)
+- §5.3 ovos.session.sync null deletes an entry ................... xfail (no sync merge handler)
+- §4   turns_remaining decremented after a round ................. xfail (no decay tick)
+- §4   a dead entry is pruned before the match round ............. xfail (no prune tick)
+- §6   requires_context blocks without a live entry .............. green (e2e)
+- §6   requires_context permits with a live entry ................ green (e2e)
+- §6.1 excludes_context blocks when the entry is live ............ green (e2e)
+- §6.1 excludes_context permits when the entry is absent ......... green (e2e)
+- §7   a context value fills an unfilled slot .................... xfail (no slot promotion)
 """
 import time
 from unittest import TestCase
@@ -48,6 +69,7 @@ from ovoscope import get_minicroft, register_padatious_intent
 
 from ._conformance import (
     PADACIOSO_HIGH,
+    assert_absent,
     capture,
     first,
     reset_namespace,
@@ -209,16 +231,22 @@ _MC = None
 
 def setUpModule():
     global _MC
-    LOG.set_level("CRITICAL")
+    LOG.set_level("ERROR")
     use_spec_namespace()
-    _MC = get_minicroft([SKILL_ID])
-    time.sleep(2)
+    try:
+        _MC = get_minicroft([SKILL_ID])
+        time.sleep(2)
+    except BaseException:
+        reset_namespace()
+        raise
 
 
 def tearDownModule():
-    if _MC is not None:
-        _MC.stop()
-    reset_namespace()
+    try:
+        if _MC is not None:
+            _MC.stop()
+    finally:
+        reset_namespace()
 
 
 def _sync_and_readback(session_id, intent_context):
@@ -247,7 +275,7 @@ class TestSec53SessionSyncMerge(TestCase):
     ``intent_context`` payload **entry-by-entry** — present entry objects set or
     replace; ``null`` entries delete; absent keys are unchanged."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="CONTEXT-1 §5.3 MUST apply ovos.session.sync "
                               "intent_context entry-by-entry into the working "
                               f"session; {_LEGACY_NOTE}, and ovos-core does not "
@@ -261,7 +289,7 @@ class TestSec53SessionSyncMerge(TestCase):
         self.assertIn("person", ic)
         self.assertEqual(ic["person"]["value"], "Bob")
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="CONTEXT-1 §5.3 MUST apply the ovos.session.sync "
                               "intent_context payload entry-by-entry — a null "
                               "entry deletes while a co-present entry object "
@@ -300,7 +328,7 @@ class TestSec4Decay(TestCase):
     """§4: decay runs once per utterance dispatch — prune dead entries before
     the match round, decrement every live ``turns_remaining`` after it."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="CONTEXT-1 §4 MUST prune dead entries before the "
                               "match round and decrement turns_remaining after "
                               f"it; {_LEGACY_NOTE} (no per-utterance "
@@ -325,7 +353,7 @@ class TestSec4Decay(TestCase):
                 break
         self.assertEqual(ic.get("person", {}).get("turns_remaining"), 1)
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="CONTEXT-1 §4 MUST prune a dead (turns_remaining "
                               f"== 0) entry before the first matcher; {_LEGACY_NOTE}.")
     def test_dead_entry_pruned_before_match(self):
@@ -399,7 +427,7 @@ class TestSec6RequiresContext(TestCase):
         # no intent_context set -> the gate is unsatisfied -> MUST NOT dispatch
         recs = capture(_MC, utterance("the secret phrase", "ic-gate-block",
                                       [PADACIOSO_HIGH]), 3.0)
-        self.assertNotIn(GATED_INTENT, types(recs))
+        assert_absent(recs, GATED_INTENT)
 
     def test_requires_context_permits_with_live_entry(self):
         """§6: with a live entry at the gate key, the same declaring intent
@@ -425,7 +453,7 @@ class TestSec61ExcludesContext(TestCase):
         ic = {GATE_KEY: _entry(None, turns_remaining=5)}
         recs = capture(_MC, utterance("open sesame now", "ic-excl-block",
                                       [PADACIOSO_HIGH], intent_context=ic), 3.0)
-        self.assertNotIn(GATED_INTENT, types(recs))
+        assert_absent(recs, GATED_INTENT)
 
     def test_excludes_context_permits_when_entry_absent(self):
         """§6.1: with the excluded key absent, the same declaring intent
@@ -454,7 +482,7 @@ class TestSec7ContextSuppliedSlot(TestCase):
     the utterance did not fill it, the engine MUST populate ``Match.slots[key]``
     from the entry's non-null value (utterance-produced value wins)."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="CONTEXT-1 §7 MUST fill a match slot from a "
                               "context entry's value when a requires_context key "
                               "names an unfilled slot; the installed engines "
