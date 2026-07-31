@@ -41,6 +41,7 @@ Coverage map (clause -> status against ovos-spec-tools):
 - §5    empty resource file MUST be malformed ..................... green
 """
 import importlib.util
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -61,14 +62,28 @@ _HAS_STACK = importlib.util.find_spec("ovoscope") is not None and \
     importlib.util.find_spec("ovos_workshop") is not None
 
 
+# Every throwaway locale tree this module creates, removed in tearDownModule.
+_TMP_LOCALES = []
+
+
+def tearDownModule():
+    """Remove every temp locale tree the §2-§9 fixtures created."""
+    while _TMP_LOCALES:
+        shutil.rmtree(_TMP_LOCALES.pop(), ignore_errors=True)
+
+
 def _make_locale(files: dict) -> Path:
     """Write a throwaway ``locale/`` tree and return the ``locale/`` path.
 
     ``files`` maps a relative path under ``locale/`` (e.g. ``"en-US/yes.voc"``)
     to file content — ``str`` written UTF-8, ``bytes`` written verbatim (for
     BOM/CRLF fixtures).
+
+    The tree is tracked and removed in ``tearDownModule``.
     """
-    root = Path(tempfile.mkdtemp()) / "locale"
+    tmp = tempfile.mkdtemp()
+    _TMP_LOCALES.append(tmp)
+    root = Path(tmp) / "locale"
     for rel, content in files.items():
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)

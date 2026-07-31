@@ -370,10 +370,32 @@ def _gui_service():
     return _NM
 
 
+def _reset_gui_service():
+    """Clear the shared service's namespace state.
+
+    NamespaceManager binds the backend GUI websocket on construction, so the
+    module reuses one instance and its namespace maps are shared mutable
+    state: without this reset one test's page stays loaded and the next test's
+    assertion about ``loaded_namespaces`` reads the previous test's result.
+    """
+    if _NM is None:
+        return
+    _NM.loaded_namespaces.clear()
+    del _NM.active_namespaces[:]
+
+
+def tearDownModule():
+    """Drop the shared GUI service so it cannot leak into another module."""
+    global _NM
+    _reset_gui_service()
+    _NM = None
+
+
 def _run_service(emits):
-    """Replay ``emits`` (a list of Messages) on the shared service's core bus
-    and return (manager, core_recs)."""
+    """Replay ``emits`` (a list of Messages) on a clean shared service's core
+    bus and return (manager, core_recs)."""
     nm = _gui_service()
+    _reset_gui_service()
     recs = []
 
     def _rec(m):

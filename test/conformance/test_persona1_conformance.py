@@ -73,16 +73,24 @@ ALICE = "Alice"
 
 # A persona definition driven by the always-on failure solver: it answers every
 # query with a fixed string, so the match -> dispatch -> speak flow completes
-# with no network or model. Written under a temp personas_path passed to the
-# plugin via pipeline_config in setUpModule.
+# with no network or model. Written to a temp personas_path in setUpModule and
+# removed in tearDownModule — creating it at import time would leak a
+# directory on every collection, including a --collect-only run.
 import json  # noqa: E402
 import os  # noqa: E402
+import shutil  # noqa: E402
 import tempfile  # noqa: E402
 
-_PERSONAS_DIR = tempfile.mkdtemp(prefix="persona-conf-")
-with open(os.path.join(_PERSONAS_DIR, f"{ALICE}.json"), "w") as _f:
-    json.dump({"name": ALICE,
-               "solvers": ["ovos-solver-failure-plugin"]}, _f)
+_PERSONAS_DIR = None
+
+
+def _write_personas() -> str:
+    """Create the throwaway personas directory and return its path."""
+    path = tempfile.mkdtemp(prefix="persona-conf-")
+    with open(os.path.join(path, f"{ALICE}.json"), "w") as f:
+        json.dump({"name": ALICE,
+                   "solvers": ["ovos-solver-failure-plugin"]}, f)
+    return path
 
 # A neutral utterance that does NOT trip the summon/ask/list/check intent
 # matchers, so it exercises the active-persona catch-all (route 2) rather than
@@ -93,8 +101,9 @@ _MC = None
 
 
 def setUpModule():
-    global _MC
+    global _MC, _PERSONAS_DIR
     LOG.set_level("ERROR")
+    _PERSONAS_DIR = _write_personas()
     use_spec_namespace()
     try:
         _MC = get_minicroft(
@@ -113,7 +122,11 @@ def tearDownModule():
         if _MC is not None:
             _MC.stop()
     finally:
-        reset_namespace()
+        try:
+            reset_namespace()
+        finally:
+            if _PERSONAS_DIR:
+                shutil.rmtree(_PERSONAS_DIR, ignore_errors=True)
 
 
 def _persona_dispatch_types(recs):
