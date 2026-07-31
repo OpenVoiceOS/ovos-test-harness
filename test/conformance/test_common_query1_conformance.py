@@ -45,6 +45,7 @@ from ovos_workshop.skills.ovos import OVOSSkill
 from ovoscope import get_minicroft
 
 from ._conformance import (
+    DEFAULT_EOF_TYPES,
     PADACIOSO_HIGH,
     capture,
     first,
@@ -168,8 +169,10 @@ def tearDownModule():
         reset_namespace()
 
 
-def _cq(session_id: str, text: str = QUESTION, timeout: float = 8.0):
-    return capture(_MC, utterance(text, session_id, PIPELINE), timeout)
+def _cq(session_id: str, text: str = QUESTION, timeout: float = 8.0,
+        eof_types=DEFAULT_EOF_TYPES):
+    return capture(_MC, utterance(text, session_id, PIPELINE), timeout,
+                   eof_types=eof_types)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -338,5 +341,6 @@ class TestSec9NoWinnerReachesFallback(TestCase):
         """§9/§14: a gated-out (no-winner) utterance still terminates with exactly
         one ``ovos.utterance.handled`` end-marker — the stage never blocks the
         pipeline."""
-        seq = types(_cq("cq-nowin-eof", text="zxqw blah blah"))
+        seq = types(_cq("cq-nowin-eof", text="zxqw blah blah",
+                        eof_types=None))
         self.assertEqual(seq.count("ovos.utterance.handled"), 1)
