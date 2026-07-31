@@ -58,6 +58,7 @@ ovoscope = pytest.importorskip(
 from ovoscope import E2EPipelineHarness  # noqa: E402
 from ovos_bus_client.message import Message  # noqa: E402
 from ovos_spec_tools import SpecMessage  # noqa: E402
+from ovos_utils.log import LOG  # noqa: E402
 
 REGISTER_KEYWORD = str(SpecMessage.INTENT_REGISTER_KEYWORD)
 REGISTER_TEMPLATE = str(SpecMessage.INTENT_REGISTER_TEMPLATE)
@@ -274,7 +275,14 @@ def _build_case(key: str, spec: Dict[str, Any]) -> type:
     """
     try:
         __import__(spec["module"])
-    except Exception as exc:  # not installed / import error -> skip this case
+    except ImportError as exc:
+        # Not installed in this combo -> this one case skips. Any other
+        # exception is a broken plugin and must propagate. The skip is itself
+        # a CI failure when the full stack is expected: see
+        # test/test_install_floor.py.
+        LOG.exception("INTENT-4 plugin %s (%s) is not importable; its "
+                      "registration-compliance case will skip",
+                      key, spec["module"])
         return _missing_case(key, spec, exc)
 
     engine_kind = spec["engine_kind"]

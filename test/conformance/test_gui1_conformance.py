@@ -333,10 +333,18 @@ class TestSec81ProducerConformance(TestCase):
 # =============================================================================
 
 def _service_available():
+    """Whether the GUI service is importable.
+
+    Only ImportError counts as "not installed"; any other exception is a
+    broken install and must propagate. The skip it produces is itself a CI
+    failure — see test/test_install_floor.py.
+    """
     try:
         import ovos_gui.namespace  # noqa: F401
         return True
-    except Exception:
+    except ImportError:
+        LOG.exception("ovos-gui is not importable; the GUI-1 service clauses "
+                      "will skip")
         return False
 
 

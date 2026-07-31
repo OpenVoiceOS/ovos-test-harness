@@ -49,12 +49,16 @@ from ovos_utils.ocp import MediaEntry, MediaState, PlayerState, PlaybackType
 # The Virtual Media Player (OVOS-OCP-1 §2/§3/§4) lives in ovos-media, installed
 # --no-deps by the integration workflow (it pins an incompatible bus-client; see
 # requirements.txt). If it is absent the OCPPlayerHarness cannot start, so the
-# whole module skips cleanly rather than erroring — the enum/contract tests that
-# need only ovos-utils.ocp still run.
+# player clauses skip and the enum/contract tests that need only ovos-utils.ocp
+# still run. Only ImportError skips: any other exception is a broken install
+# and must surface. test/test_install_floor.py makes the skip itself a CI
+# failure when the full stack is supposed to be present.
 try:
     import ovos_media.player  # noqa: F401
     _HAS_OCP_PLAYER = True
-except Exception:
+except ImportError:
+    LOG.exception("ovos-media is not importable; the OVOS-OCP-1 Virtual Media "
+                  "Player clauses will skip")
     _HAS_OCP_PLAYER = False
 
 _requires_player = pytest.mark.skipif(
