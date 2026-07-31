@@ -42,7 +42,7 @@ Coverage map (clause -> status against ovos-spec-tools):
 - §4.1 whitespace normalized / duplicates removed ................ green
 - §4.2 worked example sample set exact ........................... green
 - §5.1 dialog: unfilled slot MUST NOT render ..................... green
-- §5.5 dialog: mixed slot sets MUST be rejected .................. xfail (load_dialog)
+- §5.5 dialog: mixed slot sets MUST be rejected .................. green
 - §5.5 intent: mixed slot sets MUST be accepted .................. green
 """
 import importlib.util

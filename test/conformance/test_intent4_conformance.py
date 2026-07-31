@@ -6,26 +6,29 @@ ovoscope end-to-end assertions against the ovos-core orchestrator.
 
 INTENT-4 defines a fixed set of registration topics under ``ovos.intent.*`` /
 ``ovos.entity.*`` and an orchestrator-served introspection manifest
-(``ovos.intent.list`` / ``ovos.intent.describe``). ovos-core does not yet expose
-this bus contract — intent registration is in-process / plugin-specific
-(``padatious:register_intent``) and introspection is the legacy
-``intent.service.intent.get``. This suite therefore asserts the spec topics
-directly: the §2 fire-and-forget rule already holds (green); the registration,
-deregistration and introspection topics are pending (xfail) and flip to passing
-once the contract lands. The xfail discipline is described in ``_conformance.py``.
+(``ovos.intent.list`` / ``ovos.intent.describe``). This suite asserts the spec
+topics directly. The bus-namespace bridge in the harness maps most of the spec
+topics onto the legacy in-process mechanism, so those clauses already pass;
+the keyword-registration topic has no legacy counterpart and is the one
+pending clause. The xfail discipline is described in ``_conformance.py``.
+
+Every test class derives its own skill_id and sample phrasing from its class
+name (:class:`_IsolatedRegistrations`), because all classes share one
+minicroft and the orchestrator's registration state is process-global: a
+shared skill_id would make each class inherit the previous one's state.
 
 Coverage map (clause -> status against current ovos-core):
 - §2   registrations are fire-and-forget (no ack / no .response) .. green
-- §5   ``ovos.intent.register.keyword`` makes an intent matchable . xfail
-- §6   ``ovos.intent.register.template`` makes an intent matchable . xfail
-- §7   ``ovos.entity.register`` value-set hint ................... xfail
-- §8.2 ``ovos.intent.deregister`` removes an intent .............. xfail
-- §8.3 ``ovos.entity.deregister`` removes an entity .............. xfail
-- §8.4 ``ovos.skill.deregister`` removes a whole skill ........... xfail
-- §8.5 ``ovos.intent.disable`` suppresses an intent .............. xfail
-- §8.5 ``ovos.intent.enable`` re-arms a disabled intent .......... xfail
-- §10.1 ``ovos.intent.list`` introspection responds ............. xfail
-- §10.2 ``ovos.intent.describe`` introspection responds ......... xfail
+- §5   ``ovos.intent.register.keyword`` makes an intent matchable .. xfail (legacy 'padatious:register_intent')
+- §6   ``ovos.intent.register.template`` makes an intent matchable  green
+- §7   ``ovos.entity.register`` value-set hint ................... green
+- §8.2 ``ovos.intent.deregister`` removes an intent .............. green
+- §8.3 ``ovos.entity.deregister`` removes an entity .............. green
+- §8.4 ``ovos.skill.deregister`` removes a whole skill ........... green
+- §8.5 ``ovos.intent.disable`` suppresses an intent .............. green
+- §8.5 ``ovos.intent.enable`` re-arms a disabled intent .......... green
+- §10.1 ``ovos.intent.list`` introspection responds .............. green
+- §10.2 ``ovos.intent.describe`` introspection responds .......... green
 """
 import time
 from unittest import TestCase

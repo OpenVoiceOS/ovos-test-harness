@@ -25,7 +25,7 @@ Coverage map (clause -> status against the pinned stack):
 - §7.2 active persona claims a neutral (non-command) utterance ..... green
 - §7.4 Match.lang is the resolved language of the match ............ green
 - §8.1 handler speaks the response on `ovos.utterance.speak` ....... green
-- §3/§5 summon sets `session.persona_id` via updated_session ....... xfail (in-memory active_personas dict; persona_id never set on session)
+- §3/§5 summon sets `session.persona_id` via updated_session ....... green
 - §6   release clears `session.persona_id` ......................... xfail (clears in-memory dict; persona_id never touched on session)
 - §7.1 unsupported persona_id -> None .............................. xfail (still claims via persona:query / fallback)
 - §11  summon broadcasts `ovos.persona.activated` .................. xfail (emits 'persona.openvoiceos.activate')

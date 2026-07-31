@@ -41,6 +41,7 @@ Coverage map (MUST clause -> status against the installed stack):
 - §3.2  response routed to inbound source via .reply() ........... green (MSG-1 derivation)
 - §3.2  destination preserved through forward derivation ......... green
 - §3.3  site_id present after inbound MUST NOT be overwritten .... green (survives derivations)
+- §3.3  the session carries a site_id field at all .............. xfail (conditional: only when the bus-client Session lacks the field)
 - §3.3  site_id absent -> consumers MUST NOT infer a default ..... xfail (defaults to 'unknown')
 - §3.3  consumers MUST NOT ascribe structure to site_id ......... green (opaque string)
 - §3.4  inbound bus Message carries a valid session object ....... green (orchestrator round)

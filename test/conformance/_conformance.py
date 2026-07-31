@@ -21,9 +21,18 @@ xfail discipline
 A conformance test asserts the **spec's** topic name / message shape. Where
 ovos-core currently emits a legacy ``mycroft.*`` (or colon-shaped) name — the
 ``mycroft.* -> ovos.*`` migration is pending — the test is decorated
-``@pytest.mark.xfail(strict=False, reason=...)`` citing the legacy name and the
-spec clause it should meet. It flips to a pass automatically once the impl is
-updated. Tests with no xfail assert clauses the orchestrator already satisfies.
+``@pytest.mark.xfail(strict=True, reason=...)`` citing the legacy name and the
+spec clause it should meet. Strict is the default: the gap is deterministic, so
+an upstream fix must turn the suite red until the marker is deleted, rather
+than passing quietly as an XPASS. Only a genuinely environment-dependent gap
+(for example, an engine capability that a different installed matcher would
+satisfy) uses ``strict=False``, and its reason must say why.
+
+Tests with no xfail assert clauses the orchestrator already satisfies.
+
+Each suite's module docstring carries a *coverage map* — one line per clause,
+ending in ``green`` / ``xfail`` / ``skip``. ``test/test_docstring_xfail_sync.py``
+fails CI when a map stops matching the file's decorators.
 """
 import threading
 import time

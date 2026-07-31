@@ -18,6 +18,18 @@ omission), so presence is only asserted on populated sessions. The one clause
 the stack does not yet populate — ``converse_handlers`` — is tracked as a
 strict xfail so it flips loudly when the orchestrator starts draining it.
 Drivers are described in ``_conformance.py``.
+
+Coverage map (clause -> status against the installed stack):
+- PIPELINE-1 §7.1 dispatch records the skill as active ........... green
+- PIPELINE-1 §7.1 re-activation dedups head-first ................ green
+- PIPELINE-1 §7.1 session.active_handlers carries the skill ...... green
+- CONVERSE-1 §2.1 owners ordered most-recently-activated first ... green
+- CONVERSE-1 §2.1 session.converse_handlers mirrors the ordering .. xfail (not drained yet)
+- CONVERSE-1 §2.2 get-response sets the response state ........... green
+- CONVERSE-1 §2.2 session.response_mode carries the state ........ green
+- FALLBACK-1 §4   session.fallback_handlers carries the pool ..... green
+- SESSION-2       session_id preserved on the response ........... green
+- SESSION-2       a session mutation rides the forward ........... green
 """
 import time
 from typing import Optional

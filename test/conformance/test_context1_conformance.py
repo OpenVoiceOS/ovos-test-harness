@@ -35,6 +35,27 @@ stack already satisfies are green. Orchestrator/engine clauses the stack does
 not yet implement are ``@pytest.mark.xfail(strict=True, reason=…)`` so they
 flip to pass once core/engines adopt the spec. Pure-prose, non-observable
 requirements are skipped with a ``# not bus-observable`` note.
+
+Coverage map (clause -> status against the installed stack):
+- §2   intent_context is a session field ......................... green (carrier)
+- §2   absent intent_context ≡ empty map ......................... green (carrier)
+- §2   entry fields round-trip through the session ............... green (carrier)
+- §2   a flag entry carries a null value ......................... green (carrier)
+- §2   liveness predicate over expires_at / turns_remaining ...... green (carrier)
+- §3   bare and prefixed keys both preserved ..................... green (carrier)
+- §3.1 a prefixed key has exactly one separator .................. green (carrier)
+- §4.1 intent_context rides forward derivations .................. green (carrier)
+- §4.1 intent_context rides reply derivations .................... green (carrier)
+- §4.1 intent_context rides an ordinary Message .................. green (carrier)
+- §5.3 ovos.session.sync sets an entry ........................... xfail (no sync merge handler)
+- §5.3 ovos.session.sync null deletes an entry ................... xfail (no sync merge handler)
+- §4   turns_remaining decremented after a round ................. xfail (no decay tick)
+- §4   a dead entry is pruned before the match round ............. xfail (no prune tick)
+- §6   requires_context blocks without a live entry .............. green (e2e)
+- §6   requires_context permits with a live entry ................ green (e2e)
+- §6.1 excludes_context blocks when the entry is live ............ green (e2e)
+- §6.1 excludes_context permits when the entry is absent ......... green (e2e)
+- §7   a context value fills an unfilled slot .................... xfail (no slot promotion)
 """
 import time
 from unittest import TestCase

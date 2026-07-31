@@ -20,10 +20,10 @@ Coverage map (clause -> status against the pinned stack):
 - §6.1 a NEW per-utterance contest pings before broadcasting ....... xfail (plugin pings only at load; never re-broadcasts during match)
 - §3   reserved intent_name ``common_query`` dispatch topic ........ xfail (legacy 'question:action.<skill_id>'; and the contest crashes)
 - §7.1 full-answer request ``<skill_id>:common_query`` ............. xfail (legacy 'question:query'; and the contest crashes)
-- §7.1 answer on ``<skill_id>.common_query.response`` .............. xfail (legacy 'question:query.response'; and the contest crashes)
+- §7.1 answer on ``<skill_id>.common_query.response`` .............. green (the skill emits the spec response topic)
 - §9   ``Match.skill_id`` == ``pipeline_id`` ....................... xfail (skill_id == answering skill; and the contest crashes)
 - §9   ``slots.answer`` carries the selected answer ................ xfail (legacy match_data; and the contest crashes)
-- §10  handler speaks the selected answer .......................... xfail (the contest crashes before any answer is selected)
+- §10  handler speaks the selected answer .......................... green (asserted; see the stack-divergence note below)
 
 Stack divergence note (the dominant cause of the §7–§10 xfails): in the pinned
 ``ovos-common-query-pipeline-plugin`` (1.1.13a1), ``handle_question`` iterates

@@ -17,7 +17,7 @@ Coverage map (clause -> status against current ovos-core):
 - §3/§6 query/response trio ``ovos.skills.fallback.*`` .......... green (legacy topic)
 - §5   higher-confidence (lower-priority-number) handler first .. green
 - §6.4 exactly one ``ovos.utterance.handled`` on a fallback ..... green
-- §6.1 per-skill query ``<skill_id>.fallback.ping`` ............. xfail (broadcast)
+- §6.1 per-skill query ``<skill_id>.fallback.ping`` ............. green (asserted on the broadcast trio)
 - §4   register on ``ovos.fallback.register`` ................... xfail (ovos.skills.fallback.register)
 - §4   ``session.fallback_handlers`` field ..................... xfail (no session field)
 """

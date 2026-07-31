@@ -18,7 +18,7 @@ Coverage map (clause -> status against current ovos-core):
 - §4.2 a stoppable skill answers ``ovos.stop.pong`` ............. green
 - §4.3 per-skill stop dispatched on ``<skill_id>.stop`` ......... green
 - §4   stop with an active skill vs none chooses skill/global ... green
-- §3.1 global-stop self-dispatch ``<id>:global_stop`` ........... xfail (stop:global)
+- §3.1 global-stop self-dispatch ``<id>:global_stop`` ........... green
 - §2   a registration naming ``stop`` is malformed (reserved) ... xfail
 """
 import time

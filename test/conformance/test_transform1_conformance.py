@@ -29,6 +29,7 @@ Coverage map (clause -> status against the installed ovos-core services):
 - §1   last transformer's output is what proceeds ................. green
 - §3.2 utterance chain: input list -> possibly-modified list ...... green
 - §3.2 utterance transformer may mutate Message.context .......... green
+- §3.0 bidirectional lang threaded through every chain ........... xfail (templates take no lang parameter)
 - §3.2 empty-list (no-transcription) returned as-is .............. green
 - §3.3 metadata chain: context-in -> context-out, mutation kept .. green
 - §3.4 intent chain: Match.captures may be enriched .............. green
@@ -36,6 +37,7 @@ Coverage map (clause -> status against the installed ovos-core services):
 - §4   chain runs ascending priority (lower number first) ........ xfail (service sorts descending)
 - §7   a raising transformer is caught; chain proceeds ........... green
 - §7   raising transformer == returned its input unchanged ....... green
+- §7   a wrong-shape return is treated like a raise ............... xfail (no shape check)
 - §1.3 <type>_transformer_ids stamped on touched Message ......... xfail (not stamped)
 - §8.1 canceled/cancel_reason propagate through the chain ........ green
 - §8.1 orchestrator stamps cancel_by from the emitting id ........ xfail (not stamped)
