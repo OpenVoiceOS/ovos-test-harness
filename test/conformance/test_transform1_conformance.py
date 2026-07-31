@@ -267,7 +267,7 @@ class TestSec34Intent(TestCase):
                "output and proceed with the prior Match unchanged. "
                "IntentTransformersService.transform does not enforce the identity "
                "invariant — a transformer that overwrites skill_id is honoured.",
-        strict=False,
+        strict=True,
     )
     def test_skill_id_invariant_enforced(self):
         """§3.4 MUST NOT change ``Match.skill_id``; §9 MUST: the orchestrator
@@ -301,7 +301,7 @@ class TestSec4Ordering(TestCase):
                "UtteranceTransformersService.plugins sorts by priority with "
                "reverse=True (descending), so a priority=90 transformer runs "
                "before a priority=10 one — the inverse of the spec order.",
-        strict=False,
+        strict=True,
     )
     def test_ascending_priority_order(self):
         """§4 MUST: the chain runs ascending by priority — the lower-priority
@@ -382,7 +382,7 @@ class TestSec30Lang(TestCase):
                "TTSTransformer.transform(wav_file, context) — and return "
                "(artifact, context) with no lang slot, so a transformer cannot "
                "mutate the content language in lockstep per §3.0.",
-        strict=False,
+        strict=True,
     )
     def test_lang_is_a_threaded_parameter(self):
         """§3.0 MUST: the artifact-bearing transform signatures carry ``lang`` as
@@ -450,7 +450,7 @@ class TestSec7ErrorHandling(TestCase):
                "module.transform(...)` with no shape validation: a 2-element "
                "non-(list, dict) return (e.g. a 2-char string) unpacks silently "
                "and corrupts the chain output instead of being rejected.",
-        strict=False,
+        strict=True,
     )
     def test_shape_violation_treated_like_a_raise(self):
         """§7 MUST: a transformer that returns the wrong shape is treated the same
@@ -491,7 +491,7 @@ class TestSec13SelfIdentification(TestCase):
                "orchestrator SHOULD enforce it. UtteranceTransformersService "
                "merges only the data the plugin returns and never appends to "
                "utterance_transformer_ids, so chain provenance is not recorded.",
-        strict=False,
+        strict=True,
     )
     def test_utterance_transformer_ids_stamped(self):
         """§1.3 MUST: after the utterance chain runs, context carries
@@ -538,7 +538,7 @@ class TestSec8Cancellation(TestCase):
                "transformer's transformer_id (not any value the transformer "
                "supplied). The transformer service propagates canceled/"
                "cancel_reason but never stamps cancel_by.",
-        strict=False,
+        strict=True,
     )
     def test_cancel_by_stamped_by_orchestrator(self):
         """§8.1 MUST: the orchestrator stamps ``cancel_by`` with the emitting

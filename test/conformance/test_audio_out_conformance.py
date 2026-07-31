@@ -29,7 +29,7 @@ xfail discipline
 Each test asserts the topic / shape the spec MANDATES. Where the installed
 ``ovos-audio`` @dev diverges (it still uses legacy topic names for the
 b64-delivery, queue, instant-sound, is-speaking, and audio-stop surfaces), the
-test is ``@pytest.mark.xfail(strict=False, ...)`` citing the clause and the
+test is ``@pytest.mark.xfail(strict=True, ...)`` citing the clause and the
 legacy name actually used. It flips to green once ovos-audio renames the
 subscription to the spec topic.
 
@@ -179,7 +179,7 @@ class TestSec6StopIntegration(TestCase):
         with _no_bridge() as h:
             self.assertTrue(_subscribed(h, STOP.value))
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="AUDIO-1 §6/§7 MUST subscribe 'ovos.audio.stop'; "
                               "ovos-audio @dev subscribes legacy "
                               "'mycroft.audio.speech.stop' instead")
@@ -198,7 +198,7 @@ class TestSec34RemoteRendering(TestCase):
     ``ovos.utterance.speak.b64`` ... the service MUST emit ``ovos.audio.speech``
     with the synthesised audio encoded as base64"."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="AUDIO-1 §3.4 MUST subscribe 'ovos.utterance.speak.b64'; "
                               "ovos-audio @dev subscribes legacy 'speak:b64_audio'")
     def test_subscribes_speak_b64(self):
@@ -206,7 +206,7 @@ class TestSec34RemoteRendering(TestCase):
         with _no_bridge() as h:
             self.assertTrue(_subscribed(h, SPEAK_B64))
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="AUDIO-1 §3.4/§4.3 MUST emit 'ovos.audio.speech' for "
                               "b64 delivery; ovos-audio @dev neither subscribes the "
                               "spec b64 topic nor emits 'ovos.audio.speech' (it "
@@ -232,7 +232,7 @@ class TestSec34RemoteRendering(TestCase):
 class TestSec41QueuedSound(TestCase):
     """§4.1/§8: "support queued sound playback via ``ovos.audio.queue``"."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="AUDIO-1 §4.1/§7 MUST subscribe 'ovos.audio.queue'; "
                               "ovos-audio @dev subscribes legacy 'mycroft.audio.queue'")
     def test_subscribes_audio_queue(self):
@@ -260,7 +260,7 @@ class TestSec42InstantSound(TestCase):
     """§4.2/§8: "play instant sounds immediately on ``ovos.audio.play_sound``
     without queuing or stopping scheduled playback"."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="AUDIO-1 §4.2/§7 MUST subscribe 'ovos.audio.play_sound'; "
                               "ovos-audio @dev subscribes legacy "
                               "'mycroft.audio.play_sound'")
@@ -280,7 +280,7 @@ class TestSec53SpeakingStatus(TestCase):
     currently speaking by emitting ``ovos.audio.is_speaking`` ... The service
     replies with ``{speaking: bool}``"."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="AUDIO-1 §5.3 query topic is 'ovos.audio.is_speaking'; "
                               "ovos-audio @dev answers the legacy query "
                               "'mycroft.audio.speak.status' and replies "

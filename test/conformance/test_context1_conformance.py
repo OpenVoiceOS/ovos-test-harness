@@ -32,7 +32,7 @@ xfail discipline
 ----------------
 Every test asserts what CONTEXT-1 MANDATES and runs it. Carrier clauses the
 stack already satisfies are green. Orchestrator/engine clauses the stack does
-not yet implement are ``@pytest.mark.xfail(strict=False, reason=…)`` so they
+not yet implement are ``@pytest.mark.xfail(strict=True, reason=…)`` so they
 flip to pass once core/engines adopt the spec. Pure-prose, non-observable
 requirements are skipped with a ``# not bus-observable`` note.
 """
@@ -254,7 +254,7 @@ class TestSec53SessionSyncMerge(TestCase):
     ``intent_context`` payload **entry-by-entry** — present entry objects set or
     replace; ``null`` entries delete; absent keys are unchanged."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="CONTEXT-1 §5.3 MUST apply ovos.session.sync "
                               "intent_context entry-by-entry into the working "
                               f"session; {_LEGACY_NOTE}, and ovos-core does not "
@@ -268,7 +268,7 @@ class TestSec53SessionSyncMerge(TestCase):
         self.assertIn("person", ic)
         self.assertEqual(ic["person"]["value"], "Bob")
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="CONTEXT-1 §5.3 MUST apply the ovos.session.sync "
                               "intent_context payload entry-by-entry — a null "
                               "entry deletes while a co-present entry object "
@@ -307,7 +307,7 @@ class TestSec4Decay(TestCase):
     """§4: decay runs once per utterance dispatch — prune dead entries before
     the match round, decrement every live ``turns_remaining`` after it."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="CONTEXT-1 §4 MUST prune dead entries before the "
                               "match round and decrement turns_remaining after "
                               f"it; {_LEGACY_NOTE} (no per-utterance "
@@ -332,7 +332,7 @@ class TestSec4Decay(TestCase):
                 break
         self.assertEqual(ic.get("person", {}).get("turns_remaining"), 1)
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="CONTEXT-1 §4 MUST prune a dead (turns_remaining "
                               f"== 0) entry before the first matcher; {_LEGACY_NOTE}.")
     def test_dead_entry_pruned_before_match(self):
@@ -461,7 +461,7 @@ class TestSec7ContextSuppliedSlot(TestCase):
     the utterance did not fill it, the engine MUST populate ``Match.slots[key]``
     from the entry's non-null value (utterance-produced value wins)."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="CONTEXT-1 §7 MUST fill a match slot from a "
                               "context entry's value when a requires_context key "
                               "names an unfilled slot; the installed engines "

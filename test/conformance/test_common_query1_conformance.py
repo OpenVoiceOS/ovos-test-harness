@@ -196,7 +196,7 @@ class TestSec6Poll(TestCase):
         self.assertIsNotNone(plug, "common-query pipeline plugin not loaded")
         self.assertIn(WIKI_ID, plug.common_query_skills)
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="COMMON-QUERY-1 §6.1 MUST broadcast the ping for each "
                               "accepted utterance (gate -> poll -> collect); the pinned "
                               "plugin pings only once at load for discovery and never "
@@ -218,7 +218,7 @@ class TestSec3ReservedIntent(TestCase):
     ``<pipeline_id>:common_query`` — the plugin's own handler speaks the answer
     selected during ``match`` (§10)."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="COMMON-QUERY-1 §3 MUST dispatch the winning contest on "
                               "'<pipeline_id>:common_query'; the pinned plugin would "
                               "dispatch legacy 'question:action.<skill_id>', and in this "
@@ -240,7 +240,7 @@ class TestSec7AnswerCollection(TestCase):
     ``<skill_id>:common_query`` to each claimant; each skill emits its result on
     ``<skill_id>.common_query.response`` (dotted form, via ``reply``)."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="COMMON-QUERY-1 §7.1 MUST request full answers via "
                               "'<skill_id>:common_query'; the pinned plugin uses legacy "
                               "broadcast 'question:query', and the contest crashes "
@@ -281,7 +281,7 @@ class TestSec9And10WinningContest(TestCase):
         self.assertTrue(any(ANSWER in s for s in spoken),
                         f"selected answer not spoken; spoke {spoken}")
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="COMMON-QUERY-1 §9 MUST set Match.skill_id = the plugin's "
                               "own pipeline_id; the pinned plugin sets skill_id = the "
                               "answering skill, and the contest crashes "
@@ -294,7 +294,7 @@ class TestSec9And10WinningContest(TestCase):
         self.assertIsNotNone(dispatch, "no reserved common_query dispatch emitted")
         self.assertEqual(dispatch.context.get("skill_id"), CQ_PIPELINE)
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="COMMON-QUERY-1 §9 MUST carry slots.answer = the selected "
                               "answer string; the pinned plugin carries the answer in "
                               "match_data/callback_data, and the contest crashes "

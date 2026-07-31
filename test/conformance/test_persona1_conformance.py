@@ -166,7 +166,7 @@ class TestSec4NoPersonaMode(TestCase):
                          f"persona stage claimed in no-persona mode: {types(recs)}")
         self.assertIn("ovos.utterance.handled", types(recs))
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="PERSONA-1 §7.1 MUST return None when session.persona_id "
                               "is set to an UNSUPPORTED value; the plugin still claims "
                               "(persona:query / fallback) instead of declining")
@@ -201,7 +201,7 @@ class TestSec5Summon(TestCase):
         recs = capture(_MC, utterance("summon Alice", "p-summon-speak", PIPELINE), 5.0)
         self.assertIn("ovos.utterance.speak", types(recs))
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="PERSONA-1 §11 advisory: a persona that becomes active "
                               "SHOULD broadcast 'ovos.persona.activated'; the plugin "
                               "emits 'persona.openvoiceos.activate' instead")
@@ -225,7 +225,7 @@ class TestSec6Dismiss(TestCase):
         time.sleep(1.5)
         return capture(_MC, utterance(release_utt, session_id, PIPELINE), 5.0)
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="PERSONA-1 §6/§7.1 route 1 MUST claim a release while a "
                               "persona is active. ovos-persona @dev made the active persona "
                               "session-resident via session.persona_id (#185): the release "
@@ -242,7 +242,7 @@ class TestSec6Dismiss(TestCase):
         recs = self._summon_then("p-release", "stop talking to alice")
         self.assertIn("persona:release", types(recs))
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="PERSONA-1 §6 MUST clear session.persona_id on dismiss via "
                               "Match.updated_session; the plugin clears its in-memory "
                               "active_personas dict and leaves the session's persona_id "
@@ -333,7 +333,7 @@ class TestSec8Handler(TestCase):
                                       persona_id=ALICE), 6.0)
         self.assertEqual(types(recs).count("ovos.utterance.handled"), 1)
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="PERSONA-1 §8.5 MAY out-of-band query: when implemented "
                               "the plugin MUST answer 'ovos.persona.query' on "
                               "'ovos.persona.answer'; the pinned plugin does not "
@@ -355,7 +355,7 @@ class TestSec87Discovery(TestCase):
     """§8.7/§11: a persona plugin SHOULD respond to ``ovos.persona.list`` with the
     ``persona_id`` values it supports on ``ovos.persona.list.response``."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="PERSONA-1 §8.7/§11 SHOULD respond to 'ovos.persona.list' "
                               "on 'ovos.persona.list.response'; the pinned plugin does "
                               "not implement the discovery interface (no response)")
@@ -374,7 +374,7 @@ class TestSec11DismissBroadcast(TestCase):
     """§11: a persona dismissed from a session SHOULD broadcast
     ``ovos.persona.dismissed`` (best-effort; consumers MUST NOT rely on it)."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="PERSONA-1 §11 advisory: dismiss SHOULD broadcast "
                               "'ovos.persona.dismissed'; the pinned plugin emits no "
                               "dismiss broadcast")

@@ -1,10 +1,15 @@
 name: integration
 
-# Cross-repo spec-conformance integration run. Installs the EXACT stack pinned
-# in requirements.txt (git refs of unmerged branches) and runs the full spec
-# conformance suite against that combination. This repo deliberately does NOT
-# use the shared gh-automations ovoscope reusable workflow: the whole point is
-# to install its own explicit, fully-pinned stack so pip never re-resolves it.
+# Cross-repo spec-conformance integration run. Installs the stack listed in
+# requirements.txt and runs the full spec conformance suite against it.
+#
+# requirements.txt is NOT a lockfile: most entries are git refs that track a
+# moving branch, so two runs a day apart can install different code. The
+# `pip freeze` artifact below records what a given run actually installed, so
+# a red run can be reproduced and diffed afterwards.
+#
+# This repo deliberately does NOT use the shared gh-automations ovoscope
+# reusable workflow: it installs its own explicit stack combination.
 
 on:
   pull_request:
@@ -32,11 +37,28 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
+          pip install pytest-timeout
           # ovos-media (the OVOS-OCP-1 Virtual Media Player) pins
           # ovos-bus-client~=1.3, which conflicts with the bus-client>=2.4.0a1
           # the rest of the stack requires; install it WITHOUT deps so it cannot
           # downgrade the pinned stack. It runs fine against bus-client 2.x.
           pip install --no-deps ovos-media
 
+      - name: Record the installed stack
+        run: pip freeze > stack-freeze.txt
+
+      - name: Upload the installed-stack freeze
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stack-freeze
+          path: stack-freeze.txt
+
       - name: Run conformance suite
-        run: pytest test/ -v --tb=short
+        env:
+          # the full stack is installed here, so a suite that collects zero
+          # tests is an install failure, not a local convenience skip
+          OVOS_CONFORMANCE_EXPECT_FULL: "1"
+        run: >-
+          pytest test/ -v --tb=short -rxX
+          --timeout=180 --timeout-method=thread

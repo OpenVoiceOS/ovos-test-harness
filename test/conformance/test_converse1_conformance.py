@@ -48,9 +48,14 @@ CONVERSE_PIPELINE = ["ovos-converse-pipeline-plugin", PADACIOSO_HIGH]
 
 # whether the installed bus-client exposes the CONVERSE-1 session field
 _HAS_CONVERSE_HANDLERS = "converse_handlers" in Session("probe").serialize()
-_requires_converse_field = pytest.mark.skipif(
+# A spec-mandated session field that the installed bus-client does not carry
+# is a conformance failure, not an environment precondition — track it as a
+# strict xfail so it flips to a pass the moment the field lands.
+_requires_converse_field = pytest.mark.xfail(
     not _HAS_CONVERSE_HANDLERS,
-    reason="installed ovos-bus-client has no session.converse_handlers field",
+    reason="CONVERSE-1 §2.1 MUST: the installed ovos-bus-client Session has no "
+           "converse_handlers field",
+    strict=True,
 )
 
 _MC = None

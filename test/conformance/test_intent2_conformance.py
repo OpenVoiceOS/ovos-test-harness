@@ -18,7 +18,7 @@ keyword pipeline, in :class:`TestE2EVocOccurrence`, guarded behind the full
 stack the harness installs in CI.
 
 xfail discipline: each test asserts what the spec mandates and runs it; a
-divergence is ``@pytest.mark.xfail(strict=False, ...)`` quoting the clause and
+divergence is ``@pytest.mark.xfail(strict=True, ...)`` quoting the clause and
 the actual behaviour. Assertions are never weakened.
 
 Coverage map (clause -> status against ovos-spec-tools):

@@ -32,7 +32,7 @@ a spec-native ``MiniAudioInput`` harness (see report).
 xfail discipline
 ----------------
 Each test asserts the topic / shape the spec MANDATES. Where the installed
-stack diverges, the test is ``@pytest.mark.xfail(strict=False, ...)`` citing
+stack diverges, the test is ``@pytest.mark.xfail(strict=True, ...)`` citing
 the clause and the actual behaviour. It flips to green once the impl conforms.
 
 Coverage map (clause -> status against ovos-dinkum-listener @dev):

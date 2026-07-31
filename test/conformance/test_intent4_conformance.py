@@ -174,7 +174,7 @@ class TestSec5KeywordRegistration(TestCase):
     """§5: a keyword intent registered on ``ovos.intent.register.keyword``
     becomes matchable; a match dispatches ``<skill_id>:<intent_name>``."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="ovos-core consumes keyword registration via the legacy "
                               "'padatious:register_intent'/'register_intent'; INTENT-4 "
                               "§5 defines 'ovos.intent.register.keyword'")

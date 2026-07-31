@@ -35,7 +35,7 @@ xfail discipline (mirrors ``_conformance.py``)
 A plugin whose INTENT-4 adoption is INSTALLED (its ``requirements.txt`` pin
 carries the spec-topic consumer) has a GREEN spec test. A plugin pinned at a ref
 WITHOUT the adoption marks its ``test_spec_registration_is_matchable``
-``@pytest.mark.xfail(strict=False, reason=...)`` — it flips to a pass once the
+``@pytest.mark.xfail(strict=True, reason=...)`` — it flips to a pass once the
 adoption ref is pinned. ``adapt`` and ``padacioso`` are deliberately kept at
 ``@dev`` (they are load-bearing for the orchestrator suites), so their spec
 tests xfail until their adoption branch can be pinned without disturbing those
@@ -396,14 +396,14 @@ def _build_case(key: str, spec: Dict[str, Any]) -> type:
     # Apply xfail to the spec test for plugins without the adoption installed.
     if spec.get("spec_xfail"):
         _Case.test_spec_registration_is_matchable = pytest.mark.xfail(
-            strict=False, reason=spec["spec_xfail"]
+            strict=True, reason=spec["spec_xfail"]
         )(_Case.test_spec_registration_is_matchable)
 
     # Apply xfail to the legacy test for a plugin whose legacy path is itself
     # broken against the installed stack (documented real divergence).
     if spec.get("legacy_xfail"):
         _Case.test_legacy_registration_still_matches = pytest.mark.xfail(
-            strict=False, reason=spec["legacy_xfail"]
+            strict=True, reason=spec["legacy_xfail"]
         )(_Case.test_legacy_registration_still_matches)
 
     return _Case

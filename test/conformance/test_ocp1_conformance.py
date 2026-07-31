@@ -31,7 +31,7 @@ Coverage map (clause -> status against the installed ``ovos-media`` player):
 - §6   SEI introspection responds ............................. green (informative)
 
 xfail discipline per ``_conformance.py``: a test asserts the clause the spec
-mandates, runs it, and is marked ``xfail(strict=False)`` only where the player
+mandates, runs it, and is marked ``xfail(strict=True)`` only where the player
 diverges — citing the clause and the actual behaviour. Non-bus-observable prose
 (multi-session isolation §5, the MPRIS bridge §6, arbitration §6.3) is noted but
 not asserted because a single-player ``FakeBus`` harness cannot exhibit it.
@@ -207,7 +207,7 @@ class TestSec43ControlRequests(TestCase):
         reason="OVOS-OCP-1 §4.3 MUST: 'issuing pause with nothing playing is a "
                "no-op, not an error'; the ovos-media player transitions to "
                "PAUSED on a bare pause request with no now-playing media.",
-        strict=False,
+        strict=True,
     )
     def test_pause_is_noop_with_no_media(self):
         """§4.3 MUST: ``pause`` with no media present is a no-op — the player

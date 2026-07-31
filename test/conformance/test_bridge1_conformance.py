@@ -33,7 +33,7 @@ bus-observable (no bridge in stack)`` note and skipped, so the file is a
 complete §6 ledger even though only the composition layer is executable here.
 
 xfail discipline mirrors the other suites: assert what the spec mandates, run
-it, and ``xfail(strict=False)`` only where the impl diverges — never weaken to
+it, and ``xfail(strict=True)`` only where the impl diverges — never weaken to
 the legacy behaviour.
 
 Coverage map (MUST clause -> status against the installed stack):
@@ -200,9 +200,12 @@ class TestSec32OutboundRouting(TestCase):
 # §3.3 — site_id assignment
 # =============================================================================
 
-@pytest.mark.skipif(not _HAS_SITE_ID,
-                    reason="installed ovos-bus-client has no session.site_id "
-                           "field")
+# BRIDGE-1 §3.3 mandates the session field; its absence is a conformance
+# failure of the installed bus-client, not a reason to skip the clause.
+@pytest.mark.xfail(not _HAS_SITE_ID,
+                   reason="BRIDGE-1 §3.3 MUST: the installed ovos-bus-client "
+                          "Session has no site_id field",
+                   strict=True)
 class TestSec33SiteId(TestCase):
     """§3.3: ``site_id`` is the opaque group identifier owned by this spec.
     Once present on an inbound message after bridge processing, downstream
@@ -235,7 +238,7 @@ class TestSec33SiteId(TestCase):
             carried = Session.deserialize(deriv.context["session"])
             self.assertEqual(carried.site_id, "office-floor-2")
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="BRIDGE-1 §3.3 MUST NOT infer a default: an "
                               "unsupplied site_id is absent; ovos-bus-client "
                               "Session defaults site_id to the sentinel string "

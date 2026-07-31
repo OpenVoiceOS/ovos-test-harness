@@ -18,7 +18,7 @@ pipeline (and padacioso for template intents), guarded behind the full stack.
 Both facets are used exactly where the spec locates the requirement.
 
 xfail discipline: each test asserts what the spec mandates and runs it; a
-divergence is ``@pytest.mark.xfail(strict=False, ...)`` quoting the clause and
+divergence is ``@pytest.mark.xfail(strict=True, ...)`` quoting the clause and
 the actual behaviour. Assertions are never weakened. Pure-prose, non-testable
 clauses (ownership, one-handler binding, deployment matters) are noted with a
 ``# note: §X`` comment rather than asserted.
@@ -126,7 +126,7 @@ class TestSec4KeywordDefinition(TestCase):
         self.assertEqual(intent.at_least_one, [("u", "d")])
         self.assertEqual(intent.excludes, ["q"])
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="INTENT-3 §4.2 MUST: 'A keyword intent MUST "
                               "declare at least one required or one-of "
                               "constraint: an intent with only optional and "
@@ -142,7 +142,7 @@ class TestSec4KeywordDefinition(TestCase):
             (IntentBuilder("x").optionally("a").exclude("b").build()
              .to_keyword_payload())
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="INTENT-3 §4.2 MUST: 'A vocabulary MUST appear "
                               "under at most one role within a single intent … "
                               "[listing it twice] is contradictory and "

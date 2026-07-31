@@ -17,7 +17,7 @@ ovos-core stack the harness installs in CI.
 
 xfail discipline (see ``_conformance.py``): each test asserts what the spec
 *mandates* and runs it against spec-tools; where the implementation diverges
-the test is ``@pytest.mark.xfail(strict=False, ...)`` quoting the clause and
+the test is ``@pytest.mark.xfail(strict=True, ...)`` quoting the clause and
 the actual behaviour, flipping to a pass when the impl is corrected. Assertions
 are never weakened to make a divergence pass.
 

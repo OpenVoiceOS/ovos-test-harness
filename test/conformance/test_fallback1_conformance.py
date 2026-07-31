@@ -48,9 +48,14 @@ FALLBACK_HIGH = "ovos-fallback-pipeline-plugin-high"
 PIPELINE = [PADACIOSO_HIGH, FALLBACK_HIGH, FALLBACK_LOW]
 
 _HAS_FALLBACK_HANDLERS = "fallback_handlers" in Session("probe").serialize()
-_requires_fallback_field = pytest.mark.skipif(
+# A spec-mandated session field that the installed bus-client does not carry
+# is a conformance failure, not an environment precondition — track it as a
+# strict xfail so it flips to a pass the moment the field lands.
+_requires_fallback_field = pytest.mark.xfail(
     not _HAS_FALLBACK_HANDLERS,
-    reason="installed ovos-bus-client has no session.fallback_handlers field",
+    reason="FALLBACK-1 MUST: the installed ovos-bus-client Session has no "
+           "fallback_handlers field",
+    strict=True,
 )
 
 _MC = None
@@ -183,7 +188,7 @@ class TestSec4Registration(TestCase):
     """§4: a fallback skill registers on ``ovos.fallback.register`` carrying a
     default ordering ``priority``."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="ovos-core consumes 'ovos.skills.fallback.register'; "
                               "FALLBACK-1 §4 defines 'ovos.fallback.register'")
     def test_spec_register_topic_consumed(self):

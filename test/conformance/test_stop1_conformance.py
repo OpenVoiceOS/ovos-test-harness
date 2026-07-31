@@ -174,7 +174,7 @@ class TestSec2ReservedName(TestCase):
     register the reserved intent_name ``stop``; such a registration is malformed
     and must not be indexed, so it never dispatches."""
 
-    @pytest.mark.xfail(strict=False,
+    @pytest.mark.xfail(strict=True,
                        reason="ovos-core does not reject registrations naming the "
                               "reserved 'stop'; STOP-1 §2 / INTENT-4 §5.3 MUST")
     def test_reserved_stop_registration_not_dispatched(self):
