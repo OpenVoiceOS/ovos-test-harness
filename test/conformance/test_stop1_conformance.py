@@ -81,7 +81,7 @@ class TestSec5GlobalStop(TestCase):
     def test_global_stop_terminates(self):
         """The global-stop path terminates with exactly one end-marker
         (§5.1; end-marker per PIPELINE-1 §9.5)."""
-        recs = capture(_MC, utterance("stop", "stop-global-eof", [STOP_HIGH]), 4.0)
+        recs = capture(_MC, utterance("stop", "stop-global-eof", [STOP_HIGH]), 4.0, eof_types=None)
         self.assertEqual(types(recs).count("ovos.utterance.handled"), 1)
 
     def test_global_stop_broadcast_topic(self):

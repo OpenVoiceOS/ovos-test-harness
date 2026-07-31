@@ -33,6 +33,7 @@ from ovos_utils.log import LOG
 from ovoscope import get_minicroft
 
 from ._conformance import (
+    DEFAULT_EOF_TYPES,
     PADACIOSO_HIGH,
     capture,
     reset_namespace,
@@ -113,8 +114,9 @@ class TestSec6QueryResponse(TestCase):
     answers (response). ovos-core uses the broadcast ``ovos.skills.fallback.ping``
     / ``ovos.skills.fallback.pong`` query and a per-skill ``.response``."""
 
-    def _fallback(self, session_id: str):
-        return capture(_MC, utterance("zxqw blah blah", session_id, PIPELINE), 5.0)
+    def _fallback(self, session_id: str, eof_types=DEFAULT_EOF_TYPES):
+        return capture(_MC, utterance("zxqw blah blah", session_id, PIPELINE),
+                       5.0, eof_types=eof_types)
 
     def test_query_topics_emitted(self):
         """The fallback query cycle emits ``ovos.skills.fallback.ping`` and the
@@ -131,7 +133,7 @@ class TestSec6QueryResponse(TestCase):
     def test_exactly_one_handled(self):
         """A fallback-answered utterance terminates with exactly one
         ``ovos.utterance.handled`` (§6.4)."""
-        recs = self._fallback("fb-eof")
+        recs = self._fallback("fb-eof", eof_types=None)
         self.assertEqual(types(recs).count("ovos.utterance.handled"), 1)
 
 

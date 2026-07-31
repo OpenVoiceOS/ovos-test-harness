@@ -323,7 +323,7 @@ class TestSec8Handler(TestCase):
         """§8.1/PIPELINE-1 §9.5: a persona-handled utterance terminates with
         exactly one ``ovos.utterance.handled`` end-marker."""
         recs = capture(_MC, utterance(NEUTRAL, "p-speak-eof", PIPELINE,
-                                      persona_id=ALICE), 6.0)
+                                      persona_id=ALICE), 6.0, eof_types=None)
         self.assertEqual(types(recs).count("ovos.utterance.handled"), 1)
 
     def test_out_of_band_query_answers(self):
