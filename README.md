@@ -92,32 +92,34 @@ See [docs/ci.md](docs/ci.md).
 ## Coverage matrix
 
 The authoritative spec → suite traceability record. The architecture `dev` branch
-carries 20 specs; six conformance suites are implemented today (covering seven
-specs — SESSION-1 and SESSION-2 share one suite), and the rest are the documented
-roadmap. Full per-clause detail is in [docs/coverage.md](docs/coverage.md).
+carries 21 specs, and every one of them has a conformance suite: SESSION-1 and
+SESSION-2 share one suite, and INTENT-4 has two (an orchestrator suite and a
+per-plugin registration-compliance suite). Full per-clause detail is in
+[docs/coverage.md](docs/coverage.md).
 
 | Architecture spec | Spec ID | Harness suite | Status |
 |-------------------|---------|---------------|--------|
 | Utterance Lifecycle and Pipeline | OVOS-PIPELINE-1 | `test_pipeline1_conformance.py` | **implemented** |
 | Stop Pipeline Plugin | OVOS-STOP-1 | `test_stop1_conformance.py` | **implemented** |
-| Intent & Entity Registration Bus Contract | OVOS-INTENT-4 | `test_intent4_conformance.py` | **implemented** |
+| Intent & Entity Registration Bus Contract | OVOS-INTENT-4 | `test_intent4_conformance.py` (orchestrator) + `test_intent4_plugins_conformance.py` (per-plugin) | **implemented** |
 | Active Handlers & Interactive Response | OVOS-CONVERSE-1 | `test_converse1_conformance.py` | **implemented** |
 | Fallback Pipeline Plugin | OVOS-FALLBACK-1 | `test_fallback1_conformance.py` | **implemented** |
 | Session Specification | OVOS-SESSION-1 | `test_session_conformance.py` | **implemented** |
 | Session Lifecycle & State Ownership | OVOS-SESSION-2 | `test_session_conformance.py` | **implemented** |
-| Bus Message | OVOS-MSG-1 | — | roadmap |
-| Audio Input Service | OVOS-AUDIO-IN-1 | — | roadmap |
-| Audio Output Service | OVOS-AUDIO-1 | — | roadmap |
-| Bus Bridge & Opaque Relay | OVOS-BRIDGE-1 | — | roadmap |
-| Common Query Pipeline Plugin | OVOS-COMMON-QUERY-1 | — | roadmap |
-| GUI Display Subsystem | OVOS-GUI-1 | — | roadmap |
-| Sentence Template Grammar | OVOS-INTENT-1 | — | roadmap |
-| Locale Resource Formats | OVOS-INTENT-2 | — | roadmap |
-| Intent Definition | OVOS-INTENT-3 | — | roadmap |
-| Intent Context | OVOS-CONTEXT-1 | — | roadmap |
-| OVOS Common Playback (OCP) | OVOS-OCP-1 | — | roadmap |
-| Persona Pipeline Plugin | OVOS-PERSONA-1 | — | roadmap |
-| Transformer Plugins | OVOS-TRANSFORM-1 | — | roadmap |
+| Bus Message | OVOS-MSG-1 | `test_msg1_conformance.py` | **implemented** |
+| Audio Input Service | OVOS-AUDIO-IN-1 | `test_audio_in_conformance.py` | **implemented** |
+| Audio Output Service | OVOS-AUDIO-1 | `test_audio_out_conformance.py` | **implemented** |
+| Bus Bridge & Opaque Relay | OVOS-BRIDGE-1 | `test_bridge1_conformance.py` | **implemented** |
+| Common Query Pipeline Plugin | OVOS-COMMON-QUERY-1 | `test_common_query1_conformance.py` | **implemented** |
+| GUI Display Subsystem | OVOS-GUI-1 | `test_gui1_conformance.py` | **implemented** |
+| Sentence Template Grammar | OVOS-INTENT-1 | `test_intent1_conformance.py` | **implemented** |
+| Locale Resource Formats | OVOS-INTENT-2 | `test_intent2_conformance.py` | **implemented** |
+| Intent Definition | OVOS-INTENT-3 | `test_intent3_conformance.py` | **implemented** |
+| Intent Context | OVOS-CONTEXT-1 | `test_context1_conformance.py` | **implemented** |
+| OVOS Common Playback (OCP) | OVOS-OCP-1 | `test_ocp1_conformance.py` | **implemented** |
+| Persona Pipeline Plugin | OVOS-PERSONA-1 | `test_persona1_conformance.py` | **implemented** |
+| Transformer Plugins | OVOS-TRANSFORM-1 | `test_transform1_conformance.py` | **implemented** |
+| User Identity Resolution | OVOS-USER-ID-1 | `test_user_id1_conformance.py` | **implemented** |
 
 ## Testing branch combinations
 
