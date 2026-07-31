@@ -50,6 +50,7 @@ _requires_spec_workshop = pytest.mark.skipif(
 from ._conformance import (
     PADACIOSO_HIGH,
     STOP_HIGH,
+    assert_absent,
     capture,
     first,
     reset_namespace,
@@ -161,7 +162,7 @@ class TestSec53BlacklistBackstop(TestCase):
                       blacklisted_skills=[GREET_SKILL_ID]),
             4.0,
         )
-        self.assertNotIn(GREET_INTENT, types(recs))
+        assert_absent(recs, GREET_INTENT)
         self.assertIn("ovos.utterance.handled", types(recs))
 
 
@@ -312,7 +313,9 @@ class TestSec64Cancelled(TestCase):
     def test_cancelled_does_not_dispatch(self):
         """A cancelled utterance never reaches the matcher — no dispatch fires (§6.4)."""
         recs = capture(_MC, self._cancelled_entry("p1-cancel-nodisp"), 3.0)
-        self.assertNotIn(GREET_INTENT, types(recs))
+        assert_absent(recs, GREET_INTENT,
+                      positive_control=("ovos.utterance.cancelled",
+                                        "ovos.utterance.handled"))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

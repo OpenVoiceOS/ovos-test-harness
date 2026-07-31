@@ -31,8 +31,9 @@ from ovos_utils.log import LOG
 
 from ovoscope import get_minicroft, register_padatious_intent
 
-from ._conformance import (ENTRY_TOPIC, STOP_HIGH, capture, reset_namespace,
-                           types, use_spec_namespace, utterance)
+from ._conformance import (ENTRY_TOPIC, STOP_HIGH, assert_absent, capture,
+                           reset_namespace, types, use_spec_namespace,
+                           utterance)
 
 _MC = None
 
@@ -150,8 +151,8 @@ class TestSec43PerSkillStop(TestCase):
         universal ``ovos.stop`` broadcast is NOT emitted (§4 step ordering)."""
         recs = capture(_MC, _stop_with_active("stop-noglobal", "fake.skill"), 4.0)
         seq = types(recs)
-        self.assertIn("fake.skill:stop", seq)
-        self.assertNotIn("ovos.stop", seq)
+        self.assertIn("fake.skill:stop", seq)  # positive control
+        assert_absent(recs, "ovos.stop", positive_control="fake.skill:stop")
 
     def test_no_active_skill_goes_global(self):
         """A generic ``stop`` with no active skill escalates to the global stop
@@ -186,4 +187,4 @@ class TestSec2ReservedName(TestCase):
                        utterance("please halt everything now", "stop-reserved",
                                  [PADACIOSO_HIGH]),
                        3.0)
-        self.assertNotIn("rogue.skill:stop", types(recs))
+        assert_absent(recs, "rogue.skill:stop")

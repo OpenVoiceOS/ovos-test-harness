@@ -163,6 +163,34 @@ def capture(mc, message: Message, timeout: float = 5.0,
     return recs
 
 
+def assert_absent(recs: List[Message], msg_type: str, *,
+                  positive_control: Optional[Iterable[str]] = DEFAULT_EOF_TYPES):
+    """Assert ``msg_type`` never appeared — without the assertion being vacuous.
+
+    A bare ``assertNotIn`` passes when the interaction never happened at all
+    (boot failure, wrong entry topic, capture window too short). This helper
+    first requires a *positive control*: at least one of ``positive_control``
+    must be present, proving the turn really ran end to end. Pass
+    ``positive_control=None`` only when the interaction has no end-marker, and
+    then only with a non-empty capture.
+    """
+    seq = types(recs)
+    if not recs:
+        raise AssertionError(
+            f"vacuous negative assertion for {msg_type!r}: no bus traffic was "
+            f"captured at all")
+    if positive_control:
+        controls = ([positive_control] if isinstance(positive_control, str)
+                    else list(positive_control))
+        if not any(c in seq for c in controls):
+            raise AssertionError(
+                f"vacuous negative assertion for {msg_type!r}: none of the "
+                f"positive controls {controls} arrived, so the turn did not "
+                f"run to a terminal state; saw {seq}")
+    if msg_type in seq:
+        raise AssertionError(f"{msg_type!r} was emitted but must not be; saw {seq}")
+
+
 def deserialize_errors(recs: List[Message]) -> List[Message]:
     """Sentinel records for bus messages that failed to deserialize."""
     return [m for m in recs if m.msg_type == DESERIALIZE_ERROR]

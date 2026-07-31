@@ -40,7 +40,8 @@ from ovoscope import (
     register_padatious_intent,
 )
 
-from ._conformance import PADACIOSO_HIGH, capture, types, utterance
+from ._conformance import (PADACIOSO_HIGH, assert_absent, capture, types,
+                           utterance)
 
 KEYWORD_INTENT = "intent4.skill:lights_off"
 KEYWORD_SKILL, KEYWORD_NAME = KEYWORD_INTENT.split(":")
@@ -142,7 +143,7 @@ class TestSec82Deregister(TestCase):
             utterance("turn on the lights", "i4-dereg", [PADACIOSO_HIGH]),
             3.0,
         )
-        self.assertNotIn(TEMPLATE_INTENT, types(recs))
+        assert_absent(recs, TEMPLATE_INTENT)
 
 
 class TestSec85Disable(TestCase):
@@ -162,7 +163,7 @@ class TestSec85Disable(TestCase):
             utterance("turn on the lights", "i4-disable", [PADACIOSO_HIGH]),
             3.0,
         )
-        self.assertNotIn(TEMPLATE_INTENT, types(recs))
+        assert_absent(recs, TEMPLATE_INTENT)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -214,7 +215,8 @@ class TestSec7EntityRegistration(TestCase):
         acks = [t for t in types(recs) if t.endswith(".response")]
         self.assertEqual(acks, [], f"unexpected acknowledgement(s): {acks}")
         # an INTENT-4 consumer must not reject a well-formed entity payload
-        self.assertNotIn("ovos.entity.register.error", types(recs))
+        assert_absent(recs, "ovos.entity.register.error",
+                      positive_control="ovos.entity.register")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -232,7 +234,8 @@ class TestSec83EntityDeregister(TestCase):
             "skill_id": ENTITY_NAME.split(":")[0],
             "name": ENTITY_NAME, "lang": "en-US",
         }, {"skill_id": ENTITY_NAME.split(":")[0]}), 2.0)
-        self.assertNotIn("ovos.entity.deregister.error", types(recs))
+        assert_absent(recs, "ovos.entity.deregister.error",
+                      positive_control="ovos.entity.deregister")
 
 
 class TestSec84SkillDeregister(TestCase):
@@ -252,7 +255,7 @@ class TestSec84SkillDeregister(TestCase):
             utterance("turn off the lights", "i4-skilldereg", [PADACIOSO_HIGH]),
             3.0,
         )
-        self.assertNotIn(KEYWORD_INTENT, types(recs))
+        assert_absent(recs, KEYWORD_INTENT)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

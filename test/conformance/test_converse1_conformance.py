@@ -34,6 +34,7 @@ from ovoscope import get_minicroft
 from ._conformance import (
     ENTRY_TOPIC,
     PADACIOSO_HIGH,
+    assert_absent,
     capture,
     reset_namespace,
     types,
@@ -159,8 +160,8 @@ class TestSec4Decline(TestCase):
         sess.pipeline = CONVERSE_PIPELINE
         recs = capture(_MC, _followup(sess, "zxqw blah blah"), 4.0)
         seq = types(recs)
-        self.assertNotIn("converse:skill", seq)
-        self.assertIn("ovos.utterance.handled", seq)
+        assert_absent(recs, "converse:skill")
+        self.assertIn("ovos.utterance.handled", seq)  # positive control
 
 
 # ─────────────────────────────────────────────────────────────────────────────

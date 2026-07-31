@@ -48,6 +48,7 @@ from ovoscope import get_minicroft, register_padatious_intent
 
 from ._conformance import (
     PADACIOSO_HIGH,
+    assert_absent,
     capture,
     first,
     reset_namespace,
@@ -405,7 +406,7 @@ class TestSec6RequiresContext(TestCase):
         # no intent_context set -> the gate is unsatisfied -> MUST NOT dispatch
         recs = capture(_MC, utterance("the secret phrase", "ic-gate-block",
                                       [PADACIOSO_HIGH]), 3.0)
-        self.assertNotIn(GATED_INTENT, types(recs))
+        assert_absent(recs, GATED_INTENT)
 
     def test_requires_context_permits_with_live_entry(self):
         """§6: with a live entry at the gate key, the same declaring intent
@@ -431,7 +432,7 @@ class TestSec61ExcludesContext(TestCase):
         ic = {GATE_KEY: _entry(None, turns_remaining=5)}
         recs = capture(_MC, utterance("open sesame now", "ic-excl-block",
                                       [PADACIOSO_HIGH], intent_context=ic), 3.0)
-        self.assertNotIn(GATED_INTENT, types(recs))
+        assert_absent(recs, GATED_INTENT)
 
     def test_excludes_context_permits_when_entry_absent(self):
         """§6.1: with the excluded key absent, the same declaring intent
