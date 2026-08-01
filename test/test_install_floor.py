@@ -42,6 +42,54 @@ def test_gated_stack_piece_is_importable(module, suite):
                     f"silently on a full-stack run: {exc}")
 
 
+# Capabilities gated by a `skipif` inside a conformance suite. On a partial
+# local stack the suite skips the clause cleanly; on a full-stack CI run the
+# capability MUST be present, or the clause skipped silently and the green is a
+# lie — exactly the false-coverage failure mode `skipif` creates. Each entry is
+# a deterministic presence probe returning ``(present, how_to_get_it)``.
+def _workshop_has_spec_dual_emit():
+    """ovos-workshop exposes the §8/§9.6 spec bus-message dual-emit.
+
+    Gate for ``test_pipeline1_conformance`` ``_requires_spec_workshop``
+    (``OVOSSkill._intent_handler_data``).
+    """
+    from ovos_workshop.skills.ovos import OVOSSkill
+    return (hasattr(OVOSSkill, "_intent_handler_data"),
+            "install an ovos-workshop carrying the spec bus-message dual-emit "
+            "(OVOSSkill._intent_handler_data)")
+
+
+def _bus_client_has_transformer_override_fields():
+    """ovos-bus-client Session carries the TRANSFORM-1 §5 override fields.
+
+    Gate for ``test_transform1_conformance`` ``_requires_override_fields``
+    (``session.<type>_transformers``).
+    """
+    from ovos_bus_client.session import Session
+    return ("utterance_transformers" in Session("probe").serialize(),
+            "install an ovos-bus-client whose Session registers the "
+            "OVOS-TRANSFORM-1 §5 <type>_transformers override fields "
+            "(OVOS-SESSION-1 §2.1)")
+
+
+GATED_CAPABILITIES = {
+    "pipeline1 §8/§9.6 (handler trio + speak dual-emit)":
+        _workshop_has_spec_dual_emit,
+    "transform1 §5 (per-session <type>_transformers overrides)":
+        _bus_client_has_transformer_override_fields,
+}
+
+
+@pytest.mark.parametrize("clause,probe", sorted(GATED_CAPABILITIES.items()))
+def test_skipif_gated_capability_is_present(clause, probe):
+    """A full-stack run installs the capability every ``skipif``-guarded clause
+    needs; if it is absent the clause skipped silently and CI is falsely green."""
+    present, remedy = probe()
+    assert present, (
+        f"{clause} is absent on a full-stack run, so that conformance clause "
+        f"skipped silently and reported green without proving anything: {remedy}")
+
+
 def test_no_intent4_plugin_case_is_a_missing_placeholder():
     """Every INTENT-4 plugin case is a real case, not a not-installed stub."""
     mod = importlib.import_module(

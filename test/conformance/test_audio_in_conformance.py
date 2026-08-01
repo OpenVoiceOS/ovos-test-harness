@@ -57,6 +57,9 @@ from ovos_utils.fakebus import FakeBus
 from ovos_utils.log import LOG
 from ovos_spec_tools import SpecMessage
 
+from . import _conformance
+from ._conformance import first as _first, types as _types
+
 # Spec topics defined by AUDIO-IN-1 (§6.5). These exist as SpecMessage members.
 RECORD_STARTED = SpecMessage.LISTENER_RECORD_STARTED  # ovos.listener.record.started
 RECORD_ENDED = SpecMessage.LISTENER_RECORD_ENDED      # ovos.listener.record.ended
@@ -81,9 +84,11 @@ def _build_listener():
     bus.connected_event = threading.Event()
     bus.connected_event.set()
 
+    # Route through the shared hardened recorder so a message the bus cannot
+    # deserialize is recorded as a ``_deserialize_error`` sentinel, not dropped
+    # by a weaker local lambda.
     recs = []
-    bus.on("message", lambda m: recs.append(
-        Message.deserialize(m) if isinstance(m, str) else m))
+    _conformance.record_into(bus, recs)
 
     plug = MagicMock()
     plug.stt_lang = "en-US"
@@ -97,14 +102,6 @@ def _build_listener():
 
 def setUpModule():
     LOG.set_level("ERROR")
-
-
-def _types(recs):
-    return [m.msg_type for m in recs]
-
-
-def _first(recs, msg_type):
-    return next((m for m in recs if m.msg_type == msg_type), None)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

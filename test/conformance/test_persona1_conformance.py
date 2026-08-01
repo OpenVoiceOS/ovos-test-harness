@@ -111,7 +111,8 @@ def setUpModule():
             pipeline_config={"persona": {"personas_path": _PERSONAS_DIR,
                                          "handle_fallback": True}},
         )
-        time.sleep(2)
+        from ._conformance import wait_ready
+        wait_ready(_MC)
     except BaseException:
         reset_namespace()
         raise

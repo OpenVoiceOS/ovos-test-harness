@@ -93,7 +93,8 @@ def setUpModule():
     use_spec_namespace()
     try:
         _MC = get_minicroft([])
-        time.sleep(2)
+        from ._conformance import wait_ready
+        wait_ready(_MC)
     except BaseException:
         reset_namespace()
         raise

@@ -332,12 +332,12 @@ class TestE2EVocOccurrence(TestCase):
     def setUpClass(cls):
         from ovos_utils.log import LOG
         from ovoscope import get_minicroft, register_padatious_intent
-        from ._conformance import reset_namespace, use_spec_namespace
+        from ._conformance import reset_namespace, use_spec_namespace, wait_ready
         LOG.set_level("ERROR")
         use_spec_namespace()
         try:
             cls._mc = get_minicroft([])
-            time.sleep(1)
+            wait_ready(cls._mc, settle=1.0)
             # The driver is padacioso (template family), but the §4.3 occurrence
             # property is the same: a phrase present as contiguous whole words
             # matches. Register an intent whose sample is the phrase under test.

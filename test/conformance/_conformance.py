@@ -34,6 +34,7 @@ Each suite's module docstring carries a *coverage map* — one line per clause,
 ending in ``green`` / ``xfail`` / ``skip``. ``test/test_docstring_xfail_sync.py``
 fails CI when a map stops matching the file's decorators.
 """
+import os
 import threading
 import time
 from typing import Iterable, List, Optional
@@ -88,6 +89,39 @@ def reset_namespace():
 PADACIOSO_HIGH = "ovos-padacioso-pipeline-plugin-high"
 STOP_HIGH = "ovos-stop-pipeline-plugin-high"
 
+# Post-boot settle. ``get_minicroft()`` already blocks until the MiniCroft
+# process reaches READY, but pipeline plugins and asynchronous intent
+# registration (padatious container training) finish shortly *after* READY.
+# This bounded settle covers that tail. Kept as one shared constant — overridable
+# with ``OVOS_CONFORMANCE_BOOT_SETTLE`` — so a slow CI boot is tuned in one place
+# and shows up as a clean, diagnosable wait rather than a magic per-file sleep.
+BOOT_SETTLE = float(os.environ.get("OVOS_CONFORMANCE_BOOT_SETTLE", "2.0"))
+
+# Upper bound on the READY re-check poll below.
+READY_TIMEOUT = float(os.environ.get("OVOS_CONFORMANCE_READY_TIMEOUT", "30.0"))
+
+
+def wait_ready(mc, settle: float = BOOT_SETTLE, timeout: float = READY_TIMEOUT):
+    """Confirm the MiniCroft is READY, then apply the shared post-boot settle.
+
+    ``get_minicroft()`` already blocks until READY, so the READY re-check here is
+    a cheap, diagnosable guard: a regression that hands back a not-ready croft
+    fails with a clear ``TimeoutError`` naming the observed state, instead of a
+    confusing mid-test error. The bounded ``settle`` that follows is the shared
+    :data:`BOOT_SETTLE` tail for pipeline / intent registration to finish, in
+    place of a per-file magic sleep.
+    """
+    from ovos_utils.process_utils import ProcessState
+    deadline = time.monotonic() + timeout
+    state = getattr(getattr(mc, "status", None), "state", None)
+    while state != ProcessState.READY:
+        if time.monotonic() > deadline:
+            raise TimeoutError(
+                f"MiniCroft not READY within {timeout}s (observed state={state})")
+        time.sleep(0.05)
+        state = getattr(getattr(mc, "status", None), "state", None)
+    time.sleep(settle)
+
 
 def utterance(text: str, session_id: str, pipeline: List[str],
               lang: str = "en-US", **session_fields) -> Message:
@@ -120,6 +154,66 @@ EOF_SETTLE = 0.5
 DESERIALIZE_ERROR = "_deserialize_error"
 
 
+def _deserialize_guarded(serialized, recs: List[Message]) -> Optional[Message]:
+    """Turn one raw bus payload into a :class:`Message`, guarding corruption.
+
+    A payload the bus cannot deserialize is **not** dropped: a sentinel
+    ``_deserialize_error`` Message is appended to ``recs`` (so the corruption
+    shows up in assertions and failure output) and ``None`` is returned. This
+    is the single deserialize guard shared by every capture helper here so a
+    corrupt emission is never silently swallowed anywhere in the suite.
+    """
+    if isinstance(serialized, Message):
+        return serialized
+    try:
+        return Message.deserialize(serialized)
+    except Exception as exc:  # noqa: BLE001 - recorded, not swallowed
+        raw = serialized if isinstance(serialized, str) else repr(serialized)
+        recs.append(Message(DESERIALIZE_ERROR,
+                            {"error": str(exc), "raw": raw[:200]}))
+        return None
+
+
+def record_into(bus, recs: List[Message]):
+    """Attach a guarded catch-all recorder to ``bus``, appending to ``recs``.
+
+    Returns the callback so the caller can ``bus.remove("message", cb)`` it.
+    Every recorded payload passes through :func:`_deserialize_guarded`, so a
+    producer-side suite gets the same deserialize-error sentinel the
+    orchestrator-side :func:`capture` has, instead of re-implementing a weaker
+    recorder that drops (or raises on) a corrupt emission.
+    """
+    def _rec(serialized):
+        msg = _deserialize_guarded(serialized, recs)
+        if msg is not None:
+            recs.append(msg)
+    bus.on("message", _rec)
+    return _rec
+
+
+def capture_emissions(bus, action, *, settle: float = 0.2,
+                      prefix: Optional[str] = None) -> List[Message]:
+    """Capture every bus Message emitted while ``action()`` runs.
+
+    The producer-side counterpart to :func:`capture`: a producer emission has
+    no entry message to send and no end-marker to wait on, so this simply runs
+    ``action`` and records everything through the shared
+    :func:`record_into` guard (deserialize-error sentinel included), waits a
+    short ``settle`` window for trailing emissions, and returns the records.
+    ``prefix`` filters the result to topics starting with it.
+    """
+    recs: List[Message] = []
+    cb = record_into(bus, recs)
+    try:
+        action()
+        time.sleep(settle)
+    finally:
+        bus.remove("message", cb)
+    if prefix is not None:
+        return [m for m in recs if m.msg_type.startswith(prefix)]
+    return recs
+
+
 def capture(mc, message: Message, timeout: float = 5.0,
             eof_types: Optional[Iterable[str]] = DEFAULT_EOF_TYPES,
             settle: float = EOF_SETTLE) -> List[Message]:
@@ -144,16 +238,9 @@ def capture(mc, message: Message, timeout: float = 5.0,
     seen_eof = threading.Event()
 
     def _rec(serialized):
-        if isinstance(serialized, Message):
-            msg = serialized
-        else:
-            try:
-                msg = Message.deserialize(serialized)
-            except Exception as exc:  # noqa: BLE001 - recorded, not swallowed
-                raw = serialized if isinstance(serialized, str) else repr(serialized)
-                recs.append(Message(DESERIALIZE_ERROR,
-                                    {"error": str(exc), "raw": raw[:200]}))
-                return
+        msg = _deserialize_guarded(serialized, recs)
+        if msg is None:
+            return
         recs.append(msg)
         if msg.msg_type in eof:
             seen_eof.set()
