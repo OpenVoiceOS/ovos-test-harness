@@ -51,7 +51,7 @@ conformance test then asserts a spec-mandated bus behavior against that live
 stack. It imports the spec vocabulary from
 [`ovos-spec-tools`](https://github.com/OpenVoiceOS/ovos-spec-tools), so a
 topic name is provably spec-defined rather than a magic string, and captures
-the bus through [`ovoscope`](https://github.com/TigreGotico/ovoscope).
+the bus through [`ovoscope`](https://github.com/OpenVoiceOS/ovoscope).
 
 ## The model: `requirements.txt` is the stack under test
 
@@ -71,9 +71,14 @@ downgrade. The roles:
 | `ovos-spec-tools` | The published spec vocabulary: the `SpecMessage` topic enum, `Session`, `Intent`. Tests import topic names from here, never as string literals. |
 | `pytest`, `pytest-json-report` | The runner. |
 
-Because the stack is fully pinned, a run is deterministic. The same refs
-produce the same verdict every time. See [docs/how-it-works.md](docs/how-it-works.md)
-for details.
+The stack is pinned against resolver downgrade: one explicit ref per repo, so
+pip never re-resolves a sibling out from under the combination under test.
+Most refs are branches, not shas, so they can move between runs — a run is
+not guaranteed to reproduce bit-for-bit on a later date. What IS guaranteed:
+a red run is reproducible from its `pip freeze` artifact (see
+[docs/ci.md](docs/ci.md)), and pinning a ref to an explicit `@<sha>` instead
+of a branch name freezes that line for a certification that must reproduce
+exactly. See [docs/how-it-works.md](docs/how-it-works.md) for details.
 
 ## Quick start
 
@@ -154,7 +159,7 @@ worked example in [docs/testing-combos.md](docs/testing-combos.md).
 |-----------|------|
 | [`OpenVoiceOS/architecture`](https://github.com/OpenVoiceOS/architecture) | **The law.** The specs themselves: what MUST happen on the bus. Implementation-agnostic Markdown. |
 | [`ovos-spec-tools`](https://github.com/OpenVoiceOS/ovos-spec-tools) | **The vocabulary.** The shared Python primitives the specs define: the `SpecMessage` topic enum, `Session`, `Intent`. Tests import these so an asserted topic is provably the spec's. |
-| [`ovoscope`](https://github.com/TigreGotico/ovoscope) | **The instrument.** The end-to-end bus-capture / assertion engine the tests are built on. |
+| [`ovoscope`](https://github.com/OpenVoiceOS/ovoscope) | **The instrument.** The end-to-end bus-capture / assertion engine the tests are built on. |
 | **`ovos-test-harness`** (this repo) | **The courtroom.** Where a concrete stack is put on trial against the law and a per-clause verdict is produced. |
 
 See [docs/overview.md](docs/overview.md) for the full picture.
