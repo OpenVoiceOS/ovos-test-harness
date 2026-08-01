@@ -13,13 +13,13 @@
 # Limitation: two branches of the SAME repo cannot both be installed; pick one
 # ref per repo.
 
-# core with STOP-1 conformance source (PR #777). The old combined
-# test/spec-stack-integration-proof branch is stale: it still caps
-# ovos-spec-tools<1.0.0, which cannot co-resolve with the spec-tools 1.x stack
-# (ovos-adapt-parser 1.5.0a1 requires ovos-spec-tools>=1.4.0a1). feat/stop-1-
-# conformance is rebased on current dev (spec-tools>=1.1.0a1,<2.0.0), carries
-# the INTENT-4 §10 orchestrator manifest, and is the live STOP-1 PR branch.
-git+https://github.com/OpenVoiceOS/ovos-core@feat/stop-1-conformance
+# core with STOP-1 conformance source (PR #802, feat/stop-1-spec). This is
+# the canonical STOP-1 branch: it implements the §2/§3.1 reserved-intent_name
+# dispatch (<skill_id>:stop / <pipeline_id>:global_stop) that the earlier
+# feat/stop-1-conformance branch (PR #777, now closed) explicitly deferred.
+# It carries the droppable _LegacyStopBridge and is rebased on current dev.
+# DROP this branch pin (back to @dev) once #802 merges.
+git+https://github.com/OpenVoiceOS/ovos-core@feat/stop-1-spec
 # INTENT-4 producer (emits ovos.intent.register.* etc.), stacked with the
 # PIPELINE-1 §9.5 fix that stops FallbackSkill/ConversationalSkill from
 # double-emitting ovos.utterance.handled when core (>=2.3.0a1) owns the
