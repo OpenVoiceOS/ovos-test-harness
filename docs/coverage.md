@@ -1,25 +1,27 @@
-# Coverage — spec → suite traceability matrix
+# Coverage — spec-to-suite traceability matrix
 
 This is the authoritative record of which
-[`OpenVoiceOS/architecture`](https://github.com/OpenVoiceOS/architecture) specs
-the harness proves conformance against, and — for each implemented suite — which
-spec sections are asserted and at what status.
+[`OpenVoiceOS/architecture`](https://github.com/OpenVoiceOS/architecture)
+specs the harness proves conformance against. For each implemented suite it
+lists which spec sections are asserted and at what status.
 
 Status legend:
 
-- **green** — the pinned stack satisfies the clause; the test asserts the spec
-  behavior and passes.
-- **xfail** — a *documented* conformance gap (see [known-gaps.md](known-gaps.md)).
-  The test asserts the spec behavior; the current implementation still does the
-  legacy thing. Flips to a pass automatically when the impl lands.
-- **skip-guarded** — green when the relevant producer / session field is installed,
-  skipped cleanly when it is not (probed at runtime).
+- **green** — the pinned stack satisfies the clause. The test asserts the
+  spec behavior and passes.
+- **xfail** — a documented conformance gap (see [known-gaps.md](known-gaps.md)).
+  The test asserts the spec behavior. The current implementation still does
+  the legacy thing. It flips to a pass automatically when the implementation
+  lands.
+- **skip-guarded** — green when the relevant producer or session field is
+  installed, and skipped cleanly when it is not (probed at runtime).
 
 ## Top-level matrix
 
 The architecture `dev` branch carries 21 specs. All 21 are covered by 21
-conformance suites (SESSION-1 and SESSION-2 share one suite; INTENT-4 is covered
-by both an orchestrator suite and a per-plugin registration-compliance suite).
+conformance suites. SESSION-1 and SESSION-2 share one suite. INTENT-4 is
+covered by both an orchestrator suite and a per-plugin
+registration-compliance suite.
 
 | Architecture spec | Spec ID | Suite | Status |
 |-------------------|---------|-------|--------|
@@ -49,46 +51,47 @@ by both an orchestrator suite and a per-plugin registration-compliance suite).
 
 ## OVOS-PIPELINE-1 — `test_pipeline1_conformance.py`
 
-*Utterance Lifecycle and Pipeline Specification.* Asserts the §11 conformance
-clauses and the message-shape rules against the ovos-core orchestrator. During the
-namespace transition both the legacy and the spec topics are emitted, so every
-clause is green.
+*Utterance Lifecycle and Pipeline Specification.* Asserts the §11
+conformance clauses and the message-shape rules against the ovos-core
+orchestrator. During the namespace transition, both the legacy and the spec
+topics are emitted, so every clause is green.
 
 | Class | Clause(s) | Asserts | Status |
 |-------|-----------|---------|--------|
-| `TestSec5EffectivePipeline` | §5.1 | A known stage in `session.pipeline` matches & dispatches; an unknown `pipeline_id` is skipped, not aborted. | green |
-| `TestSec53BlacklistBackstop` | §5.3 | A match whose `skill_id` is in `session.blacklisted_skills` is suppressed (orchestrator backstop); utterance still terminates. | green |
+| `TestSec5EffectivePipeline` | §5.1 | A known stage in `session.pipeline` matches & dispatches. An unknown `pipeline_id` is skipped, not aborted. | green |
+| `TestSec53BlacklistBackstop` | §5.3 | A match whose `skill_id` is in `session.blacklisted_skills` is suppressed (orchestrator backstop). Utterance still terminates. | green |
 | `TestSec95EndMarker` | §6.4, §9.5 | Exactly one `ovos.utterance.handled` per utterance on the no-match and stop terminal paths. | green |
-| `TestSec7Dispatch` | §7, §7.1 | Dispatch topic is exactly `<skill_id>:<intent_name>`; `data.utterance` forwarded verbatim; `context.skill_id` and `context.pipeline_id` stamped. | green |
+| `TestSec7Dispatch` | §7, §7.1 | Dispatch topic is exactly `<skill_id>:<intent_name>`. `data.utterance` forwarded verbatim. `context.skill_id` and `context.pipeline_id` stamped. | green |
 | `TestSec8HandlerTrio` | §8.1 | A handler invocation is wrapped by `ovos.intent.handler.start` + exactly one `ovos.intent.handler.complete`. | skip-guarded (workshop) |
 | `TestSec91Entry` | §9.1 | An utterance fed on `ovos.utterance.handle` runs the lifecycle to the end-marker. | green |
 | `TestSec92Matched` | §9.2 | A successful match emits `ovos.intent.matched`. | green |
 | `TestSec93Unmatched` | §9.3 | No-match emits `ovos.intent.unmatched` before the end-marker. | green |
 | `TestSec96Speak` | §9.6 | A speaking handler emits on `ovos.utterance.speak`. | skip-guarded (workshop) |
 | `TestSec64Cancelled` | §6.4 | A `context['canceled']` utterance emits `ovos.utterance.cancelled`, terminates once, and never dispatches. | green |
-| `TestSec81HandlerError` | §8.1 | A raising handler emits `ovos.intent.handler.error`; the utterance still terminates with exactly one end-marker. | skip-guarded (workshop) / green |
+| `TestSec81HandlerError` | §8.1 | A raising handler emits `ovos.intent.handler.error`. The utterance still terminates with exactly one end-marker. | skip-guarded (workshop) / green |
 
 ## OVOS-STOP-1 — `test_stop1_conformance.py`
 
-*Stop Pipeline Plugin Specification.* Asserts the §9 conformance clauses and the §8
-bus surface against ovos-core's in-process stop pipeline. Deterministic on a
-`FakeBus`.
+*Stop Pipeline Plugin Specification.* Asserts the §9 conformance clauses
+and the §8 bus surface against ovos-core's in-process stop pipeline.
+Deterministic on a `FakeBus`.
 
 | Class | Clause(s) | Asserts | Status |
 |-------|-----------|---------|--------|
 | `TestSec5GlobalStop` | §4.1 step 1, §5.1, §5.3 | A generic `stop` with empty active handlers terminates once and broadcasts `ovos.stop`. | green |
 | `TestSec5GlobalStop.test_global_stop_dispatch_topic` | §3.1, §5.2 | Global stop dispatched on `<stop_plugin_id>:global_stop`. | **xfail** (core emits legacy `stop:global`) |
-| `TestSec42PingPong` | §4.1 step 2, §4.2 | With active handlers, the stop plugin broadcasts `ovos.stop.ping` and collects `ovos.stop.pong`; the stoppable skill is then told to stop. | green |
-| `TestSec43PerSkillStop` | §4.1 step 3, §4.3, §4 | An active skill yields a targeted `<skill_id>.stop` (not the broadcast); no active skill escalates to the `ovos.stop` global. | green |
+| `TestSec42PingPong` | §4.1 step 2, §4.2 | With active handlers, the stop plugin broadcasts `ovos.stop.ping` and collects `ovos.stop.pong`. The stoppable skill is then told to stop. | green |
+| `TestSec43PerSkillStop` | §4.1 step 3, §4.3, §4 | An active skill yields a targeted `<skill_id>.stop` (not the broadcast). No active skill escalates to the `ovos.stop` global. | green |
 | `TestSec2ReservedName` | §2 (+ INTENT-4 §5.3 / PIPELINE-1 §7.3) | A registration naming the reserved `stop` is malformed and must not become matchable. | **xfail** (core does not reject it) |
 
 ## OVOS-INTENT-4 — `test_intent4_conformance.py`
 
-*Intent and Entity Registration Bus Contract.* Asserts the §11 conformance clauses
-and the §4 registration bus surface. ovos-core does not yet expose this bus
-contract — registration is the legacy in-process `padatious:register_intent` and
-introspection is the legacy `intent.service.intent.get` — so most registration
-clauses are xfail and flip green when the contract lands.
+*Intent and Entity Registration Bus Contract.* Asserts the §11 conformance
+clauses and the §4 registration bus surface. ovos-core does not yet expose
+this bus contract. Registration is the legacy in-process
+`padatious:register_intent`, and introspection is the legacy
+`intent.service.intent.get`. Most registration clauses are xfail and flip
+green when the contract lands.
 
 | Class | Clause(s) | Asserts | Status |
 |-------|-----------|---------|--------|
@@ -105,39 +108,44 @@ clauses are xfail and flip green when the contract lands.
 
 ## OVOS-INTENT-4 (per-plugin) — `test_intent4_plugins_conformance.py`
 
-*Per-plugin registration compliance.* Where the orchestrator suite above asserts
-the INTENT-4 bus contract against ovos-core, this data-driven suite asserts it
-against **each individual intent-pipeline plugin**: that the matcher consumes the
-INTENT-4 spec registration topic (§5 keyword / §6 template) and becomes matchable,
-and that the legacy registration path still matches (back-compat). One
-`E2EPipelineHarness` subclass is generated per plugin from the module-level
-`PLUGINS` registry; a plugin absent from the installed combo SKIPS its own case.
+*Per-plugin registration compliance.* Where the orchestrator suite above
+asserts the INTENT-4 bus contract against ovos-core, this data-driven suite
+asserts it against each individual intent-pipeline plugin: that the matcher
+consumes the INTENT-4 spec registration topic (§5 keyword / §6 template) and
+becomes matchable, and that the legacy registration path still matches
+(back-compat). One `E2EPipelineHarness` subclass is generated per plugin
+from the module-level `PLUGINS` registry. A plugin absent from the
+installed combo skips its own case.
 
-Engine kind selects the spec topic: **keyword** engines (adapt, palavreado)
-consume `ovos.intent.register.keyword`; **template** engines (padacioso,
+Engine kind selects the spec topic. Keyword engines (adapt, palavreado)
+consume `ovos.intent.register.keyword`. Template engines (padacioso,
 nebulento, padatious, m2v, linha-fina, markov) consume
 `ovos.intent.register.template`.
 
 | Plugin | Engine | `test_spec_registration_is_matchable` | `test_legacy_registration_still_matches` |
 |--------|--------|----------------------------------------|-------------------------------------------|
-| adapt | keyword | **xfail** (kept `@dev` — load-bearing for the INTENT-3 suite; §5 consumer not on `@dev`) | green |
+| adapt | keyword | **xfail** (kept `@dev`, load-bearing for the INTENT-3 suite. §5 consumer not on `@dev`) | green |
 | palavreado | keyword | green (`@dev`, adoption merged) | green |
-| padacioso | template | **xfail** (kept `@dev` — load-bearing `PADACIOSO_HIGH` driver; §6 consumer not on `@dev`) | green |
+| padacioso | template | **xfail** (kept `@dev`, load-bearing `PADACIOSO_HIGH` driver. §6 consumer not on `@dev`) | green |
 | nebulento | template | green (`@dev`, adoption merged) | green |
 | padatious | template | green (`@feat/intent-4-adoption`) | green |
 | m2v | template | green (`@feat/intent-4-adoption`, prototype mode, real `minishlab/potion-base-2M`) | green |
 | linha-fina | template | green (`@dev`, adoption merged) | green |
 | markov | template | green (`@dev`, adoption merged) | green |
 
+Only the adapt and padacioso spec tests are xfail. Both are deliberately
+kept `@dev` because they are load-bearing for the orchestrator suites.
+
 ## OVOS-CONVERSE-1 — `test_converse1_conformance.py`
 
-*Active Handlers and Interactive Response Specification.* Driven by the real
-`ovos-skill-parrot` fixture against ovos-core's in-process converse pipeline.
+*Active Handlers and Interactive Response Specification.* Driven by the
+real `ovos-skill-parrot` fixture against ovos-core's in-process converse
+pipeline.
 
 | Class | Clause(s) | Asserts | Status |
 |-------|-----------|---------|--------|
 | `TestSec3Activation` | §3 | Dispatching to a converse-capable skill records it as an active converse owner of the session. | green |
-| `TestSec4ConverseRoundTrip` | §4, §6.4 | An active owner consumes the follow-up via `converse:skill` before normal matching; parrot echoes it; terminates once. | green |
+| `TestSec4ConverseRoundTrip` | §4, §6.4 | An active owner consumes the follow-up via `converse:skill` before normal matching. Parrot echoes it. Terminates once. | green |
 | `TestSec4Decline` | §4 | With no active owner, converse declines and the utterance falls through to the normal pipeline (no `converse:skill`). | green |
 | `TestSec21OwnerOrdering.test_most_recent_owner_first` | §2.1 | Re-activating an owner moves it to the head of `active_skills` (index 0). | green |
 | `TestSec21OwnerOrdering.test_converse_handlers_reflects_owner` | §2.1 | `session.converse_handlers` carries the active owner head-first. | skip-guarded (bus-client field) |
@@ -145,114 +153,119 @@ nebulento, padatious, m2v, linha-fina, markov) consume
 ## OVOS-FALLBACK-1 — `test_fallback1_conformance.py`
 
 *Fallback Pipeline Plugin Specification.* Driven by the real
-`ovos-skill-fallback-unknown` priority-100 catch-all, pinned *after* the matcher
-so it only runs on a no-match.
+`ovos-skill-fallback-unknown` priority-100 catch-all, pinned after the
+matcher so it only runs on a no-match.
 
 | Class | Clause(s) | Asserts | Status |
 |-------|-----------|---------|--------|
-| `TestSec5FallbackOrdering` | §5, §6.4, §6 | Fallback fires only after matchers decline; the query (ping) precedes any handler dispatch. | green |
-| `TestSec6QueryResponse` | §6.1, §6.2, §6.4 | The query cycle emits `ovos.skills.fallback.ping`/`.pong`; the chosen skill emits `<skill_id>.response`; terminates once. | green |
+| `TestSec5FallbackOrdering` | §5, §6.4, §6 | Fallback fires only after matchers decline. The query (ping) precedes any handler dispatch. | green |
+| `TestSec6QueryResponse` | §6.1, §6.2, §6.4 | The query cycle emits `ovos.skills.fallback.ping`/`.pong`. The chosen skill emits `<skill_id>.response`. Terminates once. | green |
 | `TestSec5Priority` | §5 | The pool is queried in registered-priority ascending order (lower number = higher confidence first). | green |
 | `TestSec4Registration.test_spec_register_topic_consumed` | §4 | Registering on `ovos.fallback.register` makes the handler poolable. | **xfail** (core consumes `ovos.skills.fallback.register`) |
 | `TestSec4Registration.test_fallback_handlers_session_field` | §4 | `session.fallback_handlers` orders the pool. | skip-guarded (bus-client field) |
 
 ## OVOS-SESSION-1 / OVOS-SESSION-2 — `test_session_conformance.py`
 
-*Session Specification* and *Session Lifecycle and State Ownership Specification.*
-A cross-cutting suite over the session-resident state that PIPELINE-1, CONVERSE-1
-and FALLBACK-1 each own, asserting the orchestrator carries, updates, and echoes
-the session correctly. Spec session-field names are probed at runtime; clauses on
-the legacy carrier are green, clauses naming the spec field skip until
-`ovos-bus-client` populates it.
+*Session Specification* and *Session Lifecycle and State Ownership
+Specification.* A cross-cutting suite over the session-resident state that
+PIPELINE-1, CONVERSE-1, and FALLBACK-1 each own, asserting the orchestrator
+carries, updates, and echoes the session correctly. Spec session-field
+names are probed at runtime. Clauses on the legacy carrier are green.
+Clauses naming the spec field skip until `ovos-bus-client` populates it.
 
 | Class | Owning spec clause | Asserts | Status |
 |-------|--------------------|---------|--------|
-| `TestActiveHandlerRecency` | PIPELINE-1 §7.1 | Dispatch records the skill in the session's active list (echoed on the response); re-activation is head-first dedup. | green |
+| `TestActiveHandlerRecency` | PIPELINE-1 §7.1 | Dispatch records the skill in the session's active list (echoed on the response). Re-activation is head-first dedup. | green |
 | `TestActiveHandlerRecency.test_active_handlers_spec_field` | PIPELINE-1 §7.1 | `session.active_handlers` carries the dispatched skill head-first. | skip-guarded |
 | `TestConverseOwnerOrdering` | CONVERSE-1 §2.1 | Converse owners ordered most-recently-activated first. | green |
 | `TestConverseOwnerOrdering.test_converse_handlers_spec_field` | CONVERSE-1 §2.1 | `session.converse_handlers` mirrors that ordering. | skip-guarded |
-| `TestResponseMode.test_get_response_enable_sets_response_state` | CONVERSE-1 §2.2 | Enabling get-response marks the skill RESPONSE; disabling clears it back to INTENT. | green |
+| `TestResponseMode.test_get_response_enable_sets_response_state` | CONVERSE-1 §2.2 | Enabling get-response marks the skill RESPONSE. Disabling clears it back to INTENT. | green |
 | `TestResponseMode.test_response_mode_spec_field` | CONVERSE-1 §2.2 | `session.response_mode` names the owner holding response mode. | skip-guarded |
 | `TestFallbackHandlersField` | FALLBACK-1 §4 | `session.fallback_handlers` is carried on the session. | skip-guarded |
-| `TestUpdatedSessionEcho` | SESSION-2 §2, §2.6 | The echoed session keeps the entry `session_id`; a pipeline-side mutation rides forward on the response. | green |
+| `TestUpdatedSessionEcho` | SESSION-2 §2, §2.6 | The echoed session keeps the entry `session_id`. A pipeline-side mutation rides forward on the response. | green |
 
 ---
 
 ## OVOS-GUI-1 — `test_gui1_conformance.py`
 
-*GUI Display Subsystem Specification.* A bus-protocol spec with two observable
-surfaces: the **producer wire shape** (driven through the real
-`ovos_bus_client.apis.gui.GUIInterface` on a `FakeBus`) and the **GUI service
-contract** (driven through `ovos_gui.namespace.NamespaceManager` on the core
+*GUI Display Subsystem Specification.* A bus-protocol spec with two
+observable surfaces: the producer wire shape (driven through the real
+`ovos_bus_client.apis.gui.GUIInterface` on a `FakeBus`) and the GUI service
+contract (driven through `ovos_gui.namespace.NamespaceManager` on the core
 bus). Rendering, adapter fan-out, and the QML client transport are not
 bus-observable and are excluded with `# not bus-observable` notes.
 
 | Class | Clause(s) | Asserts | Status |
 |-------|-----------|---------|--------|
 | `TestSec2VoiceFirst` | §2.3 | The producer emits its wire protocol with no display/adapter attached (functions headless). | green |
-| `TestSec3ClosedVocabulary` | §3.1, §3.2 | A producer names only closed-vocabulary `SYSTEM_*` templates; the emitted name has the `SYSTEM_` prefix. | xfail (legacy `SYSTEM_*Frame` names) / green (prefix) |
+| `TestSec3ClosedVocabulary` | §3.1, §3.2 | A producer names only closed-vocabulary `SYSTEM_*` templates. The emitted name has the `SYSTEM_` prefix. | xfail (legacy `SYSTEM_*Frame` names) / green (prefix) |
 | `TestSec33TypingRules` | §3.3 | A producer omits absent optional keys rather than emitting JSON `null`. | xfail (`__idle: null`, `None` content keys) |
-| `TestSec35ImageDelivery` | §3.5 | `http(s)` image URLs pass through; a local asset is resolved to a `data:` URI, never a bare filesystem path. | green (http) / xfail (local→fs path) |
+| `TestSec35ImageDelivery` | §3.5 | `http(s)` image URLs pass through. A local asset is resolved to a `data:` URI, never a bare filesystem path. | green (http) / xfail (local→fs path) |
 | `TestSec41ReservedKeys` | §4.1 | Every GUI Message carries `__from` naming the producing namespace. | green |
-| `TestSec42Messages` | §4.2 | `gui.value.set` carries the flat content map + `__from`; `gui.page.show` carries `page_names`/`index` with a `SYSTEM_*` first entry; `gui.clear.namespace` carries `__from`. | green |
-| `TestSec81ProducerConformance` | §8.1 | Producer-MUST roll-up: `gui.page.show` present; all template names in the closed vocabulary. | green / xfail (vocabulary) |
-| `TestSec32ServiceTemplateGate` | §3.2, §4.2, §8.3 | The service dispatches only `SYSTEM_*` page names; a non-`SYSTEM_` page is not loaded as a namespace. | xfail (loads any page) / green (SYSTEM_ loads) |
+| `TestSec42Messages` | §4.2 | `gui.value.set` carries the flat content map + `__from`. `gui.page.show` carries `page_names`/`index` with a `SYSTEM_*` first entry. `gui.clear.namespace` carries `__from`. | green |
+| `TestSec81ProducerConformance` | §8.1 | Producer-MUST roll-up: `gui.page.show` present. All template names in the closed vocabulary. | green / xfail (vocabulary) |
+| `TestSec32ServiceTemplateGate` | §3.2, §4.2, §8.3 | The service dispatches only `SYSTEM_*` page names. A non-`SYSTEM_` page is not loaded as a namespace. | xfail (loads any page) / green (SYSTEM_ loads) |
 | `TestSec41ServiceStripsReservedKeys` | §4.1 | The service declares the reserved `__from`/`__idle` keys it strips. | green |
 | `TestSec43Sec5PerSessionRouting` | §4.3, §5.1, §8.3 | The service maintains an independent namespace stack per `session_id`. | xfail (single global stack) |
-| `TestSec83ServiceConformance` | §8.3, §6.1, §4.3 | The service starts with zero adapters (headless); emits `gui.namespace.removed` on clear. | green |
+| `TestSec83ServiceConformance` | §8.3, §6.1, §4.3 | The service starts with zero adapters (headless). Emits `gui.namespace.removed` on clear. | green |
 | `TestSec72InteractionResponse` | §7.2 | Interaction response carries the originating `session_id`. | skip (adapter-emitted, not bus-observable) |
 
 Not encoded (excluded with `# not bus-observable` notes): §6.1–§6.9 adapter
-discovery / construction / fan-out / degradation / exception isolation / state
-query / connection-status / idle-display ownership, and §7.1 media transport —
-all of which live inside an adapter or on the backend's QML client transport.
+discovery, construction, fan-out, degradation, exception isolation, state
+query, connection-status, and idle-display ownership, plus §7.1 media
+transport, all of which live inside an adapter or on the backend's QML
+client transport.
 
 ---
 
 ## OVOS-BRIDGE-1 — `test_bridge1_conformance.py`
 
-*Bus Bridge and Opaque Relay Specification.* BRIDGE-1 is mostly **emergent** —
-behaviours arising when MSG-1 / SESSION-1 / SESSION-2 compose across a bus
-boundary. No bridge component is in the stack (the reference is HiveMind), so the
-suite asserts the **bus-observable composition primitives the bridge relies on**
-against the real ovos-core orchestrator, and documents the bridge-only MUSTs with
-`# not bus-observable (no bridge in stack)` skips.
+*Bus Bridge and Opaque Relay Specification.* BRIDGE-1 is mostly emergent:
+behaviors that arise when MSG-1, SESSION-1, and SESSION-2 compose across a
+bus boundary. No bridge component is in the stack (the reference is
+HiveMind), so the suite asserts the bus-observable composition primitives
+the bridge relies on against the real ovos-core orchestrator, and documents
+the bridge-only MUSTs with `# not bus-observable (no bridge in stack)`
+skips.
 
 | Class | Clause(s) | Asserts | Status |
 |-------|-----------|---------|--------|
-| `TestSec31SourceStamping` | §3.1 | Unique `context.source` stamped per inbound; a present `source` is honoured for response routing. | green (routing) / skip (stamping needs a bridge) |
-| `TestSec32OutboundRouting` | §3.2 | The orchestrator `.reply()`s with `destination` set to the inbound `source`; MSG-1 derivations swap/preserve source/destination. | green |
-| `TestSec33SiteId` | §3.3 | `site_id` survives the orchestrator round and every derivation unchanged; opaque string round-trips. Absent yields no default. | green / xfail (defaults to `'unknown'`) |
-| `TestSec34SessionPreservation` | §3.4, §3.4.2 | Inbound session is authoritative for the round; responses include the session. Managing-mode synthesis needs a bridge. | green / skip (synthesis) |
+| `TestSec31SourceStamping` | §3.1 | Unique `context.source` stamped per inbound. A present `source` is honoured for response routing. | green (routing) / skip (stamping needs a bridge) |
+| `TestSec32OutboundRouting` | §3.2 | The orchestrator `.reply()`s with `destination` set to the inbound `source`. MSG-1 derivations swap/preserve source/destination. | green |
+| `TestSec33SiteId` | §3.3 | `site_id` survives the orchestrator round and every derivation unchanged. Opaque string round-trips. Absent yields no default. | green / xfail (defaults to `'unknown'`) |
+| `TestSec34SessionPreservation` | §3.4, §3.4.2 | Inbound session is authoritative for the round. Responses include the session. Managing-mode synthesis needs a bridge. | green / skip (synthesis) |
 | `TestSec44SatelliteRegistration` | §4.4 | `ovos.skill.deregister` is the spec-named deregister topic. Disconnect emission needs a bridge. | green / skip (emission) |
 | `TestSec5Ordering` | §5 | Grace-period discard and FIFO ordering. | skip (bridge-internal, not bus-observable) |
-| `TestSec6Msg1Conformance` | §6 | Every orchestrator emission is a valid MSG-1 envelope; the carried session is a valid SESSION-1 object. | green |
+| `TestSec6Msg1Conformance` | §6 | Every orchestrator emission is a valid MSG-1 envelope. The carried session is a valid SESSION-1 object. | green |
 
 ---
 
 ## OVOS-USER-ID-1 — `test_user_id1_conformance.py`
 
-*User Identity Resolution Specification.* Asserts the §9 conformance clauses.
-No recognition plugin and no bridge is installed, so the producer-side clauses
-(§3 level derivation, §5 resolution, §5.1 persistence, §6 Layer-2 injection)
-carry a `# not bus-observable` skip. The consumer-side MUSTs — absent
-`user_id` is a guest, absent `auth_level` reads as `0`, no component errors on
-either — run end-to-end against the orchestrator.
+*User Identity Resolution Specification.* Asserts the §9 conformance
+clauses. No recognition plugin and no bridge is installed, so the
+producer-side clauses (§3 level derivation, §5 resolution, §5.1
+persistence, §6 Layer-2 injection) carry a `# not bus-observable` skip. The
+consumer-side MUSTs run end-to-end against the orchestrator: an absent
+`user_id` is a guest, an absent `auth_level` reads as `0`, and no component
+errors on either.
 
 | Class | Clause(s) | Asserts | Status |
 |-------|-----------|---------|--------|
-| `TestSec2IdentityFields` | §2, §9 | An unresolved identity leaves `user_id` absent (no sentinel); per-signal fields absent until a recognizer sets them; the carrier declares the fields. | green / xfail (conditional: bus-client Session lacks the fields) |
-| `TestSec3AuthLevel` | §3, §9 | A consumer reads an absent `auth_level` as `0`; an anonymous session presents `0`; a carried level survives the round unchanged. | green / skip (level derivation needs a plugin) |
-| `TestSec5And6Resolution` | §5, §5.1, §6 | The plugin writes its fields before the pipeline; identity persists across utterances; a bridge may inject directly. | skip (no recognition plugin, no bridge) |
+| `TestSec2IdentityFields` | §2, §9 | An unresolved identity leaves `user_id` absent (no sentinel). Per-signal fields absent until a recognizer sets them. The carrier declares the fields. | green / xfail (conditional: bus-client Session lacks the fields) |
+| `TestSec3AuthLevel` | §3, §9 | A consumer reads an absent `auth_level` as `0`. An anonymous session presents `0`. A carried level survives the round unchanged. | green / skip (level derivation needs a plugin) |
+| `TestSec5And6Resolution` | §5, §5.1, §6 | The plugin writes its fields before the pipeline. Identity persists across utterances. A bridge may inject directly. | skip (no recognition plugin, no bridge) |
 | `TestSec7GuestFallback` | §7, §9 | An anonymous utterance completes the round with no error event, terminates exactly once, and never invents a `user_id`. | green |
-| `TestSec9Consumers` | §9, MSG-1 §5 | Identity fields ride every forward/reply/response derivation unchanged; an identified utterance completes the round like an anonymous one. | green |
+| `TestSec9Consumers` | §9, MSG-1 §5 | Identity fields ride every forward/reply/response derivation unchanged. An identified utterance completes the round like an anonymous one. | green |
 
 ---
 
 ## See also
 
-- [known-gaps.md](known-gaps.md) — the live `xfail` clauses, with the spec-vs-impl
-  detail.
-- [writing-conformance-tests.md](writing-conformance-tests.md) — how a clause becomes
-  a row in this table.
-</content>
+- [known-gaps.md](known-gaps.md) — the live `xfail` clauses, with the
+  spec-vs-impl detail.
+- [writing-conformance-tests.md](writing-conformance-tests.md) — how a
+  clause becomes a row in this table.
+
+---
+[← Writing conformance tests](writing-conformance-tests.md) · [Home](../README.md) · [CI →](ci.md)
