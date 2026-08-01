@@ -16,7 +16,7 @@ The installed bus-client carries the spec session fields (``active_handlers``,
 SESSION-1 §3.4, omits them from the serialized form when empty (empty ≡
 omission), so presence is only asserted on populated sessions. The one clause
 the stack does not yet populate — ``converse_handlers`` — is tracked as a
-strict xfail so it flips loudly when the orchestrator starts draining it.
+a strict expected-fail so it flips loudly when the orchestrator starts draining it.
 Drivers are described in ``_conformance.py``.
 
 Coverage map (clause -> status against the installed stack):
@@ -30,6 +30,21 @@ Coverage map (clause -> status against the installed stack):
 - FALLBACK-1 §4   session.fallback_handlers carries the pool ..... green
 - SESSION-2       session_id preserved on the response ........... green
 - SESSION-2       a session mutation rides the forward ........... green
+- SESSION-1 §2.1  an omitted field resolves to the deployment default ... green
+- SESSION-1 §2.1  an explicit null is treated as omitted (not deferral) . green
+- SESSION-1 §3.1  empty/absent session resolves to session_id default ... xfail (bus-client mints a random uuid)
+- SESSION-1 §3.1  per-session state keyed on session_id (A not in B) .... green
+- SESSION-2 §2.1  the bus leaves session untouched in transit .......... green
+
+SESSION-1 §2.1 / §3.1 are asserted at the consumer (``Session`` deserialize)
+level, the same way the recency/ordering clauses above assert against the
+``Session`` object directly; the keying and bus-statelessness clauses are
+asserted end-to-end against the orchestrator. Clauses that need a capability
+not present in this stack (the §4.1 default-materialization-on-derivation
+rule, the SESSION-1 §6 finite-number / unparseable-``session`` malformed
+path, and the SESSION-2 §5.1 orchestrator session-merge MUST — the latter
+overlapping CONTEXT-1 §5.3) are tracked in ``docs/known-gaps.md`` rather than
+encoded, because a blind strict expected-fail could XPASS on the CI stack.
 """
 import time
 from typing import Optional
@@ -271,3 +286,114 @@ class TestUpdatedSessionEcho(TestCase):
         sess = _last_session(recs)
         self.assertIsNotNone(sess)
         self.assertIn(PARROT_ID, [s[0] for s in sess.active_skills])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SESSION-1 §2.1 — omission means default; null is not a deferral sentinel
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSec21OmissionAndNull(TestCase):
+    """SESSION-1 §2.1: a producer MAY omit any field ("let the orchestrator
+    decide"); the consumer fills it with its deployment default at the point
+    of consumption. ``null`` is NOT a deferral sentinel — a consumer that
+    encounters an explicit ``null`` MUST treat it as if the field were omitted
+    and MUST NOT reject the Message solely because of it (spec §64, §71)."""
+
+    def test_omitted_field_resolves_to_default(self):
+        """A session that omits ``lang`` deserializes with the deployment
+        default, not an empty/None value (§2.1)."""
+        sess = Session.deserialize({"session_id": "s1-omit"})
+        self.assertTrue(sess.lang, "omitted lang did not resolve to a default")
+
+    def test_explicit_null_treated_as_omitted(self):
+        """An explicit ``null`` on a field is treated as omission: the consumer
+        substitutes the default and does not raise (§2.1). This is the
+        positive control that ``null`` is not a deferral sentinel."""
+        default = Session.deserialize({"session_id": "s1-null-ctl"}).lang
+        sess = Session.deserialize({"session_id": "s1-null", "lang": None})
+        self.assertEqual(
+            sess.lang, default,
+            "explicit null lang was not treated as an omitted field")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SESSION-1 §3.1 — session identity and per-session keying
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSec31SessionIdentity(TestCase):
+    """SESSION-1 §3.1: an omitted ``session_id`` (an absent ``session``, an
+    empty ``session: {}``) is filled by the consumer with the reserved value
+    ``"default"`` (spec §95, §99). The installed ``ovos-bus-client`` mints a
+    fresh random uuid instead, so the clause is strict-xfailed until it fills
+    the reserved value."""
+
+    @pytest.mark.xfail(
+        reason="ovos-bus-client Session.deserialize mints a random uuid for a "
+               "session with no session_id; SESSION-1 §3.1 fills the reserved "
+               "value 'default'",
+        strict=True,
+    )
+    def test_empty_session_resolves_to_default_id(self):
+        """An empty session resolves to ``session_id: 'default'`` (§3.1)."""
+        self.assertEqual(Session.deserialize({}).session_id, "default")
+
+
+class TestSec31PerSessionKeying(TestCase):
+    """SESSION-1 §3.1 (spec §227): a consumer that maintains per-session state
+    MUST key that state on ``session_id`` — state for session A MUST NOT be
+    visible to session B."""
+
+    def test_state_for_session_a_not_visible_to_b(self):
+        """Activating a skill in session A leaves session B's echoed session
+        without that active handler (§3.1 keying)."""
+        recs_a = capture(_MC, utterance("start parrot mode", "se-keying-a",
+                                        CONVERSE_PIPELINE), 4.0)
+        sess_a = _require_session(self, recs_a)
+        # positive control: A really did activate the skill
+        self.assertIn(PARROT_ID, [s[0] for s in sess_a.active_skills],
+                      "session A did not activate the skill; test is vacuous")
+
+        recs_b = capture(_MC, utterance("zxqw blah blah", "se-keying-b",
+                                        [PADACIOSO_HIGH]), 4.0)
+        sess_b = _require_session(self, recs_b)
+        self.assertEqual(sess_b.session_id, "se-keying-b")
+        self.assertNotIn(
+            PARROT_ID, [s[0] for s in sess_b.active_skills],
+            "session A's active handler leaked into session B")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SESSION-2 §2.1 — the bus is stateless transport
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSec21BusStateless(TestCase):
+    """SESSION-2 §2.1 (spec §543): the message bus MUST be stateless with
+    respect to session — it MUST NOT interpret, mutate, persist, or
+    special-case it. A Message placed on the bus is delivered to observers
+    with its ``session`` byte-identical to what was emitted."""
+
+    def test_bus_leaves_session_untouched_in_transit(self):
+        """A session carried on a Message the orchestrator does not consume is
+        delivered to a bus observer unchanged (§2.1)."""
+        sent = Session("se-bus-stateless")
+        sent.lang = "pt-PT"
+        sent.activate_skill("probe.skill")
+        payload = sent.serialize()
+
+        seen = []
+        def _rec(serialized):
+            msg = serialized if isinstance(serialized, Message) \
+                else Message.deserialize(serialized)
+            if msg.msg_type == "ovos.test.session.probe":
+                seen.append(msg.context.get("session"))
+        _MC.bus.on("message", _rec)
+        try:
+            _MC.bus.emit(Message("ovos.test.session.probe", {},
+                                 {"session": payload}))
+            time.sleep(0.5)
+        finally:
+            _MC.bus.remove("message", _rec)
+
+        self.assertTrue(seen, "probe message was not delivered to the observer")
+        self.assertEqual(seen[-1], payload,
+                         "the bus mutated the session in transit")

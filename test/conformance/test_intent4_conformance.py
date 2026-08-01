@@ -29,6 +29,16 @@ Coverage map (clause -> status against current ovos-core):
 - §8.5 ``ovos.intent.enable`` re-arms a disabled intent .......... green
 - §10.1 ``ovos.intent.list`` introspection responds .............. green
 - §10.2 ``ovos.intent.describe`` introspection responds .......... green
+- §2/§5.3/§6.2 a malformed registration stays fire-and-forget .... green
+- §5.3/§6.2 the orchestrator survives a malformed registration ... green
+- §8   deregister of a never-registered skill is a no-op ......... green
+
+The §5.3 companion clause — "MUST log the rejection at WARN with
+``skill_id``, the offending value, and the rule violated" — is a
+producer/consumer *logging* obligation with no bus emission, so it is
+not bus-observable through this harness and is not asserted here (a
+malformed registration produces no ``.error`` event by §2). It is
+tracked in ``docs/known-gaps.md``.
 """
 import time
 from unittest import TestCase
@@ -217,6 +227,93 @@ class TestSec5KeywordRegistration(_IsolatedRegistrations):
                    "samples": self.samples})
         recs = self.say("kw")
         self.assertIn(self.intent, types(recs))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §3.2 / §5.3 / §6.2 — Malformed-registration rejection
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSec53MalformedRejection(_IsolatedRegistrations):
+    """§5.3 / §6.2 / §3.2: a consuming plugin MUST NOT index a malformed
+    registration, and (§2) a registration is fire-and-forget — even a
+    malformed one draws no ``.response`` ack and no ``.error`` event.
+
+    Two malformed payloads are exercised: a ``ovos.intent.register.template``
+    with no ``samples`` (§6.2: "``samples`` is missing or empty") and a
+    ``ovos.entity.register`` with an empty value-set (§7: rejected when
+    ``samples`` is missing or empty). Neither may become matchable, and
+    neither may crash or corrupt the orchestrator — a subsequent well-formed
+    registration on the same skill must still match (the observable proxy for
+    "not indexed + no crash", since the WARN-log rule is not bus-observable).
+    """
+
+    VERB = "off"
+
+    def test_malformed_registration_is_fire_and_forget(self):
+        """A malformed template registration draws no ack and no error (§2, §6.2)."""
+        recs = capture(
+            _MC,
+            Message("ovos.intent.register.template", {
+                "skill_id": self.skill_id,
+                "intent_name": self.intent_name,
+                "lang": "en-US",
+                # §6.2 malformed: no `samples`
+            }, {"skill_id": self.skill_id}),
+            2.0,
+            eof_types=None,
+        )
+        acks = [t for t in types(recs)
+                if t.endswith(".response") or t.endswith(".error")]
+        self.assertEqual(acks, [], f"malformed registration drew a reply: {acks}")
+
+    def test_orchestrator_survives_malformed_registration(self):
+        """After malformed template + entity registrations, a subsequent
+        well-formed registration on the same skill still matches — the
+        malformed payloads were not indexed and did not corrupt state
+        (§5.3 / §6.2 / §3.2)."""
+        # malformed template: no samples
+        self.emit("ovos.intent.register.template",
+                  {"intent_name": "bogus_intent", "lang": "en-US"})
+        # malformed entity: empty value-set
+        self.emit("ovos.entity.register",
+                  {"name": f"{self.skill_id}:empty", "lang": "en-US",
+                   "samples": []})
+        # positive control: a well-formed registration still becomes matchable
+        self.register_working()
+        recs = self.say("survives")
+        self.assertIn(self.intent, types(recs))
+        # the malformed intent never became matchable
+        assert_absent(recs, f"{self.skill_id}:bogus_intent")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §8 — Deregistering a never-registered skill is a no-op
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSec8DeregisterUnregistered(_IsolatedRegistrations):
+    """§8: "Deregistering an intent, entity, or skill that is not currently
+    registered is a no-op" — fire-and-forget and naturally idempotent. It
+    draws no ack/error and does not disturb a later well-formed registration."""
+
+    VERB = "off"
+
+    def test_deregister_never_registered_skill_is_noop(self):
+        """A ``ovos.skill.deregister`` for a skill never registered is a
+        no-op: no ack/error, and a subsequent registration still matches (§8)."""
+        recs = capture(
+            _MC,
+            Message("ovos.skill.deregister", {},
+                    {"skill_id": self.skill_id}),
+            2.0,
+            eof_types=None,
+        )
+        acks = [t for t in types(recs)
+                if t.endswith(".response") or t.endswith(".error")]
+        self.assertEqual(acks, [], f"no-op deregister drew a reply: {acks}")
+        # positive control: the orchestrator is unharmed
+        self.register_working()
+        matched = self.say("noop")
+        self.assertIn(self.intent, types(matched))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
