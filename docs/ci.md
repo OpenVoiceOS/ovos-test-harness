@@ -128,6 +128,103 @@ actually resolved, plus the fetched constraints file for the channel cells, so
 a surprising result can be reproduced and traced to exactly what was pinned
 that day.
 
+## The `channel compat` workflow
+
+`integration.yml` and `backcompat_matrix.yml` both answer questions about the
+dev edge. Neither answers the one the fleet cares about: **does the spec suite
+hold on the versions people actually run?**
+
+`channel_compat.yml` answers it. A *channel* is an OVOS distro release channel,
+and the distro publishes one constraints file per channel:
+
+| Channel | Constraints file | `ovos-workshop` | `ovos-core` | `ovos-bus-client` | `ovos-padatious` |
+|---------|------------------|-----------------|-------------|-------------------|------------------|
+| stable | [`constraints-stable.txt`](https://raw.githubusercontent.com/OpenVoiceOS/OpenVoiceOS/main/constraints-stable.txt) | `>=3.4.0,<3.5.0` | `>=1.3.1,<1.4.0` | `>=1.3.4,<1.4.0` | `>=1.4.2,<1.5.0` |
+| testing | [`constraints-testing.txt`](https://raw.githubusercontent.com/OpenVoiceOS/OpenVoiceOS/main/constraints-testing.txt) | `>=7.0.6,<8.0.0` | `>=2.1.1,<3.0.0` | `>=1.3.7,<2.0.0` | `>=1.4.3,<2.0.0` |
+
+(Read as of the run that seeded the baselines. The files move; the job fetches
+them live, so the table is a snapshot and the job is not.)
+
+### Install precedence
+
+One rule: **the constraints file wins for every package it names, and
+`requirements.txt` fills in only what the channel does not name.**
+
+`pip install -c constraints.txt -r requirements.txt` does not implement that
+rule. Almost every line of `requirements.txt` is a direct git URL, and pip does
+not apply a version constraint to a direct URL, so the channel pin would
+silently lose to the dev ref. [`install_channel.sh`](../test/channel_compat/install_channel.sh)
+splits the install instead:
+
+1. every constraint-named package, installed **by name** under `-c` — the
+   channel decides the version;
+2. plain leftovers (`ovos-spec-tools`, `pytest`, `setuptools<81`), still under
+   `-c`, so their transitive deps cannot climb above the channel;
+3. git leftovers (`padacioso`, `nebulento`, `palavreado`, `linha-fina`, the
+   markov plugin, and on stable also `ovoscope` and `ovos-m2v-pipeline`),
+   installed `--no-deps` — their metadata pins the dev stack and honouring it
+   would undo step 1;
+4. `ovos-media` `--no-deps` plus its leaf imports, exactly as `integration.yml`
+   does it.
+
+Locally:
+
+```bash
+test/channel_compat/install_channel.sh stable /tmp/channel-compat
+OVOS_CHANNEL=stable pytest test/ -rxX --timeout=180 --ignore=test/backcompat
+```
+
+### Known-gap baselines
+
+The channels are years of spec behind dev, so they fail a lot. That is signal,
+not noise, but only if the *set* of failures is pinned down. Each channel has a
+checked-in baseline:
+
+- [`test/channel_gaps/stable.txt`](../test/channel_gaps/stable.txt)
+- [`test/channel_gaps/testing.txt`](../test/channel_gaps/testing.txt)
+
+Each file has three sections:
+
+| Section | Meaning | What the harness does |
+|---------|---------|-----------------------|
+| `[modules]` | The suite does not import at all on this channel. | Not collected. `test/test_channel_gaps.py` asserts it still fails to import. |
+| `[tests]` | The node id collects and fails. | `xfail(strict=True)`. |
+| `[xpass]` | The suite already marks the node `xfail(strict)` for a dev-stack reason that does not hold on this channel, so it passes. | The marker is relaxed to non-strict. |
+
+`OVOS_CHANNEL` switches this on; without it a normal dev run is unaffected. The
+result:
+
+- an unlisted failure turns the job **red** — a real regression;
+- a listed failure that starts passing turns the job **red** via strict XPASS —
+  the channel caught up, delete the line;
+- a listed node id that no longer exists turns the job **red** — a rename cannot
+  rot the baseline;
+- a suite the baseline does not excuse that stops importing turns the job
+  **red** — this is the channel-shaped replacement for
+  `OVOS_CONFORMANCE_EXPECT_FULL`, which cannot be used here because a channel
+  install is partial by construction.
+
+Regenerate a baseline after a distro pin bump:
+
+```bash
+test/channel_compat/install_channel.sh stable /tmp/channel-compat
+pytest test/ -q --tb=no --ignore=test/backcompat \
+  --json-report --json-report-file=/tmp/report.json
+python3 test/channel_compat/seed_gaps.py stable /tmp/report.json
+```
+
+Read the diff before committing it. A line added there is a claim that the
+channel does not implement a clause; it must not be a flaky test or a broken
+install. The workflow runs this same regeneration on every run and uploads the
+result as an artifact, so the diff is available without a local install.
+
+### Artifacts
+
+Every run uploads the `pip freeze` of the installed channel stack, the
+constraints file as fetched that day, and the regenerated baseline. A channel
+run that is red weeks later cannot be reproduced from the URL alone, because
+the URL has moved on.
+
 ## See also
 
 - [how-it-works.md](how-it-works.md) — why the workflow installs a flat

@@ -29,6 +29,7 @@ each normative clause: pass, `xfail` (a documented gap), or fail.
 - [How it relates to the rest of the spec ecosystem](#how-it-relates-to-the-rest-of-the-spec-ecosystem)
 - [The one limitation](#the-one-limitation)
 - [Mixed-version back-compat matrix](#mixed-version-back-compat-matrix)
+- [Release-channel compat](#release-channel-compat)
 - [Documentation](#documentation)
 
 ---
@@ -216,6 +217,39 @@ these cells deliberately.
 `ovos-core` runs the same four cells against its own checkout. The duplication
 is intended: a breakage stays traceable to the repo that caused it.
 
+## Release-channel compat
+
+The two workflows above both look at the dev edge. Neither answers the
+question a device owner has: **does the spec suite hold on the versions the
+fleet actually runs?**
+
+`.github/workflows/channel_compat.yml` answers it. It installs the whole
+conformance stack at the versions one OVOS distro release channel pins, then
+runs the full suite against it. The constraints come from the distro itself,
+fetched live and uploaded as an artifact:
+
+| Channel | `ovos-workshop` | `ovos-core` | `ovos-bus-client` | `ovos-padatious` |
+|---------|-----------------|-------------|-------------------|------------------|
+| stable | `>=3.4.0,<3.5.0` | `>=1.3.1,<1.4.0` | `>=1.3.4,<1.4.0` | `>=1.4.2,<1.5.0` |
+| testing | `>=7.0.6,<8.0.0` | `>=2.1.1,<3.0.0` | `>=1.3.7,<2.0.0` | `>=1.4.3,<2.0.0` |
+
+That is a long way below dev, so both channels fail a large part of the modern
+spec. Those failures are the finding, so each channel has a checked-in
+known-gap baseline in `test/channel_gaps/`, seeded from a real run. The suite
+strict-xfails exactly the listed node ids: known gaps stay visible and green,
+**new** breakage turns the job red, and a gap the channel has since closed
+turns it red too, as the cue to delete the line.
+
+```bash
+test/channel_compat/install_channel.sh stable /tmp/channel-compat
+OVOS_CHANNEL=stable pytest test/ -rxX --timeout=180 --ignore=test/backcompat
+```
+
+Together the three workflows read as one program: `backcompat_matrix.yml`
+finds **where** a behavior changed, `channel_compat.yml` says **what the fleet
+runs today**, and `integration.yml` says **where dev is going**. Full detail in
+[docs/ci.md](docs/ci.md).
+
 ## Documentation
 
 | Page | Topic |
@@ -225,5 +259,5 @@ is intended: a breakage stays traceable to the repo that caused it.
 | [docs/testing-combos.md](docs/testing-combos.md) | The PR-driven cross-repo branch-combination workflow. |
 | [docs/writing-conformance-tests.md](docs/writing-conformance-tests.md) | Conventions: one spec section per class, quoted-clause docstrings, the `_conformance.py` helpers, and the `xfail` discipline. |
 | [docs/coverage.md](docs/coverage.md) | The full spec-to-suite traceability matrix and per-class clause coverage. |
-| [docs/ci.md](docs/ci.md) | The `integration.yml` and `backcompat_matrix.yml` workflows, running locally, and interpreting results. |
+| [docs/ci.md](docs/ci.md) | The `integration.yml`, `backcompat_matrix.yml`, and `channel_compat.yml` workflows, running locally, and interpreting results. |
 | [docs/known-gaps.md](docs/known-gaps.md) | The conformance gaps the suite currently documents as `xfail`. |
