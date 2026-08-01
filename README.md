@@ -141,6 +141,8 @@ stack:
    the full spec conformance suite against it.
 4. As each branch merges upstream, flip its ref back to `@dev`.
 
+Illustrative — a worked example, not the live file:
+
 ```
 git+https://github.com/OpenVoiceOS/ovos-core@test/spec-stack-integration-proof
 git+https://github.com/OpenVoiceOS/ovos-workshop@feat/intent-4-producer
