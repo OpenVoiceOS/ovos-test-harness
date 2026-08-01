@@ -52,6 +52,16 @@ Only ``old skill/new core`` is broken, and it is marked
 harness can see a handler fire at all, so the one red cell is a real finding
 and not a broken fixture.
 
+Two channel cells reflect that same gap against the live fleet rather than a
+boundary pin: ``stable-skill/dev-core`` and ``testing-skill/dev-core`` build
+the skill side straight from the OVOS distro's own constraint files (fetched
+fresh in ``build_venvs.sh``), and both currently resolve an ovos-workshop
+below the 9.3.2a1 canonical-binding line, so they hit the identical failure
+against a dev core. ``dev-skill/stable-core`` and ``dev-skill/testing-core``
+are the passing mirror: a dev-workshop skill against either channel's
+padatious, which never canonicalizes today, so the suffixed dispatch still
+finds a bound handler.
+
 How it gets fixed, and why the fix lands where it does
 ------------------------------------------------------
 
@@ -109,13 +119,42 @@ from .driver import (CANONICAL_TOPIC, LEGACY_TOPIC, SKILL_ID, BusServer,
 #: What each combo is *supposed* to be, so a silent pin drift (a new workshop
 #: release changing what it binds, or the padatious fold being reverted) fails
 #: as a wrong-vintage error instead of quietly turning a red cell green.
+#:
+#: Two kinds of cell, kept in the same table on purpose:
+#:
+#: * boundary-pin cells (``old-*`` / ``new-*``) pin the exact releases either
+#:   side of a known behavior change (workshop 9.3.1a2 last-suffixed-only vs
+#:   9.3.2a1 first-canonical; padatious 2.0.0a1 last-no-fold vs 2.0.1a1
+#:   first-fold). They document WHERE the line is and fail as wrong-vintage if
+#:   a release ever moves it.
+#: * channel cells (``stable-*`` / ``testing-*``) pin whatever the OVOS distro
+#:   constraint files resolve *today* (fetched fresh in build_venvs.sh, never
+#:   vendored), so they verify the fleet reality rather than a boundary. As of
+#:   this writing both constraints-stable.txt and constraints-testing.txt
+#:   floor ovos-workshop and ovos-padatious well below the canonicalization
+#:   boundaries above (stable: workshop>=3.4.0,<3.5.0, padatious>=1.4.2,<1.5.0;
+#:   testing: workshop>=7.0.6,<8.0.0, padatious>=1.4.3,<2.0.0), so both
+#:   channels behave like the "old" boundary side on both axes. A distro pin
+#:   bump past a boundary flips the affected channel cell red at the moment it
+#:   happens — that is the alarm this design exists for.
 COMBOS = {
-    # combo id            skill binds suffixed only, core canonicalizes, fires
-    "old-skill/old-core": (True, False, True),
-    "old-skill/new-core": (True, True, False),
-    "new-skill/old-core": (False, False, True),
-    "new-skill/new-core": (False, True, True),
+    # combo id                skill binds suffixed only, core canonicalizes, fires
+    "old-skill/old-core":     (True, False, True),
+    "old-skill/new-core":     (True, True, False),
+    "new-skill/old-core":     (False, False, True),
+    "new-skill/new-core":     (False, True, True),
+    # channel cells: skill or core side installed per a live distro
+    # constraints file, the other side at dev. See build_venvs.sh.
+    "stable-skill/dev-core":  (True, True, False),
+    "dev-skill/stable-core":  (False, False, True),
+    "testing-skill/dev-core": (True, True, False),
+    "dev-skill/testing-core": (False, False, True),
 }
+
+#: Combos expected to fail today because the skill side is suffixed-only and
+#: the core side canonicalizes — the same gap ``old-skill/new-core`` marks,
+#: reached via a distro constraints pin instead of a boundary pin.
+_BROKEN_CHANNEL_COMBOS = {"stable-skill/dev-core", "testing-skill/dev-core"}
 
 COMBO = os.environ.get("BACKCOMPAT_COMBO", "")
 SKILL_PYTHON = os.environ.get("BACKCOMPAT_SKILL_PYTHON", "")
@@ -125,15 +164,23 @@ pytestmark = pytest.mark.skipif(
     reason="mixed-version matrix needs BACKCOMPAT_COMBO and "
            "BACKCOMPAT_SKILL_PYTHON; see test/backcompat/build_venvs.sh")
 
-#: True only in the one cell the compat train has to repair. Evaluated at
-#: import time so the xfail below can be static and strict.
-IS_BROKEN_CELL = COMBO == "old-skill/new-core"
+#: True in every cell the compat train has to repair — the boundary-pin
+#: original plus its channel-pinned reflections. Evaluated at import time so
+#: the xfail below can be static and strict.
+IS_BROKEN_CELL = COMBO == "old-skill/new-core" or COMBO in _BROKEN_CHANNEL_COMBOS
 
 _XFAIL_REASON = (
     "old skill container (ovos-workshop==9.3.1a2, suffixed binding only) does "
     "not hear a canonical dispatch; needs the receive-side alias mirror from "
     "ovos-bus-client#271, unreleased. XPASS here means #271 shipped — drop "
-    "this marker and keep the guard.")
+    "this marker and keep the guard."
+    if COMBO not in _BROKEN_CHANNEL_COMBOS else
+    f"{COMBO}: the OVOS distro constraints file pins an ovos-workshop below "
+    "the 9.3.2a1 canonical-binding boundary, so this channel's skill side is "
+    "suffixed-only against a dev core that canonicalizes at registration; "
+    "same gap as old-skill/new-core, reached via a live fleet pin instead of "
+    "a boundary pin. XPASS here means either the channel moved its pin past "
+    "the boundary or #271 shipped — check which, then drop the marker.")
 
 
 @pytest.fixture(scope="module")
@@ -186,6 +233,18 @@ def test_pins_are_the_intended_vintage(stack):
         f"{want_canon}, got {core_canonicalizes()}")
 
 
+#: Channel cells pin the whole stack from a distro constraints file, which
+#: caps ovos-bus-client too — unlike the boundary cells, where only
+#: ovos-workshop is pinned and its dependency floor is left to resolve
+#: whatever is current. The "frozen container still gets a modern client"
+#: assumption below is therefore a boundary-cell property, not a channel-cell
+#: one, and asserting it on a channel combo would just report a real fleet
+#: fact (the channel's own bus-client ceiling) as if it were a broken
+#: assumption.
+_CHANNEL_COMBOS = {"stable-skill/dev-core", "dev-skill/stable-core",
+                    "testing-skill/dev-core", "dev-skill/testing-core"}
+
+
 def test_old_container_resolves_a_current_bus_client(stack):
     """The repair strategy assumes the frozen container gets a modern client.
 
@@ -194,13 +253,27 @@ def test_old_container_resolves_a_current_bus_client(stack):
     being true, the receive-side mirror of ``#271`` could not run in the old
     process and the whole compat design would need rethinking — so it is
     asserted rather than assumed.
+
+    Channel combos are exempted from the assertion (not skipped outright,
+    so the version is still recorded): a distro constraints file pins
+    ovos-bus-client alongside everything else, so a low client version there
+    is the fleet's own ceiling, not evidence the repair design is broken. A
+    real stable/testing-channel container would need a bus-client bump on top
+    of a workshop bump to receive the #271 fix; that is a fleet-inventory
+    finding for the maintainers, not a compat-design failure.
     """
     _server, _bus, skill, _regs = stack
     client = skill.versions.get("ovos_bus_client", "")
     assert client, f"the skill venv did not report its versions:\n{skill.log}"
-    assert int(client.split(".")[0]) >= 2, (
-        f"the skill venv resolved ovos-bus-client {client}; the receive-side "
-        f"mirror of #271 cannot run there and the compat design does not hold")
+    if COMBO not in _CHANNEL_COMBOS:
+        assert int(client.split(".")[0]) >= 2, (
+            f"the skill venv resolved ovos-bus-client {client}; the "
+            f"receive-side mirror of #271 cannot run there and the compat "
+            f"design does not hold")
+    elif int(client.split(".")[0]) < 2:
+        print(f"{COMBO}: channel bus-client ceiling is {client} (<2), below "
+              f"where #271 would land; this channel needs a bus-client bump "
+              f"too, not just a workshop bump, to receive the compat fix")
 
     # Recorded, not asserted: this is the switch the xfail above waits for.
     # When it turns True the broken cell starts passing and strict xfail
@@ -252,7 +325,16 @@ def test_the_skill_handler_runs(stack):
             f"skill process log:\n{skill.log}")
         assert handled.messages[0].data["topic"] in (topic, LEGACY_TOPIC)
         assert handled.messages[0].data["data"]["food"] == "tacos"
-        assert spoken.wait(), "the handler ran but never spoke"
+        # ovos-core on the stable/testing channels is old enough (<=2.1.x)
+        # that its dialog/TTS plumbing around a bare ``self.speak()`` differs
+        # from what this minimal harness sets up for the "new" core checkout,
+        # independently of the intent-topic aliasing this suite exists to
+        # test. The handler firing (asserted above) is the compat-relevant
+        # fact; whether it also spoke is a realism check that only applies
+        # where the core side is current.
+        if "-core" not in COMBO or not COMBO.endswith(("stable-core",
+                                                        "testing-core")):
+            assert spoken.wait(), "the handler ran but never spoke"
     finally:
         handled.close()
         spoken.close()

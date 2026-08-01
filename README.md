@@ -173,8 +173,8 @@ months ago that talks to a current core. Two package sets must be alive at
 once to see it.
 
 `test/backcompat/` does that with two venvs and a real `ovos-messagebus`
-between them. The `.github/workflows/backcompat_matrix.yml` workflow runs four
-skill/core combinations, one matrix entry each:
+between them. The `.github/workflows/backcompat_matrix.yml` workflow runs
+eight skill/core combinations, one matrix entry each:
 
 | Combo | Skill binds | Core dispatches | Handler runs |
 |-------|-------------|-----------------|--------------|
@@ -183,9 +183,29 @@ skill/core combinations, one matrix entry each:
 | new skill / old core | both | suffixed | yes |
 | new skill / new core | both | canonical | yes, exactly once |
 
-Only one cell is broken. The other three are passing controls that prove the
-harness can see a handler fire at all, so the red cell is a real finding and
-not a broken fixture.
+Four more cells pin a live OVOS distro release channel instead of a version
+boundary — the constraints are fetched fresh from
+[`constraints-stable.txt`](https://github.com/OpenVoiceOS/OpenVoiceOS/blob/main/constraints-stable.txt)
+/ [`constraints-testing.txt`](https://github.com/OpenVoiceOS/OpenVoiceOS/blob/main/constraints-testing.txt)
+at build time, never vendored, so the gate tracks the fleet:
+
+| Combo | Skill binds | Core dispatches | Handler runs |
+|-------|-------------|-----------------|--------------|
+| stable skill / dev core | suffixed only (workshop floor `>=3.4.0,<3.5.0`) | canonical | **no** — `xfail(strict)` |
+| dev skill / stable core | both | suffixed (padatious floor `>=1.4.2,<1.5.0`) | yes |
+| testing skill / dev core | suffixed only (workshop floor `>=7.0.6,<8.0.0`) | canonical | **no** — `xfail(strict)` |
+| dev skill / testing core | both | suffixed (padatious floor `>=1.4.3,<2.0.0`) | yes |
+
+Both channels currently float well below the `ovos-workshop` 9.3.2a1 /
+`ovos-padatious` 2.0.1a1 boundary, so their skill-side cells hit the same
+known gap as `old skill / new core`. The day either channel's constraints file
+bumps past that boundary, the corresponding cell goes red as an XPASS — that
+is the signal, not a regression.
+
+Only three cells are broken today, and all three are the same gap reached two
+different ways. The other five are passing controls that prove the harness
+can see a handler fire at all, so a red cell is a real finding and not a
+broken fixture.
 
 The suite is a gate on the intent-topic compat train. When
 [ovos-bus-client#271](https://github.com/OpenVoiceOS/ovos-bus-client/pull/271)
