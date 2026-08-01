@@ -43,7 +43,7 @@ Coverage map (clause -> status against ovos-dinkum-listener @dev):
 - §6.4  sleep->awake  -> ``ovos.listener.awoken`` ............... green
 - §6.5  subscribes ``ovos.listener.sleep`` (controller->input) .. green
 - §6.5  subscribes ``ovos.mic.listen`` (re-open input channel) .. green
-- §5.1  language resolution order (detected/request/lang) ....... green
+- §5.1  language resolution order (detected/request/lang) ....... xfail (reads stt_context/config, not session)
 - §3/§4 STT + audio-transformer chain .......................... not bus-observable
 """
 import threading
@@ -52,6 +52,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from ovos_bus_client.message import Message
+from ovos_bus_client.session import Session
 from ovos_utils.fakebus import FakeBus
 from ovos_utils.log import LOG
 from ovos_spec_tools import SpecMessage
@@ -201,6 +202,59 @@ class TestSec52SessionAssignment(TestCase):
         self.assertIsNotNone(msg)
         sess = msg.context.get("session") or {}
         self.assertEqual(sess.get("session_id"), "default")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §5.1 — Language resolution order
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSec51LanguageResolution(TestCase):
+    """§5.1: "Select the STT input language in this order: 1.
+    ``session.detected_lang`` … 2. ``session.request_lang`` … 3.
+    ``session.lang`` …. First present and non-empty value wins." The resolved
+    input language is reflected on the emitted utterance's ``data.lang``
+    (``stt_lang`` normally matches ``data.lang``, §5.1)."""
+
+    def _emit_lang(self, **session_fields):
+        """Drive ``_stt_text`` with a session carrying ``session_fields`` and
+        return the ``data.lang`` on the emitted utterance."""
+        bus, svc, recs = _build_listener()
+        try:
+            recs.clear()
+            sess = Session("s-lang")
+            for key, value in session_fields.items():
+                setattr(sess, key, value)
+            # The session is the only language carrier in the context — no
+            # top-level ``lang`` — so the emitted lang must come from resolving
+            # the session per §5.1.
+            svc._stt_text([("hallo welt", 0.9)], {"session": sess.serialize()})
+        finally:
+            bus.close()
+        msg = _first(recs, UTTERANCE.value)
+        self.assertIsNotNone(msg, "no utterance emitted")
+        return msg.data.get("lang")
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="AUDIO-IN-1 §5.1 MUST resolve the STT input language as "
+               "detected_lang > request_lang > lang from the session; "
+               "OVOSDinkumVoiceService._stt_text resolves it from "
+               "stt_context.get('lang') or the deployment config default and "
+               "never consults session.detected_lang / session.request_lang / "
+               "session.lang",
+    )
+    def test_language_resolution_precedence(self):
+        """§5.1 MUST: detected_lang wins over request_lang wins over lang; the
+        first present, non-empty session field is reflected on ``data.lang``."""
+        # tier 3 only
+        self.assertEqual(self._emit_lang(lang="en-US"), "en-US")
+        # tier 2 beats tier 3
+        self.assertEqual(
+            self._emit_lang(lang="en-US", request_lang="fr-FR"), "fr-FR")
+        # tier 1 beats tiers 2 and 3
+        self.assertEqual(
+            self._emit_lang(lang="en-US", request_lang="fr-FR",
+                            detected_lang="de-DE"), "de-DE")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

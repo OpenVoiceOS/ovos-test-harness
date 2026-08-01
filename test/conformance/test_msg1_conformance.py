@@ -41,6 +41,7 @@ from ovos_bus_client.session import Session
 # runtime ``Message`` above.
 from ovos_spec_tools.message import Message as RefMessage
 from ovos_spec_tools.message import MalformedMessage
+from ovos_spec_tools.intent_topics import is_intent_topic
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -134,6 +135,55 @@ class TestSec23Context(TestCase):
         accepted. MUST."""
         m = Message.deserialize(json.dumps({"type": "t", "context": {}}))
         self.assertEqual(m.context, {})
+
+
+class TestSec211IdentifierSeparator(TestCase):
+    """§2.1.1: a topic assembled at runtime from named identifiers — e.g. the
+    ``<skill_id>:<intent_name>`` dispatch topic — is only unambiguously
+    parseable if the identifiers used as components do NOT contain the
+    separator character the topic uses structurally. "a topic shaped
+    ``<A>:<B>`` requires A and B to not contain ``:``." An identifier that
+    carries the separator MUST NOT be used as a topic component."""
+
+    @staticmethod
+    def _left(topic):
+        """Parse ``<A>:<B>`` on the FIRST colon."""
+        a, _, b = topic.partition(":")
+        return a, b
+
+    @staticmethod
+    def _right(topic):
+        """Parse ``<A>:<B>`` on the LAST colon."""
+        a, _, b = topic.rpartition(":")
+        return a, b
+
+    def test_colon_free_identifiers_round_trip_unambiguously(self):
+        """§2.1.1 (positive control): colon-free component identifiers assemble
+        a dispatch topic that parses back to exactly the same
+        ``(skill_id, intent_name)`` regardless of which end a consumer splits
+        from — there is exactly one separator, so the topic is unambiguous.
+        MUST (the parseability §2.1.1 guarantees)."""
+        skill_id, intent_name = "skill-weather.openvoiceos", "current"
+        topic = f"{skill_id}:{intent_name}"
+        self.assertTrue(is_intent_topic(topic))
+        self.assertEqual(self._left(topic), (skill_id, intent_name))
+        self.assertEqual(self._right(topic), (skill_id, intent_name))
+
+    def test_colon_in_identifier_makes_topic_ambiguous(self):
+        """§2.1.1: an identifier that contains the structural separator breaks
+        unambiguous parseability. A ``skill_id`` carrying a ``:`` yields a
+        dispatch topic ``<a>:<b>:<c>`` that two conformant consumers split into
+        DIFFERENT components — first-colon parsing recovers a different
+        ``(skill_id, intent_name)`` than last-colon parsing — so neither
+        recovers the identifiers the topic was built from. Such an identifier
+        MUST NOT be used as a topic component. MUST NOT."""
+        skill_id, intent_name = "org:weather", "current"
+        topic = f"{skill_id}:{intent_name}"
+        # The two conformant parses disagree — the topic is not unambiguously
+        # parseable, which is exactly what §2.1.1 forbids the identifier to cause.
+        self.assertNotEqual(self._left(topic), self._right(topic))
+        # And at least one parse fails to recover the original skill_id.
+        self.assertNotEqual(self._left(topic), (skill_id, intent_name))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

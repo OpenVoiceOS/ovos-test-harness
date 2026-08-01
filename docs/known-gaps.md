@@ -271,6 +271,44 @@ No bridge is installed (the reference implementation is HiveMind), and
 they are recorded as `# not bus-observable (no bridge in stack)` skips
 rather than gaps.
 
+## OVOS-AUDIO-IN-1
+
+### §5.1: STT input-language resolution order
+
+- **Spec mandates:** select the STT input language as
+  `session.detected_lang` > `session.request_lang` > `session.lang` (first
+  present, non-empty wins), reflected on the emitted utterance's `data.lang`
+  (`stt_lang` normally matches).
+
+- **Current impl:** `OVOSDinkumVoiceService._stt_text` resolves the language
+  from `stt_context.get("lang")` or the deployment config default, and never
+  consults `session.detected_lang` / `session.request_lang` / `session.lang`.
+
+- **Test:** `TestSec51LanguageResolution.test_language_resolution_precedence`
+
+- **`reason`:** `"AUDIO-IN-1 §5.1 MUST resolve the STT input language as detected_lang > request_lang > lang from the session; OVOSDinkumVoiceService._stt_text resolves it from stt_context.get('lang') or the deployment config default and never consults session.detected_lang / session.request_lang / session.lang"`
+
+## OVOS-OCP-1
+
+### §5: per-session now-playing isolation
+
+- **Spec mandates:** the Virtual Media Player is per session. An orchestrator
+  serving multiple concurrent sessions MUST keep each session's now-playing,
+  queue, and transport state isolated — a `pause` for session A MUST NOT
+  affect session B.
+
+- **Current impl:** the `ovos-media` `OCPMediaPlayer` holds a single global
+  `NowPlaying` and one `PlayerState`, and does not read `context.session` to
+  select a per-session player, so two concurrent sessions collide on one
+  player. This is the design-probe counterpart of GUI-1's
+  `TestSec43Sec5PerSessionRouting`: a single `OCPPlayerHarness` cannot host
+  two concurrent player instances, so the test asserts the structural
+  precondition isolation requires (state keyed by `session_id`).
+
+- **Test:** `TestSec5SessionScoping.test_now_playing_is_scoped_per_session`
+
+- **`reason`:** `"OVOS-OCP-1 §5 MUST keep each session's now-playing / queue / transport state isolated (a pause for session A MUST NOT affect session B); the ovos-media OCPMediaPlayer holds a single global NowPlaying and one PlayerState and does not read context.session to select a per-session player, so two concurrent sessions collide on one player"`
+
 ## How a gap closes
 
 1. Pin the implementation branch(es) that close the gap in
