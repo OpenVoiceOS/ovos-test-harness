@@ -11,7 +11,11 @@ specs.
 ## `requirements.txt` is the combo selector
 
 Every line in `requirements.txt` pins one repo of the integrated spec stack
-to an explicit git ref, or a published version. A representative file:
+to an explicit git ref, or a published version. The block below is
+**illustrative**, not a copy of the live file — it shows the shape of a
+mid-flight combo PR, pinning several unmerged branches at once. The live
+[`requirements.txt`](../requirements.txt) is the only source of truth for
+what CI actually installs today:
 
 ```
 # core with STOP-1 + PIPELINE-1 conformance source (combined integration branch)
@@ -29,7 +33,7 @@ git+https://github.com/OpenVoiceOS/ovos-skill-fallback-unknown@fix/allow-ovos-wo
 git+https://github.com/OpenVoiceOS/ovos-skill-count@fix/allow-ovos-workshop-10
 git+https://github.com/OpenVoiceOS/ovos-skill-hello-world@fix/allow-ovos-workshop-10
 # e2e harness lib
-git+https://github.com/TigreGotico/ovoscope@fix/none-iter-guard
+git+https://github.com/OpenVoiceOS/ovoscope@fix/none-iter-guard
 # published spec vocabulary
 ovos-spec-tools>=0.16.1a2
 # pipeline engine fallback + test deps
@@ -38,9 +42,9 @@ pytest
 pytest-json-report
 ```
 
-CI installs that and only that. The combination under trial is encoded as
-data, in version control, reviewable in a diff, not buried in a CI matrix or
-a tox config.
+On a real PR, CI installs that and only that. The combination under trial is
+encoded as data, in version control, reviewable in a diff, not buried in a CI
+matrix or a tox config.
 
 ## The problem it solves: resolver downgrade
 
@@ -85,20 +89,33 @@ is the entire reason the harness is structured this way.
 
 ## Why determinism matters for conformance
 
-A conformance verdict is meaningful only if it is reproducible. Because the
-stack is fully pinned:
+A conformance verdict is meaningful only if it can be traced back to a known
+stack. Because every line in `requirements.txt` pins one explicit ref:
 
-- The same refs produce the same verdict every run. A clause that passes
-  today against this `requirements.txt` passes tomorrow against it.
-- A change in verdict is attributable to a change in the diff (a ref you
-  flipped), not to PyPI publishing a new patch release of a transitive
-  dependency overnight.
-- A reviewer reading a harness PR can see exactly which implementation is
-  being certified, because it is the literal content of `requirements.txt`.
+- pip is never handed the freedom to re-resolve or downgrade a sibling, so a
+  green or red verdict is about the combination named in the diff, not about
+  whatever a flat dependency resolve happened to land on.
+- A reviewer reading a harness PR sees exactly which implementation is being
+  certified, because it is the literal content of `requirements.txt`.
+
+Most entries are git branch refs (`@dev`, `@feat/...`), not shas, so they
+move: a run today and a run next week can install different commits at the
+same ref, and are not guaranteed to reproduce bit-for-bit. Two things keep
+that honest instead of hiding it:
+
+- **Every run uploads a `pip freeze` artifact** (`stack-freeze.txt` in
+  `integration.yml`, `venv-freeze.txt` in `backcompat_matrix.yml`) recording
+  exactly what was installed. A red run is reproducible by installing that
+  freeze, even after the branch it was pinned to has since moved.
+- **Pin to an explicit `@<sha>`** instead of a branch name for any
+  certification that must reproduce exactly on demand — `requirements.txt`
+  accepts a commit sha anywhere it accepts a branch name, at the cost of
+  needing a manual bump when the branch under test moves.
 
 This is what makes the harness usable as the proof-of-conformance gate. A
-green run is a statement about a named, frozen stack, not about whatever pip
-happened to resolve in CI today.
+green run is a statement about a named, traceable stack, with the exact
+resolved versions on file, even though the stack itself is a set of moving
+targets by design (see [testing-combos.md](testing-combos.md#the-pr-driven-workflow)).
 
 ## What the install actually contains
 

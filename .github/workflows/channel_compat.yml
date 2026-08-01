@@ -64,13 +64,15 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
 
       - name: Install system deps (padatious needs swig + libfann)
         run: sudo apt-get update && sudo apt-get install -y swig libfann-dev
 
       - name: Install the ${{ matrix.channel }} channel stack
         run: |
-          pip install --upgrade pip
+          # No unpinned `pip install --upgrade pip`: use the pip
+          # actions/setup-python ships, so this run's pip does not move.
           chmod +x test/channel_compat/install_channel.sh
           test/channel_compat/install_channel.sh "${{ matrix.channel }}" \
             "$RUNNER_TEMP/channel-compat"

@@ -75,7 +75,7 @@ mkvenv() {
     VIRTUAL_ENV="$dir" uv pip install --quiet --prerelease=allow "$@"
   else
     "$PY" -m venv "$dir"
-    "$dir/bin/pip" install --quiet --upgrade pip
+    "$dir/bin/pip" install --quiet "pip>=24,<25"  # range pin, not an unbounded upgrade
     "$dir/bin/pip" install --quiet --pre "$@"
   fi
   echo "    $("$dir/bin/python" -c 'import sys; print(sys.version.split()[0])')"
@@ -95,7 +95,7 @@ mkvenv_channel() {
     VIRTUAL_ENV="$dir" uv pip install --quiet --prerelease=allow -c "$cfile" "$@"
   else
     "$PY" -m venv "$dir"
-    "$dir/bin/pip" install --quiet --upgrade pip
+    "$dir/bin/pip" install --quiet "pip>=24,<25"  # range pin, not an unbounded upgrade
     "$dir/bin/pip" install --quiet --pre -c "$cfile" "$@"
   fi
   echo "    $("$dir/bin/python" -c 'import sys; print(sys.version.split()[0])')"

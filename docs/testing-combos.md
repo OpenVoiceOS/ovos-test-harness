@@ -103,14 +103,16 @@ is exactly one `ovos-core` in the environment at a time.
 This matters when you want to A/B two branches of one repo, or when the
 change you are proving is split across two branches of the same repo. Work
 around it by combining the branches into one integration branch and pinning
-that single ref. The live file does exactly this for core:
+that single ref. This example is **illustrative** — check
+[`requirements.txt`](../requirements.txt) for the ref core is pinned to
+today, which moves as combos merge and new ones open:
 
 ```
 # core with STOP-1 + PIPELINE-1 conformance source (combined integration branch)
 git+https://github.com/OpenVoiceOS/ovos-core@test/spec-stack-integration-proof
 ```
 
-`test/spec-stack-integration-proof` is itself the merge of the separate
+A combined-ref branch like this one is itself the merge of the separate
 core-side changes, pinned as one ref so the single-ref rule is satisfied. To
 compare two candidate branches of one repo head-to-head, run two PRs (or two
 `requirements.txt` revisions) and compare their conformance verdicts.

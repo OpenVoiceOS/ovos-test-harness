@@ -89,7 +89,7 @@ law. Two things make it a courtroom rather than a unit-test directory.
    [`test/conformance/`](../test/conformance). Each test class maps to one
    spec section, and each method's docstring quotes the MUST/SHOULD clause it
    checks, asserted end-to-end against the running stack via
-   [`ovoscope`](https://github.com/TigreGotico/ovoscope).
+   [`ovoscope`](https://github.com/OpenVoiceOS/ovoscope).
 
 The verdict for each clause is one of three:
 
