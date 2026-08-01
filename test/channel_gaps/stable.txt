@@ -1,0 +1,215 @@
+# Known conformance gaps on the OVOS distro "stable" release channel.
+#
+# Each line is a pytest node id that FAILS when the conformance suite runs
+# against the package versions stable pins. These are real spec gaps in the
+# shipped stack, not harness problems, so the channel-compat job xfails exactly
+# these and stays green — anything NOT listed here that breaks turns the job
+# red, which is the whole point of the file.
+#
+# The xfails are strict. A listed node that starts PASSING also turns the job
+# red: the channel caught up and the line must be deleted. A listed node that
+# no longer exists fails the run too, so a renamed test cannot rot in here.
+#
+# Regenerate after a channel bump:
+#
+#   test/channel_compat/install_channel.sh stable
+#   pytest test/ --json-report --json-report-file=report.json --tb=no -q
+#   python3 test/channel_compat/seed_gaps.py stable report.json
+#
+# Seeded from a real run of the stable channel stack:
+#   ovos-core==1.3.1
+#   ovos-workshop==3.4.0
+#   ovos-bus-client==1.3.7
+#   ovos-padatious==1.4.3
+#   ovos-adapt-parser==1.0.9
+#   ovos-plugin-manager==0.9.0
+#   ovos-config==1.2.2
+#   ovos-spec-tools==1.6.0a1
+#   ovoscope==1.6.3a2
+#
+# Sections:
+#   [modules]  files that do not import at all on this channel
+#   [tests]    individual node ids that fail
+#   [xpass]    node ids the suite marks xfail(strict) for a dev-stack reason
+#              that does not hold here, so they pass; the marker is relaxed
+
+[modules]
+test/conformance/test_transform1_conformance.py
+
+[tests]
+test/conformance/test_audio_in_conformance.py::TestSec52SessionAssignment::test_local_device_default_session
+test/conformance/test_audio_in_conformance.py::TestSec52SessionAssignment::test_session_in_context
+test/conformance/test_audio_in_conformance.py::TestSec5UtteranceEmission::test_emits_utterance_handle
+test/conformance/test_audio_in_conformance.py::TestSec5UtteranceEmission::test_may_emit_multiple_candidates
+test/conformance/test_audio_in_conformance.py::TestSec5UtteranceEmission::test_utterance_has_lang_field
+test/conformance/test_audio_in_conformance.py::TestSec5UtteranceEmission::test_utterance_has_utterances_field
+test/conformance/test_audio_in_conformance.py::TestSec65BusSurface::test_subscribes_mic_listen
+test/conformance/test_audio_in_conformance.py::TestSec6CaptureSignals::test_capture_end_topic
+test/conformance/test_audio_in_conformance.py::TestSec6CaptureSignals::test_capture_start_no_payload
+test/conformance/test_audio_in_conformance.py::TestSec6CaptureSignals::test_capture_start_topic
+test/conformance/test_audio_in_conformance.py::TestSec6SleepAwoken::test_awoken_no_payload
+test/conformance/test_audio_in_conformance.py::TestSec6SleepAwoken::test_awoken_topic
+test/conformance/test_audio_in_conformance.py::TestSec6SleepAwoken::test_subscribes_sleep_topic
+test/conformance/test_audio_out_conformance.py::TestSec34RemoteRendering::test_emits_audio_speech_for_b64
+test/conformance/test_audio_out_conformance.py::TestSec34RemoteRendering::test_subscribes_speak_b64
+test/conformance/test_audio_out_conformance.py::TestSec3LocalRendering::test_speak_renders_and_plays
+test/conformance/test_audio_out_conformance.py::TestSec3LocalRendering::test_subscribes_speak
+test/conformance/test_audio_out_conformance.py::TestSec41QueuedSound::test_queue_is_fifo_sequential
+test/conformance/test_audio_out_conformance.py::TestSec41QueuedSound::test_subscribes_audio_queue
+test/conformance/test_audio_out_conformance.py::TestSec42InstantSound::test_subscribes_play_sound
+test/conformance/test_audio_out_conformance.py::TestSec44ListenFlag::test_mic_listen_after_listen_true
+test/conformance/test_audio_out_conformance.py::TestSec44ListenFlag::test_no_mic_listen_without_listen_flag
+test/conformance/test_audio_out_conformance.py::TestSec53SpeakingStatus::test_subscribes_is_speaking
+test/conformance/test_audio_out_conformance.py::TestSec5LifecycleSignals::test_output_ended
+test/conformance/test_audio_out_conformance.py::TestSec5LifecycleSignals::test_output_started
+test/conformance/test_audio_out_conformance.py::TestSec6StopIntegration::test_subscribes_audio_stop
+test/conformance/test_audio_out_conformance.py::TestSec6StopIntegration::test_subscribes_universal_stop
+test/conformance/test_bridge1_conformance.py::TestSec31SourceStamping::test_orchestrator_honours_inbound_source_for_routing
+test/conformance/test_bridge1_conformance.py::TestSec31SourceStamping::test_source_stamping_requires_a_bridge
+test/conformance/test_bridge1_conformance.py::TestSec32OutboundRouting::test_forward_preserves_destination
+test/conformance/test_bridge1_conformance.py::TestSec32OutboundRouting::test_msg1_reply_swaps_source_and_destination
+test/conformance/test_bridge1_conformance.py::TestSec32OutboundRouting::test_response_destination_is_inbound_source
+test/conformance/test_bridge1_conformance.py::TestSec33SiteId::test_absent_site_id_yields_no_default
+test/conformance/test_bridge1_conformance.py::TestSec33SiteId::test_site_id_is_opaque_string
+test/conformance/test_bridge1_conformance.py::TestSec33SiteId::test_site_id_survives_derivation_chain
+test/conformance/test_bridge1_conformance.py::TestSec33SiteId::test_site_id_survives_orchestrator_round_unchanged
+test/conformance/test_bridge1_conformance.py::TestSec34SessionPreservation::test_inbound_session_is_authoritative_for_the_round
+test/conformance/test_bridge1_conformance.py::TestSec34SessionPreservation::test_managing_mode_session_synthesis_requires_a_bridge
+test/conformance/test_bridge1_conformance.py::TestSec34SessionPreservation::test_outbound_responses_include_the_session
+test/conformance/test_bridge1_conformance.py::TestSec44SatelliteRegistration::test_deregister_relay_requires_a_bridge
+test/conformance/test_bridge1_conformance.py::TestSec44SatelliteRegistration::test_skill_deregister_topic_is_spec_named
+test/conformance/test_bridge1_conformance.py::TestSec5Ordering::test_fifo_ordering_requires_a_bridge
+test/conformance/test_bridge1_conformance.py::TestSec5Ordering::test_undeliverable_discard_requires_a_bridge
+test/conformance/test_bridge1_conformance.py::TestSec6Msg1Conformance::test_all_emissions_are_valid_msg1_envelopes
+test/conformance/test_bridge1_conformance.py::TestSec6Msg1Conformance::test_carried_session_is_a_valid_session1_object
+test/conformance/test_common_query1_conformance.py::TestSec6Poll::test_ping_broadcast
+test/conformance/test_common_query1_conformance.py::TestSec6Poll::test_pong_claim
+test/conformance/test_common_query1_conformance.py::TestSec7AnswerCollection::test_full_answer_response_collected
+test/conformance/test_common_query1_conformance.py::TestSec9And10WinningContest::test_winning_contest_speaks
+test/conformance/test_common_query1_conformance.py::TestSec9NoWinnerReachesFallback::test_no_winner_does_not_speak_an_answer
+test/conformance/test_common_query1_conformance.py::TestSec9NoWinnerReachesFallback::test_non_question_falls_through_to_fallback
+test/conformance/test_common_query1_conformance.py::TestSec9NoWinnerReachesFallback::test_non_question_terminates_once
+test/conformance/test_context1_conformance.py::TestSec2EntryCarrier::test_absent_intent_context_equivalent_to_empty
+test/conformance/test_context1_conformance.py::TestSec2EntryCarrier::test_entry_fields_round_trip
+test/conformance/test_context1_conformance.py::TestSec2EntryCarrier::test_flag_entry_value_is_null
+test/conformance/test_context1_conformance.py::TestSec2EntryCarrier::test_intent_context_is_a_session_field
+test/conformance/test_context1_conformance.py::TestSec2EntryCarrier::test_liveness_predicate
+test/conformance/test_context1_conformance.py::TestSec3KeyShapes::test_bare_and_prefixed_keys_preserved
+test/conformance/test_context1_conformance.py::TestSec3KeyShapes::test_prefixed_key_has_exactly_one_separator
+test/conformance/test_context1_conformance.py::TestSec4Propagation::test_forward_propagates_intent_context
+test/conformance/test_context1_conformance.py::TestSec4Propagation::test_reply_propagates_intent_context
+test/conformance/test_context1_conformance.py::TestSec61ExcludesContext::test_excludes_context_blocks_when_entry_live
+test/conformance/test_context1_conformance.py::TestSec61ExcludesContext::test_excludes_context_permits_when_entry_absent
+test/conformance/test_context1_conformance.py::TestSec6RequiresContext::test_requires_context_blocks_without_entry
+test/conformance/test_context1_conformance.py::TestSec6RequiresContext::test_requires_context_permits_with_live_entry
+test/conformance/test_context1_conformance.py::TestSec8ReadOnlyCarrier::test_ordinary_message_intent_context_carried_through
+test/conformance/test_converse1_conformance.py::TestSec21OwnerOrdering::test_most_recent_owner_first
+test/conformance/test_converse1_conformance.py::TestSec3Activation::test_activation_recorded_in_session
+test/conformance/test_converse1_conformance.py::TestSec4ConverseRoundTrip::test_followup_terminates_once
+test/conformance/test_converse1_conformance.py::TestSec4Decline::test_decline_falls_through_to_pipeline
+test/conformance/test_fallback1_conformance.py::TestSec5FallbackOrdering::test_fallback_fires_on_no_match
+test/conformance/test_fallback1_conformance.py::TestSec5FallbackOrdering::test_query_precedes_dispatch
+test/conformance/test_fallback1_conformance.py::TestSec5Priority::test_high_priority_registered_before_low
+test/conformance/test_fallback1_conformance.py::TestSec6QueryResponse::test_exactly_one_handled
+test/conformance/test_fallback1_conformance.py::TestSec6QueryResponse::test_query_topics_emitted
+test/conformance/test_fallback1_conformance.py::TestSec6QueryResponse::test_response_topic_emitted
+test/conformance/test_intent1_conformance.py::TestE2EExpansionDrivesMatch::test_expanded_branch_matches
+test/conformance/test_intent2_conformance.py::TestE2EVocOccurrence::test_phrase_occurrence_matches
+test/conformance/test_intent3_conformance.py::TestE2EKeywordConstraints::test_all_constraints_satisfied_matches
+test/conformance/test_intent3_conformance.py::TestE2EKeywordConstraints::test_at_most_one_intent_per_utterance
+test/conformance/test_intent3_conformance.py::TestE2EKeywordConstraints::test_excluded_present_does_not_match
+test/conformance/test_intent3_conformance.py::TestE2EKeywordConstraints::test_one_of_unsatisfied_does_not_match
+test/conformance/test_intent3_conformance.py::TestE2EKeywordConstraints::test_required_absent_does_not_match
+test/conformance/test_intent3_conformance.py::TestE2ETemplateGeneralizes::test_known_phrasing_matches_and_fills_slot
+test/conformance/test_intent4_conformance.py::TestSec10Introspection::test_intent_describe_responds
+test/conformance/test_intent4_conformance.py::TestSec10Introspection::test_intent_list_responds
+test/conformance/test_intent4_conformance.py::TestSec2FireAndForget::test_no_ack_for_registration
+test/conformance/test_intent4_conformance.py::TestSec6TemplateRegistration::test_spec_topic_registration_is_matchable
+test/conformance/test_intent4_conformance.py::TestSec7EntityRegistration::test_spec_entity_registration_no_ack
+test/conformance/test_intent4_conformance.py::TestSec82Deregister::test_spec_deregister_removes_intent
+test/conformance/test_intent4_conformance.py::TestSec83EntityDeregister::test_spec_entity_deregister_no_error
+test/conformance/test_intent4_conformance.py::TestSec84SkillDeregister::test_spec_skill_deregister_removes_all_intents
+test/conformance/test_intent4_conformance.py::TestSec85Disable::test_spec_disable_suppresses_intent
+test/conformance/test_intent4_conformance.py::TestSec85Enable::test_spec_enable_rearms_intent
+test/conformance/test_intent4_plugins_conformance.py::TestIntent4Registration_adapt::test_legacy_registration_still_matches
+test/conformance/test_intent4_plugins_conformance.py::TestIntent4Registration_adapt::test_spec_registration_is_matchable
+test/conformance/test_intent4_plugins_conformance.py::TestIntent4Registration_linha_fina::test_legacy_registration_still_matches
+test/conformance/test_intent4_plugins_conformance.py::TestIntent4Registration_linha_fina::test_spec_registration_is_matchable
+test/conformance/test_intent4_plugins_conformance.py::TestIntent4Registration_nebulento::test_legacy_registration_still_matches
+test/conformance/test_intent4_plugins_conformance.py::TestIntent4Registration_nebulento::test_spec_registration_is_matchable
+test/conformance/test_intent4_plugins_conformance.py::TestIntent4Registration_padacioso::test_legacy_registration_still_matches
+test/conformance/test_intent4_plugins_conformance.py::TestIntent4Registration_padacioso::test_spec_registration_is_matchable
+test/conformance/test_intent4_plugins_conformance.py::TestIntent4Registration_padatious::test_legacy_registration_still_matches
+test/conformance/test_intent4_plugins_conformance.py::TestIntent4Registration_padatious::test_spec_registration_is_matchable
+test/conformance/test_intent4_plugins_conformance.py::TestIntent4Registration_palavreado::test_legacy_registration_still_matches
+test/conformance/test_intent4_plugins_conformance.py::TestIntent4Registration_palavreado::test_spec_registration_is_matchable
+test/conformance/test_msg1_conformance.py::TestSec21Type::test_empty_type_is_nonconformant_on_serialize
+test/conformance/test_msg1_conformance.py::TestSec21Type::test_whitespace_in_type_is_nonconformant
+test/conformance/test_msg1_conformance.py::TestSec2Envelope::test_unknown_top_level_key_rejected
+test/conformance/test_msg1_conformance.py::TestSec4Session::test_forward_does_not_mutate_source_session
+test/conformance/test_msg1_conformance.py::TestSec52Reply::test_reply_destination_only_sets_source
+test/conformance/test_msg1_conformance.py::TestSec52Reply::test_reply_source_only_addresses_back
+test/conformance/test_msg1_conformance.py::TestSec6Serialization::test_non_finite_number_rejected_on_serialize
+test/conformance/test_persona1_conformance.py::TestSec11DismissBroadcast::test_dismiss_broadcasts
+test/conformance/test_persona1_conformance.py::TestSec3PersonaIdField::test_active_persona_id_is_claimed
+test/conformance/test_persona1_conformance.py::TestSec3PersonaIdField::test_summon_sets_session_persona_id
+test/conformance/test_persona1_conformance.py::TestSec4NoPersonaMode::test_no_persona_declines_neutral
+test/conformance/test_persona1_conformance.py::TestSec5Summon::test_summon_broadcasts_activated
+test/conformance/test_persona1_conformance.py::TestSec5Summon::test_summon_is_claimed
+test/conformance/test_persona1_conformance.py::TestSec5Summon::test_summon_speaks_confirmation
+test/conformance/test_persona1_conformance.py::TestSec6Dismiss::test_release_clears_session_persona_id
+test/conformance/test_persona1_conformance.py::TestSec6Dismiss::test_release_is_claimed
+test/conformance/test_persona1_conformance.py::TestSec7MatchContract::test_active_persona_claims_neutral_utterance
+test/conformance/test_persona1_conformance.py::TestSec7MatchContract::test_check_active_is_claimed
+test/conformance/test_persona1_conformance.py::TestSec7MatchContract::test_list_personas_is_claimed
+test/conformance/test_persona1_conformance.py::TestSec7MatchContract::test_match_lang_is_resolved
+test/conformance/test_persona1_conformance.py::TestSec7MatchContract::test_oneoff_ask_is_claimed_and_answered
+test/conformance/test_persona1_conformance.py::TestSec87Discovery::test_persona_list_responds
+test/conformance/test_persona1_conformance.py::TestSec8Handler::test_handler_speaks_response
+test/conformance/test_persona1_conformance.py::TestSec8Handler::test_handler_terminates_once
+test/conformance/test_persona1_conformance.py::TestSec8Handler::test_out_of_band_query_answers
+test/conformance/test_pipeline1_conformance.py::TestSec53BlacklistBackstop::test_blacklisted_skill_suppresses_match
+test/conformance/test_pipeline1_conformance.py::TestSec5EffectivePipeline::test_known_stage_matches
+test/conformance/test_pipeline1_conformance.py::TestSec5EffectivePipeline::test_unknown_stage_is_skipped_not_aborted
+test/conformance/test_pipeline1_conformance.py::TestSec64Cancelled::test_cancelled_does_not_dispatch
+test/conformance/test_pipeline1_conformance.py::TestSec64Cancelled::test_cancelled_terminates_once
+test/conformance/test_pipeline1_conformance.py::TestSec64Cancelled::test_cancelled_topic_emitted
+test/conformance/test_pipeline1_conformance.py::TestSec7Dispatch::test_dispatch_topic_shape
+test/conformance/test_pipeline1_conformance.py::TestSec7Dispatch::test_pipeline_id_stamped
+test/conformance/test_pipeline1_conformance.py::TestSec7Dispatch::test_skill_id_stamped
+test/conformance/test_pipeline1_conformance.py::TestSec7Dispatch::test_utterance_forwarded_verbatim
+test/conformance/test_pipeline1_conformance.py::TestSec81HandlerError::test_error_still_terminates_once
+test/conformance/test_pipeline1_conformance.py::TestSec91Entry::test_entry_topic_consumed
+test/conformance/test_pipeline1_conformance.py::TestSec92Matched::test_matched_notification_emitted
+test/conformance/test_pipeline1_conformance.py::TestSec93Unmatched::test_unmatched_topic_emitted
+test/conformance/test_pipeline1_conformance.py::TestSec95EndMarker::test_exactly_one_handled_on_no_match
+test/conformance/test_pipeline1_conformance.py::TestSec95EndMarker::test_exactly_one_handled_on_stop
+test/conformance/test_session_conformance.py::TestActiveHandlerRecency::test_activation_updates_session_active_skills
+test/conformance/test_session_conformance.py::TestActiveHandlerRecency::test_active_handlers_spec_field
+test/conformance/test_session_conformance.py::TestActiveHandlerRecency::test_reactivation_is_head_first_dedup
+test/conformance/test_session_conformance.py::TestConverseOwnerOrdering::test_owner_ordering_most_recent_first
+test/conformance/test_session_conformance.py::TestFallbackHandlersField::test_fallback_handlers_spec_field
+test/conformance/test_session_conformance.py::TestResponseMode::test_get_response_enable_sets_response_state
+test/conformance/test_session_conformance.py::TestResponseMode::test_response_mode_spec_field
+test/conformance/test_session_conformance.py::TestUpdatedSessionEcho::test_mutation_rides_forward
+test/conformance/test_session_conformance.py::TestUpdatedSessionEcho::test_session_id_preserved_on_response
+test/conformance/test_stop1_conformance.py::TestSec42PingPong::test_ping_broadcast_topic
+test/conformance/test_stop1_conformance.py::TestSec43PerSkillStop::test_no_active_skill_goes_global
+test/conformance/test_stop1_conformance.py::TestSec5GlobalStop::test_global_stop_broadcast_topic
+test/conformance/test_stop1_conformance.py::TestSec5GlobalStop::test_global_stop_terminates
+test/conformance/test_user_id1_conformance.py::TestSec2IdentityFields::test_signal_fields_absent_until_a_recognizer_sets_them
+test/conformance/test_user_id1_conformance.py::TestSec2IdentityFields::test_unresolved_identity_leaves_user_id_absent
+test/conformance/test_user_id1_conformance.py::TestSec3AuthLevel::test_absent_auth_level_reads_as_zero
+test/conformance/test_user_id1_conformance.py::TestSec3AuthLevel::test_anonymous_session_presents_level_zero
+test/conformance/test_user_id1_conformance.py::TestSec3AuthLevel::test_auth_level_survives_the_orchestrator_round
+test/conformance/test_user_id1_conformance.py::TestSec3AuthLevel::test_recognition_plugin_sets_level_from_evidence
+test/conformance/test_user_id1_conformance.py::TestSec5And6Resolution::test_bridge_injects_identity_fields
+test/conformance/test_user_id1_conformance.py::TestSec5And6Resolution::test_identity_persists_across_utterances
+test/conformance/test_user_id1_conformance.py::TestSec5And6Resolution::test_plugin_writes_fields_before_the_pipeline
+test/conformance/test_user_id1_conformance.py::TestSec7GuestFallback::test_anonymous_utterance_completes_the_round
+test/conformance/test_user_id1_conformance.py::TestSec7GuestFallback::test_anonymous_utterance_terminates_once
+test/conformance/test_user_id1_conformance.py::TestSec7GuestFallback::test_no_sentinel_user_id_appears_on_the_round
+test/conformance/test_user_id1_conformance.py::TestSec9Consumers::test_identified_utterance_completes_the_round
+test/conformance/test_user_id1_conformance.py::TestSec9Consumers::test_identity_fields_ride_msg1_derivations
+
+[xpass]

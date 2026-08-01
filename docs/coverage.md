@@ -260,6 +260,31 @@ errors on either.
 
 ---
 
+## Mixed-version back-compat matrix (`test/backcompat/`)
+
+Not a conformance suite: no specification mandates the legacy suffixed intent
+topic, and OVOS-MSG-1 §2.1.1 is already covered by
+`test_msg1_conformance.py`. This suite pins **transitional** behaviour — that
+a stack in the middle of the INTENT-4 topic migration does not silently drop
+skill containers built before it.
+
+It is the only suite here that runs two package sets at once, so it is the
+only one that can observe a cross-version break at all.
+
+| Cell | Skill venv | Core venv | Asserts | Status |
+|------|-----------|-----------|---------|--------|
+| `old-skill/old-core` | `ovos-workshop==9.3.1a2` | `ovos-core==2.5.5a2` + `ovos-padatious==2.0.0a1` | suffixed dispatch reaches the suffixed binding | green (control) |
+| `old-skill/new-core` | `ovos-workshop==9.3.1a2` | `ovos-core@dev` + `ovos-padatious>=2.0.1a2` | canonical dispatch must reach a suffixed-only binding | **xfail(strict)** — needs [bus-client#271](https://github.com/OpenVoiceOS/ovos-bus-client/pull/271) |
+| `new-skill/old-core` | `ovos-workshop@dev` | `ovos-core==2.5.5a2` + `ovos-padatious==2.0.0a1` | suffixed dispatch reaches the dual binding | green (control; goes red on [workshop#500](https://github.com/OpenVoiceOS/ovos-workshop/pull/500)) |
+| `new-skill/new-core` | `ovos-workshop@dev` | `ovos-core@dev` + `ovos-padatious>=2.0.1a2` | canonical dispatch fires the handler exactly once | green (control + double-fire guard) |
+
+Every cell also asserts its own pins: the bindings the skill venv actually
+made, and whether the core venv canonicalizes at registration. A release that
+quietly changes either fails as a wrong-vintage error rather than turning the
+red cell green.
+
+---
+
 ## See also
 
 - [known-gaps.md](known-gaps.md) — the live `xfail` clauses, with the

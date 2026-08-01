@@ -1,0 +1,133 @@
+name: channel compat
+
+# Third layer of the compat program, next to `integration.yml` and
+# `backcompat_matrix.yml`.
+#
+#   integration.yml       one dev-edge stack. What the spec stack does TODAY.
+#   backcompat_matrix.yml boundary pins. WHERE a behavior changed.
+#   channel_compat.yml    this file. What the FLEET actually runs.
+#
+# A "channel" is an OVOS distro release channel. The distro publishes one
+# constraints file per channel, and this job installs the conformance stack at
+# exactly those versions and runs the full suite against it:
+#
+#   https://raw.githubusercontent.com/OpenVoiceOS/OpenVoiceOS/main/constraints-stable.txt
+#   https://raw.githubusercontent.com/OpenVoiceOS/OpenVoiceOS/main/constraints-testing.txt
+#
+# The constraints are fetched LIVE, never vendored, and uploaded as an artifact.
+# The day the distro bumps a pin, the next run sees it. That is the point: this
+# gate tracks the fleet rather than a frozen copy of it.
+#
+# Install precedence (implemented in test/channel_compat/install_channel.sh):
+# the constraints file wins for every package it names, and requirements.txt
+# fills in only what the channel does not name. `pip install -c constraints -r
+# requirements.txt` is NOT equivalent — requirements.txt is almost all direct
+# git URLs, and pip does not apply constraints to a direct URL, so the channel
+# pin would silently lose.
+#
+# The channels are far behind dev, so they fail a large part of the modern spec.
+# That is expected, and a plain red would carry no information. Each channel has
+# a checked-in known-gaps baseline in test/channel_gaps/<channel>.txt; the run
+# strict-xfails exactly those node ids. So:
+#
+#   * a NEW breakage turns the job red;
+#   * a gap the channel has CLOSED turns the job red too (strict XPASS), which
+#     is the cue to delete the line;
+#   * the known gaps stay listed, visible and green.
+#
+# Regenerate a baseline after a channel bump — see docs/ci.md.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - dev
+  schedule:
+    # The channels move on the distro's schedule, not on this repo's. A weekly
+    # run catches a pin bump that no PR here would have triggered.
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+jobs:
+  channel-compat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [stable, testing]
+    name: ${{ matrix.channel }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system deps (padatious needs swig + libfann)
+        run: sudo apt-get update && sudo apt-get install -y swig libfann-dev
+
+      - name: Install the ${{ matrix.channel }} channel stack
+        run: |
+          pip install --upgrade pip
+          chmod +x test/channel_compat/install_channel.sh
+          test/channel_compat/install_channel.sh "${{ matrix.channel }}" \
+            "$RUNNER_TEMP/channel-compat"
+
+      - name: Record the installed stack
+        run: pip freeze > stack-freeze-${{ matrix.channel }}.txt
+
+      - name: Upload the installed-stack freeze
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stack-freeze-${{ matrix.channel }}
+          path: stack-freeze-${{ matrix.channel }}.txt
+
+      # Saved so a red run can be traced back to exactly what the distro pinned
+      # that day, which a later fetch can no longer tell you.
+      - name: Upload the fetched constraints file
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: constraints-${{ matrix.channel }}
+          path: ${{ runner.temp }}/channel-compat/constraints-${{ matrix.channel }}.txt
+
+      - name: Run the conformance suite on the ${{ matrix.channel }} channel
+        env:
+          # OVOS_CHANNEL turns on the known-gaps baseline in conftest.py.
+          OVOS_CHANNEL: ${{ matrix.channel }}
+          # OVOS_CONFORMANCE_EXPECT_FULL is deliberately NOT set. It asserts the
+          # dev stack installed completely, which is false by construction on a
+          # channel: no channel ships ovos-media, and some suites do not import
+          # at all against channel-age packages. test/test_channel_gaps.py
+          # enforces the channel-shaped version of that floor instead — every
+          # suite the baseline does not excuse MUST import.
+        run: >-
+          pytest test/ -v --tb=short -rxX
+          --timeout=180 --timeout-method=thread
+          --ignore=test/backcompat
+
+      # A gap list is only useful if it can be refreshed. This produces the
+      # exact file a maintainer would commit after a channel bump.
+      - name: Regenerate the baseline for comparison
+        if: always()
+        run: |
+          pytest test/ -q --tb=no --ignore=test/backcompat \
+            --timeout=180 --timeout-method=thread \
+            --json-report --json-report-file="$RUNNER_TEMP/report.json" || true
+          python3 test/channel_compat/seed_gaps.py "${{ matrix.channel }}" \
+            "$RUNNER_TEMP/report.json"
+          git --no-pager diff -- test/channel_gaps/ || true
+          cp test/channel_gaps/${{ matrix.channel }}.txt \
+            "$RUNNER_TEMP/regenerated-${{ matrix.channel }}.txt"
+          git checkout -- test/channel_gaps/
+
+      - name: Upload the regenerated baseline
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regenerated-gaps-${{ matrix.channel }}
+          path: ${{ runner.temp }}/regenerated-${{ matrix.channel }}.txt
+          if-no-files-found: ignore
