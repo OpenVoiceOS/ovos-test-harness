@@ -29,13 +29,16 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
 
       - name: Install system deps (padatious needs swig + libfann)
         run: sudo apt-get update && sudo apt-get install -y swig libfann-dev
 
       - name: Install the stack under test
         run: |
-          pip install --upgrade pip
+          # No unpinned `pip install --upgrade pip` here: an unbounded pip
+          # upgrade is itself a moving dependency, defeating the point of a
+          # pinned requirements.txt. Use the pip actions/setup-python ships.
           pip install -r requirements.txt
           pip install pytest-timeout
           # ovos-media (the OVOS-OCP-1 Virtual Media Player) pins

@@ -94,9 +94,12 @@ jobs:
 
       - name: Record the resolved versions
         run: |
-          for v in venv_skill_old venv_skill_new venv_core_old venv_core_new; do
-            echo "== $v"
-            "$RUNNER_TEMP/venvs/$v/bin/python" -m pip freeze 2>/dev/null || true
+          # Glob the venvs dir rather than naming venvs, so a new cell (or a
+          # renamed one) is picked up here automatically.
+          for v in "$RUNNER_TEMP"/venvs/*/; do
+            name="$(basename "$v")"
+            echo "== $name"
+            "$v/bin/python" -m pip freeze 2>/dev/null || true
           done | tee venv-freeze.txt
 
       - name: Upload the resolved versions
