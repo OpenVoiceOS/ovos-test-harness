@@ -68,15 +68,12 @@ How it gets fixed, and why the fix lands where it does
 The old container does **not** ship an old ``ovos-bus-client``. Its workshop
 pin declares a floor, not a ceiling, so a rebuilt container resolves the
 current client — this suite asserts that, because the whole repair strategy
-depends on it. ``ovos-bus-client#271`` puts an alias-driven mirror on the
-**receive** side of every client: the old skill's own ``bus.on("…​.intent")``
-fills an ``IntentAliasRegistry``, and when the canonical dispatch arrives from
-the wire the client mirrors it locally onto the suffixed twin. The handler
-then runs without the skill or the wire changing at all.
-
-That is also why the mirror is receive-side rather than emit-side: the fix has
-to execute in the process that owns the stale binding, and only that process
-knows what it bound.
+depends on it. ``ovos-bus-client#271`` bridges in both directions with no state: the
+EMITTER also sends a marked ``.intent``-suffixed twin frame for every intent
+topic (reaches a truly frozen image whose baked-in old client cannot be fixed
+from outside), and a modern RECEIVER canonicalizes unmarked suffixed traffic
+locally (serves a rebuilt container whose floor-pin resolved a new client
+under old workshop). Either way the old handler runs unchanged.
 
 Kill-switch role
 ----------------
@@ -171,8 +168,8 @@ IS_BROKEN_CELL = COMBO == "old-skill/new-core" or COMBO in _BROKEN_CHANNEL_COMBO
 
 _XFAIL_REASON = (
     "old skill container (ovos-workshop==9.3.1a2, suffixed binding only) does "
-    "not hear a canonical dispatch; needs the receive-side alias mirror from "
-    "ovos-bus-client#271, unreleased. XPASS here means #271 shipped — drop "
+    "not hear a canonical dispatch; needs the #271 bridge (wire twin from the "
+    "emitter, or local canonicalization in a modern client), unreleased. XPASS here means #271 shipped — drop "
     "this marker and keep the guard."
     if COMBO not in _BROKEN_CHANNEL_COMBOS else
     f"{COMBO}: the OVOS distro constraints file pins an ovos-workshop below "
@@ -250,9 +247,9 @@ def test_old_container_resolves_a_current_bus_client(stack):
 
     ``ovos-workshop``'s dependency floor is a lower bound, so even a pinned
     old workshop resolves today's ``ovos-bus-client``. If that ever stopped
-    being true, the receive-side mirror of ``#271`` could not run in the old
-    process and the whole compat design would need rethinking — so it is
-    asserted rather than assumed.
+    being true, only the emitter-side wire twin of ``#271`` could reach it — so the
+    resolution is asserted, not assumed, and the cell documents which
+    rule it exercises.
 
     Channel combos are exempted from the assertion (not skipped outright,
     so the version is still recorded): a distro constraints file pins
@@ -268,8 +265,8 @@ def test_old_container_resolves_a_current_bus_client(stack):
     if COMBO not in _CHANNEL_COMBOS:
         assert int(client.split(".")[0]) >= 2, (
             f"the skill venv resolved ovos-bus-client {client}; the "
-            f"receive-side mirror of #271 cannot run there and the compat "
-            f"design does not hold")
+            f"this cell exercises #271's local canonicalization rule, which "
+            f"needs a modern client in the skill process")
     elif int(client.split(".")[0]) < 2:
         print(f"{COMBO}: channel bus-client ceiling is {client} (<2), below "
               f"where #271 would land; this channel needs a bus-client bump "
