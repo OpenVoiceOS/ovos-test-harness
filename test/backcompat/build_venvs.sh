@@ -88,7 +88,7 @@ mkvenv_channel() {
   local dir="$TARGET/$name"
   local cfile="$TARGET/${name#venv_}.constraints.txt"
   echo "==> fetching constraints for $name from $url"
-  curl -fsSL "$url" -o "$cfile"
+  curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 "$url" -o "$cfile"
   echo "==> building $name (constrained)"
   if have_uv; then
     uv venv --python "$PY" "$dir" >/dev/null
