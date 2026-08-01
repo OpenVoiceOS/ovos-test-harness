@@ -1,0 +1,14 @@
+# Code owners for ovos-test-harness.
+#
+# GitHub requests a review from the matching owner when a PR touches these
+# paths. See CONTRIBUTING.md for the contribution workflow.
+
+# The combo selector — every PR that edits it is proposing a stack to certify.
+/requirements.txt              @JarbasAl
+
+# CI workflows.
+/.github/workflows/            @JarbasAl
+
+# Per-channel known-gaps baselines (test/channel_gaps/<channel>.txt) — only
+# regenerate after a distro channel bump, see docs/ci.md.
+/test/channel_gaps/            @JarbasAl
