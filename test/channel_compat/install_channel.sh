@@ -41,7 +41,7 @@ URL="$BASE_URL/constraints-$CHANNEL.txt"
 mkdir -p "$WORK"
 CFILE="$WORK/constraints-$CHANNEL.txt"
 echo "==> fetching $URL"
-curl -fsSL "$URL" -o "$CFILE"
+curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 "$URL" -o "$CFILE"
 
 PLAN="$WORK/plan-$CHANNEL"
 python3 "$REPO_ROOT/test/channel_compat/resolve.py" \
