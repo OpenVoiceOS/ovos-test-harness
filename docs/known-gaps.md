@@ -271,6 +271,208 @@ No bridge is installed (the reference implementation is HiveMind), and
 they are recorded as `# not bus-observable (no bridge in stack)` skips
 rather than gaps.
 
+## OVOS-AUDIO-IN-1
+
+### §5.1: STT input-language resolution order
+
+- **Spec mandates:** select the STT input language as
+  `session.detected_lang` > `session.request_lang` > `session.lang` (first
+  present, non-empty wins), reflected on the emitted utterance's `data.lang`
+  (`stt_lang` normally matches).
+
+- **Current impl:** `OVOSDinkumVoiceService._stt_text` resolves the language
+  from `stt_context.get("lang")` or the deployment config default, and never
+  consults `session.detected_lang` / `session.request_lang` / `session.lang`.
+
+- **Test:** `TestSec51LanguageResolution.test_language_resolution_precedence`
+
+- **`reason`:** `"AUDIO-IN-1 §5.1 MUST resolve the STT input language as detected_lang > request_lang > lang from the session; OVOSDinkumVoiceService._stt_text resolves it from stt_context.get('lang') or the deployment config default and never consults session.detected_lang / session.request_lang / session.lang"`
+
+## OVOS-OCP-1
+
+### §5: per-session now-playing isolation
+
+- **Spec mandates:** the Virtual Media Player is per session. An orchestrator
+  serving multiple concurrent sessions MUST keep each session's now-playing,
+  queue, and transport state isolated — a `pause` for session A MUST NOT
+  affect session B.
+
+- **Current impl:** the `ovos-media` `OCPMediaPlayer` holds a single global
+  `NowPlaying` and one `PlayerState`, and does not read `context.session` to
+  select a per-session player, so two concurrent sessions collide on one
+  player. This is the design-probe counterpart of GUI-1's
+  `TestSec43Sec5PerSessionRouting`: a single `OCPPlayerHarness` cannot host
+  two concurrent player instances, so the test asserts the structural
+  precondition isolation requires (state keyed by `session_id`).
+
+- **Test:** `TestSec5SessionScoping.test_now_playing_is_scoped_per_session`
+
+- **`reason`:** `"OVOS-OCP-1 §5 MUST keep each session's now-playing / queue / transport state isolated (a pause for session A MUST NOT affect session B); the ovos-media OCPMediaPlayer holds a single global NowPlaying and one PlayerState and does not read context.session to select a per-session player, so two concurrent sessions collide on one player"`
+
+## OVOS-PERSONA-1
+
+The summon / release / ask / list / check routes, the active-persona catch-all
+(§7.2), `Match.lang` (§7.4), the handler speak contract (§8.1), and the
+`ovos.persona.*` discovery / broadcast surface (§8.5, §8.7, §11) are green
+against the pinned persona plugin. One behavior gap remains.
+
+### §7.1: unsupported `persona_id` MUST decline
+
+- **Spec mandates:** when `session.persona_id` is set to a value the plugin
+  does not support, `match` returns `None` (let another stage handle it) — no
+  `persona:*` dispatch fires.
+
+- **Current impl:** the plugin still claims (`persona:query` / fallback)
+  instead of declining.
+
+- **Test:** `TestSec4NoPersonaMode.test_unsupported_persona_id_declines`
+
+- **`reason`:** `"PERSONA-1 §7.1 MUST return None when session.persona_id is set to an UNSUPPORTED value; the plugin still claims (persona:query / fallback) instead of declining"`
+
+## OVOS-COMMON-QUERY-1
+
+The discovery poll (§6.1 ping / §6.2 pong), the no-winner path (§9 → fallback,
+no spurious speak), and the skill-side spec response topic (§7.1
+`<skill_id>.common_query.response`) are green. The answer phase (§7 onward) is
+not reachable in the pinned stack: `ovos-common-query-pipeline-plugin` 1.1.13a1
+iterates `session.blacklisted_skills` unconditionally, which defaults to `None`
+under `ovos-bus-client>=2.4`, so every winning-contest path raises
+`TypeError: 'NoneType' object is not iterable` before completing. Each clause
+below therefore carries both its spec-vs-legacy divergence AND that crash.
+
+| Clause | Spec mandates | Test | `reason` |
+|--------|---------------|------|----------|
+| §6.1 | broadcast the ping for each accepted utterance (gate → poll → collect) | `TestSec6Poll.test_ping_rebroadcast_per_utterance` | `"COMMON-QUERY-1 §6.1 MUST broadcast the ping for each accepted utterance (gate -> poll -> collect); the pinned plugin pings only once at load for discovery and never re-broadcasts during match, so no per-utterance ping is observable"` |
+| §3 | dispatch the winning contest on `<pipeline_id>:common_query` | `TestSec3ReservedIntent.test_dispatch_topic_is_reserved_common_query` | `"COMMON-QUERY-1 §3 MUST dispatch the winning contest on '<pipeline_id>:common_query'; the pinned plugin would dispatch legacy 'question:action.<skill_id>', and in this stack the contest crashes (blacklisted_skills None) before any dispatch"` |
+| §7.1 | request full answers via `<skill_id>:common_query` | `TestSec7AnswerCollection.test_full_answer_request_topic` | `"COMMON-QUERY-1 §7.1 MUST request full answers via '<skill_id>:common_query'; the pinned plugin uses legacy broadcast 'question:query', and the contest crashes (blacklisted_skills None) before requesting anyway"` |
+| §9 | `Match.skill_id` = the plugin's own `pipeline_id` | `TestSec9And10WinningContest.test_match_skill_id_is_pipeline_id` | `"COMMON-QUERY-1 §9 MUST set Match.skill_id = the plugin's own pipeline_id; the pinned plugin sets skill_id = the answering skill, and the contest crashes (blacklisted_skills None) before any dispatch"` |
+| §9 | `slots.answer` = the selected answer string | `TestSec9And10WinningContest.test_match_slots_answer` | `"COMMON-QUERY-1 §9 MUST carry slots.answer = the selected answer string; the pinned plugin carries the answer in match_data/callback_data, and the contest crashes (blacklisted_skills None) before any dispatch"` |
+
+## OVOS-TRANSFORM-1
+
+The chain semantics (§1 run-to-completion, §4 ascending-priority order), the
+per-type IO contracts (§3.2 utterance, §3.3 metadata, §3.4 intent-capture
+enrichment), error handling (§7), the `<type>_transformer_ids` stamp (§1.3),
+and cancellation (§8.1) are green against the ovos-core transformer services.
+The §5 per-session override fields are skip-guarded (bus-client field presence,
+see the SESSION-fields note above). Two behavior gaps remain.
+
+### §3.4 / §9: intent-transformer identity invariant MUST be enforced
+
+- **Spec mandates:** if a transformer returns a `Match` whose `skill_id` or
+  `intent_name` differs from its input, the orchestrator MUST treat it as a §7
+  shape violation — discard the output and proceed with the prior `Match`
+  unchanged.
+
+- **Current impl:** `IntentTransformersService.transform` does not enforce the
+  identity invariant — a transformer that overwrites `skill_id` is honoured.
+
+- **Test:** `TestSec34Intent.test_skill_id_invariant_enforced`
+
+- **`reason`:** `"OVOS-TRANSFORM-1 §3.4 / §9 MUST: if a transformer returns a Match whose skill_id or intent_name differs from its input, the orchestrator MUST treat it as a §7 shape violation, discard the output and proceed with the prior Match unchanged. IntentTransformersService.transform does not enforce the identity invariant — a transformer that overwrites skill_id is honoured."`
+
+### §3.0: bidirectional `lang` threaded through every chain
+
+- **Spec mandates:** the orchestrator threads a bidirectional `lang` parameter
+  through the audio / utterance / dialog / TTS chains (input AND output of each
+  transform call).
+
+- **Current impl:** the installed transformer templates take no `lang`
+  parameter — `UtteranceTransformer.transform(utterances, context)`,
+  `DialogTransformer.transform(dialog, context)`, and so on.
+
+- **Test:** `TestSec30Lang.test_lang_is_a_threaded_parameter`
+
+- **`reason`:** `"OVOS-TRANSFORM-1 §3.0 MUST: the orchestrator threads a bidirectional lang parameter through the audio/utterance/dialog/TTS chains (input AND output of each transform call). The installed transformer templates take no lang parameter."`
+
+## Follow-up: MUST-clause enumeration (INTENT-1/2/3/4, SESSION-1/2)
+
+A spot-enumeration of each spec's MUST / MUST NOT clauses against its
+conformance suite. The suites cover their bus-observable behavior clauses well;
+the gaps below are MUSTs with **no** assertion in any suite. They are recorded
+here (not yet encoded) because they need the full CI stack to drive
+deterministically — a strict-xfail added blind could XPASS on CI and would then
+fail the run for the wrong reason. Prioritized: **[C]** = correctness/security
+critical, **[N]** = normal.
+
+### OVOS-INTENT-4 — malformed-registration rejection (§3.2 / §5.3 / §6.2)
+
+The orchestrator suite covers the register / deregister / enable-disable /
+introspection surface (§2, §5–§8, §10). It does **not** assert the
+consuming-plugin **rejection** MUSTs:
+
+- **[C]** §5.3 / §6.2 / §3.2: "A consuming plugin MUST NOT index a malformed
+  registration" and "MUST log the rejection at WARN with `skill_id`, the
+  offending value, and the rule violated" (spec §294, §361, §398, §728). A
+  registration that violates a rule but is silently indexed is a
+  security/correctness hole (a malformed or hostile registration becomes
+  matchable). No suite drives a malformed registration against the orchestrator
+  and asserts non-indexing + the WARN log.
+- **[C]** §5.2: combined `required` and `one_of` MUST NOT both be empty (spec
+  §278); every vocabulary descriptor MUST carry a non-empty `samples` array
+  (§284, §286). The per-role overlap rule (§281, "a vocabulary MUST NOT appear
+  under more than one role") **is** covered — as an xfail — in the INTENT-3
+  suite (`§4.2 a vocabulary MUST appear under at most one role`), but the
+  empty-constraint and empty-samples rejections are not.
+- §2 / §11: `intent_name` MUST NOT be one reserved by another spec (§276) — the
+  `stop` case **is** covered (STOP-1 §2 xfail); other reserved names
+  (`common_query`, `converse`) are not enumerated.
+
+### OVOS-SESSION-1 — wire-shape MUSTs (§2.1 / §5 / §6)
+
+The cross-cutting session suite asserts the **state-ownership** fields
+(`active_handlers` / `converse_handlers` / `response_mode` /
+`fallback_handlers` / `updated_session`). The **wire-shape** MUSTs of the
+session carrier are asserted (for the envelope) by MSG-1 §4 / §6, but not for
+the `session` object specifically:
+
+- **[C]** §2.1: "A producer MUST NOT emit any field as JSON `null`" and "a
+  consumer that encounters an explicit `null` MUST treat it as a malformed
+  value … behave as if the field were omitted" (spec §64, §71). No test drives
+  a `session` carrying an explicit `null` field and asserts omitted-semantics.
+- **[C]** §6: within `session`, "numbers MUST be finite (no NaN, no
+  infinities)" and "a consumer that cannot parse `session` as a JSON object
+  MUST treat it as malformed" (spec §574, §578). MSG-1 covers this for the
+  envelope; the session-object-specific path is not separately asserted.
+- **[C]** §3.4 / consumer-keying (spec §227): "a consumer that maintains
+  per-session state MUST key that state on `session_id`." This is the same MUST
+  the GUI-1 §5 and OCP-1 §5 xfails now track for those two consumers; there is
+  no generic SESSION-1 assertion of it.
+- **[N]** §5: `secondary_langs` MUST NOT contain `lang` and MUST NOT contain
+  duplicates (spec §301); `request_lang` MUST NOT be treated as a guarantee
+  (§400). Language-signal invariants — unasserted.
+- **[N]** §7 (derivation): "a consumer that derives a Message MUST NOT strip
+  session fields it does not understand" (spec §536). BRIDGE-1 asserts session
+  **preservation** through the orchestrator round; the unknown-field-preservation
+  MUST on an arbitrary consumer derivation is not separately asserted.
+
+### OVOS-SESSION-2 — ownership / statelessness MUSTs
+
+`updated_session` echo and forward-mutation are green. Uncovered:
+
+- **[C]** §... "The message bus MUST be stateless with respect to session … MUST
+  NOT interpret, mutate, persist, or special-case" it (spec §543). No test
+  asserts the bus leaves `session` untouched in transit.
+- **[C]** §... "the orchestrator MUST merge `Message.data.session` from an
+  in-progress round and reflect the merged state" (spec §347, §355). Related to
+  CONTEXT-1 §5.3 sync (tracked there); the SESSION-2 merge MUST is not
+  separately asserted.
+- **[N]** §... a client MUST make every round self-sufficient via the session
+  (spec §625); a component MUST NOT rely on async bus events for session state
+  (§596). Client-contract MUSTs — no client in the stack, arguably
+  not-bus-observable; listed for completeness.
+
+### OVOS-INTENT-1 / INTENT-2 / INTENT-3
+
+INTENT-1 (grammar) and INTENT-2 (locale formats) are asserted against
+`ovos_spec_tools` clause-by-clause and are thoroughly covered (see their
+coverage maps — every §2–§5 MUST/MUST NOT has a green or xfail row). INTENT-3
+covers the identity triple, the four constraint roles, and the match MUSTs;
+its two validation MUSTs (§4.2 declare-a-constraint, §4.2 role-overlap) are
+already xfail. No additional uncovered MUSTs were found in these three beyond
+the INTENT-4 registration-validation overlap noted above (INTENT-3 §5.3
+required-slot rules are noted engine-specific in that suite).
+
 ## How a gap closes
 
 1. Pin the implementation branch(es) that close the gap in

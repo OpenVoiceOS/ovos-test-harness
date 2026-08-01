@@ -263,10 +263,12 @@ errors on either.
 ## Mixed-version back-compat matrix (`test/backcompat/`)
 
 Not a conformance suite: no specification mandates the legacy suffixed intent
-topic, and OVOS-MSG-1 §2.1.1 is already covered by
-`test_msg1_conformance.py`. This suite pins **transitional** behaviour — that
-a stack in the middle of the INTENT-4 topic migration does not silently drop
-skill containers built before it.
+topic. OVOS-MSG-1 §2.1.1 (the identifier-separator rule that makes a
+`<skill_id>:<intent_name>` dispatch topic unambiguously parseable) is covered
+by `test_msg1_conformance.py::TestSec211IdentifierSeparator`, not here. This
+suite pins **transitional** behaviour — that a stack in the middle of the
+INTENT-4 topic migration does not silently drop skill containers built before
+it.
 
 It is the only suite here that runs two package sets at once, so it is the
 only one that can observe a cross-version break at all.

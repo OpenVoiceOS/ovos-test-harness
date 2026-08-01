@@ -44,7 +44,8 @@ def setUpModule():
     use_spec_namespace()  # assert the ovos.* spec topics
     try:
         _MC = get_minicroft([])
-        time.sleep(1)
+        from ._conformance import wait_ready
+        wait_ready(_MC, settle=1.0)
     except BaseException:
         reset_namespace()
         raise

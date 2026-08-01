@@ -25,6 +25,7 @@ Coverage map (clause -> status against the installed ``ovos-media`` player):
 - §4.3 pause / resume / stop transition the player ............. green
 - §4.3 next / stop are no-ops with no media ................... green
 - §4.3 pause is a no-op with no media ......................... xfail (player -> PAUSED)
+- §5   per-session now-playing isolation ...................... xfail (single global player)
 - §4.4 ``…player.state`` announced on transition .............. green
 - §4.4 ``…media.state`` announced on media change ............. green
 - §7   stop -> STOPPED ......................................... green
@@ -317,11 +318,52 @@ class TestSec7Stop(TestCase):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# §5 / §6 — non-bus-observable in a single-player FakeBus harness
+# §5 — Session scoping
 # ─────────────────────────────────────────────────────────────────────────────
-# not bus-observable: §5 per-session isolation — OCPPlayerHarness runs ONE
-#   player for one (default) session; "pause for session A MUST NOT affect
-#   session B" needs two concurrent player instances a single harness can't host.
+
+@_requires_player
+class TestSec5SessionScoping(TestCase):
+    """§5: "The Virtual Media Player is per session … An orchestrator serving
+    multiple concurrent sessions MUST keep each session's now-playing, queue,
+    and transport state isolated: a ``pause`` for session A MUST NOT affect
+    session B."
+
+    This is the design-probe counterpart of GUI-1's
+    ``TestSec43Sec5PerSessionRouting`` — the same "independent state per
+    ``session_id``" MUST, on the player instead of the GUI namespace stack.
+    A single ``OCPPlayerHarness`` cannot host two concurrent player instances,
+    so this asserts the structural precondition isolation requires (state keyed
+    by ``session_id``) rather than driving two live sessions."""
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="OVOS-OCP-1 §5 MUST keep each session's now-playing / queue / "
+               "transport state isolated (a pause for session A MUST NOT "
+               "affect session B); the ovos-media OCPMediaPlayer holds a "
+               "single global NowPlaying and one PlayerState and does not read "
+               "context.session to select a per-session player, so two "
+               "concurrent sessions collide on one player",
+    )
+    def test_now_playing_is_scoped_per_session(self):
+        """§5 MUST: the player keeps now-playing / transport state isolated per
+        ``session_id``. A conforming player keys that state by ``session_id``
+        (a mapping of session -> state) rather than exposing one global
+        now-playing that every session shares."""
+        with OCPPlayerHarness() as h:
+            h.play(_entry())
+            # Probe the design (mirrors GUI-1 TestSec43Sec5PerSessionRouting):
+            # per-session isolation requires state keyed by session_id.
+            np = getattr(h.player, "now_playing", None)
+            per_session = isinstance(np, dict)
+            self.assertTrue(
+                per_session,
+                "player holds a single global now-playing, not one keyed per "
+                "session_id — two sessions cannot be isolated")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §6 — non-bus-observable in a single-player FakeBus harness
+# ─────────────────────────────────────────────────────────────────────────────
 # not bus-observable: §6.1/§6.2/§6.3 the MPRIS bridge (Role A export, Role B
 #   external control, arbitration) is a D-Bus surface, SHOULD/MAY-level, and is
 #   mocked out (OcpMprisExporter) in the harness — no session D-Bus in CI.

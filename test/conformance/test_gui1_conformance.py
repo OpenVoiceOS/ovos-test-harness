@@ -61,6 +61,8 @@ from ovos_bus_client.message import Message
 from ovos_utils.fakebus import FakeBus
 from ovos_utils.log import LOG
 
+from . import _conformance
+
 # ── Reserved protocol keys (§4.1) and the closed template vocabulary (§3.4) ──
 GUI_VALUE_SET = "gui.value.set"
 GUI_PAGE_SHOW = "gui.page.show"
@@ -88,23 +90,21 @@ SKILL_ID = "weather.openvoiceos"
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _capture_producer(emit):
-    """Run ``emit(gui, bus)`` against a fresh FakeBus + real GUIInterface and
-    return the ordered list of ``gui.*`` Messages the producer emitted."""
+    """Run ``emit(gui)`` against a fresh FakeBus + real GUIInterface and return
+    the ordered list of ``gui.*`` Messages the producer emitted.
+
+    Routed through the hardened shared :func:`_conformance.capture_emissions`,
+    so a ``gui.*`` emission the bus cannot deserialize is recorded as a
+    ``_deserialize_error`` sentinel instead of being dropped by a weaker local
+    recorder."""
     bus = FakeBus()
-    recs = []
-
-    def _rec(m):
-        recs.append(Message.deserialize(m) if isinstance(m, str) else m)
-
-    bus.on("message", _rec)
     gui = GUIInterface(SKILL_ID, bus=bus)
-    emit(gui)
-    time.sleep(0.2)
-    return [m for m in recs if m.msg_type.startswith("gui.")]
+    return _conformance.capture_emissions(bus, lambda: emit(gui), prefix="gui.")
 
 
-def _first(recs, msg_type):
-    return next((m for m in recs if m.msg_type == msg_type), None)
+# ``first`` is the shared helper — a local ``_first`` alias keeps the many call
+# sites below unchanged while removing the duplicated implementation.
+_first = _conformance.first
 
 
 # =============================================================================

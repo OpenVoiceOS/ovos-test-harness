@@ -155,7 +155,8 @@ def setUpModule():
     try:
         _MC = get_minicroft([UNKNOWN_ID], extra_skills={WIKI_ID: _FakeWikiSkill})
         # let the plugin's startup ping/pong register the fixture as a CQ skill
-        time.sleep(3)
+        from ._conformance import wait_ready
+        wait_ready(_MC, settle=3.0)
     except BaseException:
         reset_namespace()
         raise

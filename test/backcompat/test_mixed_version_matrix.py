@@ -355,9 +355,13 @@ def test_the_handler_runs_exactly_once(stack):
         bus.emit(Message(topic, {"food": "burritos", "token": token},
                          {"session": {"session_id": "backcompat-once"}}))
         assert handled.wait(), f"{COMBO}: handler never ran for {topic!r}"
-        # Keep listening past the first hit: a duplicate arrives late, so an
-        # assertion taken the instant the first one lands would never see it.
-        time.sleep(3)
+        # Keep listening past the first hit for a duplicate, but exit the moment
+        # a second dispatch lands: a real double-fire fails fast instead of
+        # sleeping out a fixed window, and only the passing case waits the full
+        # DUPLICATE_WINDOW deadline (a documented upper bound on how late a
+        # duplicate could arrive over the real bus).
+        DUPLICATE_WINDOW = 3.0
+        handled.wait_for_count(2, timeout=DUPLICATE_WINDOW)
         assert len(handled.messages) == 1, (
             f"{COMBO}: one dispatch on {topic!r} produced "
             f"{len(handled.messages)} handler runs "

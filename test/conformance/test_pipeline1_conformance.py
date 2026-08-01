@@ -110,7 +110,8 @@ def setUpModule():
         _MC = get_minicroft([SKILL_ID], extra_skills={SKILL_ID: _EchoSkill})
         register_padatious_intent(_MC.bus, GREET_INTENT, GREET_SAMPLES)
         register_padatious_intent(_MC.bus, BOOM_INTENT, BOOM_SAMPLES)
-        time.sleep(2)
+        from ._conformance import wait_ready
+        wait_ready(_MC)
     except BaseException:
         reset_namespace()
         raise

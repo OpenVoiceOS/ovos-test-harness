@@ -226,6 +226,22 @@ class Capture:
     def wait(self, timeout: float = DISPATCH_TIMEOUT) -> bool:
         return self._seen.wait(timeout)
 
+    def wait_for_count(self, count: int, timeout: float) -> bool:
+        """Wait until at least ``count`` matching messages have been captured.
+
+        Returns ``True`` the moment the threshold is reached (early exit), or
+        ``False`` if ``timeout`` elapses first. The duplicate-dispatch check
+        uses this to fail fast on a second hit instead of always sleeping out a
+        fixed window: a real duplicate returns as soon as it lands, and only the
+        passing (no-duplicate) case pays the full deadline.
+        """
+        deadline = time.monotonic() + timeout
+        while len(self.messages) < count:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.02)
+        return True
+
     def close(self):
         self.bus.remove(self.topic, self._handle)
 

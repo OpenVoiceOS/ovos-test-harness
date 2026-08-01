@@ -61,7 +61,8 @@ def setUpModule():
     global _MC
     LOG.set_level("ERROR")
     _MC = get_minicroft([])
-    time.sleep(1)
+    from ._conformance import wait_ready
+    wait_ready(_MC, settle=1.0)
 
 
 def tearDownModule():

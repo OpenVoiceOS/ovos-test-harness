@@ -217,12 +217,12 @@ class TestE2EKeywordConstraints(TestCase):
             register_adapt_intent,
             register_adapt_vocab,
         )
-        from ._conformance import reset_namespace, use_spec_namespace
+        from ._conformance import reset_namespace, use_spec_namespace, wait_ready
         LOG.set_level("ERROR")
         use_spec_namespace()
         try:
             cls._mc = get_minicroft([])
-            time.sleep(1)
+            wait_ready(cls._mc, settle=1.0)
 
             # vocabularies
             register_adapt_vocab(cls._mc.bus, "SetKeyword", ["set", "change"])
@@ -314,12 +314,12 @@ class TestE2ETemplateGeneralizes(TestCase):
     def setUpClass(cls):
         from ovos_utils.log import LOG
         from ovoscope import get_minicroft, register_padatious_intent
-        from ._conformance import reset_namespace, use_spec_namespace
+        from ._conformance import reset_namespace, use_spec_namespace, wait_ready
         LOG.set_level("ERROR")
         use_spec_namespace()
         try:
             cls._mc = get_minicroft([])
-            time.sleep(1)
+            wait_ready(cls._mc, settle=1.0)
             cls._intent = "intent3.skill:play_music"
             register_padatious_intent(cls._mc.bus, cls._intent, [
                 "play {query}",
