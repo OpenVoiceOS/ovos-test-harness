@@ -1,0 +1,94 @@
+name: mixed-version back-compat matrix
+
+# The companion to `integration.yml`, for the class of bug that workflow cannot
+# see. `integration.yml` installs ONE stack from requirements.txt, and pip
+# installs one package per name — the harness's documented single-ref-per-repo
+# limitation. A skill container frozen months ago talking to a current core is
+# two package sets at once, so it needs two venvs and a real websocket.
+#
+# Four skill/core combinations, one matrix entry each, all sharing the one
+# parameterized script in `test/backcompat/`. Pins and reasoning live in
+# `test/backcompat/build_venvs.sh` and the suite's module docstring.
+#
+# The `old-skill/new-core` cell is expected to xfail until ovos-bus-client#271
+# releases. It is `strict=True`, so the day the fix ships this job goes RED
+# with an XPASS. That is the intended signal: drop the marker and the cell
+# becomes a permanent guard.
+#
+# ovos-core runs the same four cells against its own checkout. The duplication
+# is deliberate — a breakage should be traceable to the repo that caused it.
+
+on:
+  pull_request:
+    paths:
+      - 'test/backcompat/**'
+      - '.github/workflows/backcompat_matrix.yml'
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - combo: old-skill/old-core
+            skill: venv_skill_old
+            core: venv_core_old
+          - combo: old-skill/new-core
+            skill: venv_skill_old
+            core: venv_core_new
+          - combo: new-skill/old-core
+            skill: venv_skill_new
+            core: venv_core_old
+          - combo: new-skill/new-core
+            skill: venv_skill_new
+            core: venv_core_new
+    name: ${{ matrix.combo }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system deps (padatious needs swig + libfann)
+        run: sudo apt-get update && sudo apt-get install -y swig libfann-dev
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build the venv pairs
+        env:
+          BACKCOMPAT_PYTHON: "3.11"
+        run: |
+          chmod +x test/backcompat/build_venvs.sh
+          test/backcompat/build_venvs.sh "$RUNNER_TEMP/venvs"
+
+      - name: Record the resolved versions
+        run: |
+          for v in venv_skill_old venv_skill_new venv_core_old venv_core_new; do
+            echo "== $v"
+            "$RUNNER_TEMP/venvs/$v/bin/python" -m pip freeze 2>/dev/null || true
+          done | tee venv-freeze.txt
+
+      - name: Upload the resolved versions
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: venv-freeze-${{ strategy.job-index }}
+          path: venv-freeze.txt
+
+      - name: Run the combo
+        env:
+          BACKCOMPAT_COMBO: ${{ matrix.combo }}
+        run: |
+          export BACKCOMPAT_SKILL_PYTHON="$RUNNER_TEMP/venvs/${{ matrix.skill }}/bin/python"
+          "$RUNNER_TEMP/venvs/${{ matrix.core }}/bin/pytest" \
+            test/backcompat/ -v --tb=short -rxX \
+            --timeout=300 --timeout-method=thread

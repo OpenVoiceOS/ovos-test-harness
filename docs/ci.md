@@ -83,6 +83,33 @@ alarm.
 `pytest-json-report` is installed so a machine-readable `report.json` can be
 produced (`pytest test/ --json-report`) for downstream tooling.
 
+## The `mixed-version back-compat matrix` workflow
+
+`integration.yml` installs one stack, so it cannot see a break between two
+different stacks. `backcompat_matrix.yml` covers that: four jobs, each building
+**two** venvs and running the suite in `test/backcompat/` with a real
+`ovos-messagebus` between them.
+
+Each job selects its combo by environment, so all four share one script:
+
+```bash
+test/backcompat/build_venvs.sh /tmp/venvs
+
+BACKCOMPAT_COMBO=old-skill/new-core \
+BACKCOMPAT_SKILL_PYTHON=/tmp/venvs/venv_skill_old/bin/python \
+  /tmp/venvs/venv_core_new/bin/pytest test/backcompat/ -v -rxX
+```
+
+Reading the result differs from the conformance suites in one way: an **XPASS
+is the alarm**, not a failure to ignore. The `old-skill/new-core` cell is
+`xfail(strict=True)` while the fix is unreleased, so a green cell means the
+fix shipped and the marker must come off.
+
+Without `BACKCOMPAT_COMBO` the suite skips cleanly, so a plain `pytest test/`
+is unaffected. `strategy.fail-fast` is off — one broken combination should not
+hide the state of the other three. Each job uploads the versions its venvs
+actually resolved, so a surprising result can be reproduced.
+
 ## See also
 
 - [how-it-works.md](how-it-works.md) — why the workflow installs a flat

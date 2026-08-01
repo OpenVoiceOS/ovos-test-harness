@@ -28,6 +28,7 @@ each normative clause: pass, `xfail` (a documented gap), or fail.
 - [Testing branch combinations](#testing-branch-combinations)
 - [How it relates to the rest of the spec ecosystem](#how-it-relates-to-the-rest-of-the-spec-ecosystem)
 - [The one limitation](#the-one-limitation)
+- [Mixed-version back-compat matrix](#mixed-version-back-compat-matrix)
 - [Documentation](#documentation)
 
 ---
@@ -165,6 +166,36 @@ validate two in-flight branches of one repo together, merge them into a
 single combined branch and pin that. See
 [docs/testing-combos.md](docs/testing-combos.md#the-single-ref-per-repo-limitation).
 
+## Mixed-version back-compat matrix
+
+One stack per run also hides a whole class of bug: a skill container frozen
+months ago that talks to a current core. Two package sets must be alive at
+once to see it.
+
+`test/backcompat/` does that with two venvs and a real `ovos-messagebus`
+between them. The `.github/workflows/backcompat_matrix.yml` workflow runs four
+skill/core combinations, one matrix entry each:
+
+| Combo | Skill binds | Core dispatches | Handler runs |
+|-------|-------------|-----------------|--------------|
+| old skill / old core | suffixed only | suffixed | yes |
+| old skill / new core | suffixed only | canonical | **no** — `xfail(strict)` |
+| new skill / old core | both | suffixed | yes |
+| new skill / new core | both | canonical | yes, exactly once |
+
+Only one cell is broken. The other three are passing controls that prove the
+harness can see a handler fire at all, so the red cell is a real finding and
+not a broken fixture.
+
+The suite is a gate on the intent-topic compat train. When
+[ovos-bus-client#271](https://github.com/OpenVoiceOS/ovos-bus-client/pull/271)
+releases, the broken cell starts passing, `strict=True` turns that into a loud
+XPASS failure, and the marker comes off. A PR that drops the compat must flip
+these cells deliberately.
+
+`ovos-core` runs the same four cells against its own checkout. The duplication
+is intended: a breakage stays traceable to the repo that caused it.
+
 ## Documentation
 
 | Page | Topic |
@@ -174,5 +205,5 @@ single combined branch and pin that. See
 | [docs/testing-combos.md](docs/testing-combos.md) | The PR-driven cross-repo branch-combination workflow. |
 | [docs/writing-conformance-tests.md](docs/writing-conformance-tests.md) | Conventions: one spec section per class, quoted-clause docstrings, the `_conformance.py` helpers, and the `xfail` discipline. |
 | [docs/coverage.md](docs/coverage.md) | The full spec-to-suite traceability matrix and per-class clause coverage. |
-| [docs/ci.md](docs/ci.md) | The `integration.yml` workflow, running locally, and interpreting results. |
+| [docs/ci.md](docs/ci.md) | The `integration.yml` and `backcompat_matrix.yml` workflows, running locally, and interpreting results. |
 | [docs/known-gaps.md](docs/known-gaps.md) | The conformance gaps the suite currently documents as `xfail`. |
