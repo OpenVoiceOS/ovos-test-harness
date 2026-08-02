@@ -278,12 +278,15 @@ class TestSec53MalformedRejection(_IsolatedRegistrations):
         self.emit("ovos.entity.register",
                   {"name": f"{self.skill_id}:empty", "lang": "en-US",
                    "samples": []})
-        # positive control: a well-formed registration still becomes matchable
+        # Observable proxy for "not indexed + no crash": a subsequent
+        # well-formed registration on the same skill still matches. (A direct
+        # "bogus_intent is not matchable" assertion is unprovable here — a
+        # no-samples registration has no phrase that could trigger it — and a
+        # bare padatious intent has no completing handler, so the turn emits no
+        # terminal event to make a negative assertion non-vacuous.)
         self.register_working()
         recs = self.say("survives")
         self.assertIn(self.intent, types(recs))
-        # the malformed intent never became matchable
-        assert_absent(recs, f"{self.skill_id}:bogus_intent")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
