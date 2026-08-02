@@ -47,6 +47,12 @@ test/conformance/test_transform1_plugins_conformance.py
 # not a shipped-stack spec gap; they are listed so the channel stays honest and
 # green. When the boot issue is fixed they XPASS loudly and must be re-triaged
 # (genuinely passing, or a real spec gap). Follow-up: ovoscope READY-on-old-core.
+test/conformance/test_solvers_conformance.py::TestPersona1Solver_ovos_solver_failure_plugin::test_active_persona_claims
+test/conformance/test_solvers_conformance.py::TestPersona1Solver_ovos_solver_failure_plugin::test_active_persona_speaks
+test/conformance/test_solvers_conformance.py::TestFallback1Skill_ovos_skill_fallback_unknown::test_exactly_one_handled
+test/conformance/test_solvers_conformance.py::TestFallback1Skill_ovos_skill_fallback_unknown::test_fallback_request_and_handled
+test/conformance/test_solvers_conformance.py::TestFallback1Skill_ovos_skill_fallback_unknown::test_query_precedes_dispatch
+test/conformance/test_solvers_conformance.py::TestFallback1Skill_ovos_skill_fallback_unknown::test_skill_responds
 test/conformance/test_audio_in_conformance.py::TestSec52SessionAssignment::test_local_device_default_session
 test/conformance/test_audio_in_conformance.py::TestSec52SessionAssignment::test_session_in_context
 test/conformance/test_audio_in_conformance.py::TestSec5UtteranceEmission::test_emits_utterance_handle
