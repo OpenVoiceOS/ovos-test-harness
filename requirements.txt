@@ -76,6 +76,24 @@ git+https://github.com/OpenVoiceOS/ovos-common-query-pipeline-plugin@dev
 #   @dev now lifts the ovos-workshop cap to <10.0.0 (the workshop-9 compat fix
 #   merged), so it resolves against the workshop>=9 integration branch.
 git+https://github.com/OpenVoiceOS/ovos-persona@fix/pipeline1-handler-done-signal
+# TRANSFORM-1 reference implementers (test_transform1_plugins_conformance.py),
+# driven at the transformer-service level:
+#   ovos-utterance-plugin-cancel — the §3.2/§8.1 utterance transformer
+#                        (NevermindPlugin): cancel signal + .blacklist veto.
+#   ahocorasick-ner / kw-template-matcher — the two §3.4 intent transformers
+#                        (the reference opm.transformer.intent plugins); they
+#                        enrich Match.match_data with recognised entities.
+git+https://github.com/OpenVoiceOS/ovos-utterance-plugin-cancel@dev
+git+https://github.com/TigreGotico/ahocorasick-ner@dev
+git+https://github.com/TigreGotico/kw-template-matcher@dev
+# PERSONA-1 reference solver (test_solvers_conformance.py): the always-on
+# question-solver mounted as a persona; the only network/model-free OVOS-org
+# solver in the default stack.
+git+https://github.com/OpenVoiceOS/ovos-solver-failure-plugin@dev
+# OCP-1 discovery-extractor under test (test_ocp1_plugins_conformance.py): the
+# media keyword/search pipeline plugin (OCPPipelineMatcher). Driven at the
+# component level, so it needs no ovos-media player install.
+git+https://github.com/OpenVoiceOS/ovos-ocp-pipeline-plugin@dev
 # e2e harness lib (None-iter-guard fix landed on dev)
 git+https://github.com/OpenVoiceOS/ovoscope@dev
 # GUI service (NamespaceManager) — drives the GUI-1 service-contract clauses
