@@ -46,7 +46,7 @@ HEADER = """\
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("channel", choices=("stable", "testing"))
+    ap.add_argument("channel", choices=("stable", "testing", "alpha"))
     ap.add_argument("report")
     ap.add_argument("--versions", default="",
                     help="newline-separated 'pkg==ver' lines to record in the "

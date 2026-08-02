@@ -13,6 +13,7 @@ name: channel compat
 #
 #   https://raw.githubusercontent.com/OpenVoiceOS/OpenVoiceOS/main/constraints-stable.txt
 #   https://raw.githubusercontent.com/OpenVoiceOS/OpenVoiceOS/main/constraints-testing.txt
+#   https://raw.githubusercontent.com/OpenVoiceOS/OpenVoiceOS/main/constraints-alpha.txt
 #
 # The constraints are fetched LIVE, never vendored, and uploaded as an artifact.
 # The day the distro bumps a pin, the next run sees it. That is the point: this
@@ -55,7 +56,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        channel: [stable, testing]
+        channel: [stable, testing, alpha]
     name: ${{ matrix.channel }}
     steps:
       - uses: actions/checkout@v4
