@@ -388,56 +388,74 @@ see the SESSION-fields note above). Two behavior gaps remain.
 ## Follow-up: MUST-clause enumeration (INTENT-1/2/3/4, SESSION-1/2)
 
 A spot-enumeration of each spec's MUST / MUST NOT clauses against its
-conformance suite. The suites cover their bus-observable behavior clauses well;
-the gaps below are MUSTs with **no** assertion in any suite. They are recorded
-here (not yet encoded) because they need the full CI stack to drive
-deterministically — a strict-xfail added blind could XPASS on CI and would then
-fail the run for the wrong reason. Prioritized: **[C]** = correctness/security
-critical, **[N]** = normal.
+conformance suite. The high-priority **[C]** clauses from the original sweep
+now carry real conformance tests (or a strict-xfail where the installed stack
+diverges); see the disposition below. The clauses still listed as remaining
+need a capability the local stack cannot drive deterministically — a
+strict-xfail added blind could XPASS on the CI stack and fail the run for the
+wrong reason — so they stay documented here for a further follow-up.
+Prioritized: **[C]** = correctness/security critical, **[N]** = normal.
 
 ### OVOS-INTENT-4 — malformed-registration rejection (§3.2 / §5.3 / §6.2)
 
-The orchestrator suite covers the register / deregister / enable-disable /
-introspection surface (§2, §5–§8, §10). It does **not** assert the
-consuming-plugin **rejection** MUSTs:
+**Now covered** (`test_intent4_conformance.py`):
 
-- **[C]** §5.3 / §6.2 / §3.2: "A consuming plugin MUST NOT index a malformed
-  registration" and "MUST log the rejection at WARN with `skill_id`, the
-  offending value, and the rule violated" (spec §294, §361, §398, §728). A
-  registration that violates a rule but is silently indexed is a
-  security/correctness hole (a malformed or hostile registration becomes
-  matchable). No suite drives a malformed registration against the orchestrator
-  and asserts non-indexing + the WARN log.
-- **[C]** §5.2: combined `required` and `one_of` MUST NOT both be empty (spec
-  §278); every vocabulary descriptor MUST carry a non-empty `samples` array
-  (§284, §286). The per-role overlap rule (§281, "a vocabulary MUST NOT appear
-  under more than one role") **is** covered — as an xfail — in the INTENT-3
-  suite (`§4.2 a vocabulary MUST appear under at most one role`), but the
-  empty-constraint and empty-samples rejections are not.
+- **[C]** §5.3 / §6.2 / §3.2 — `TestSec53MalformedRejection`: a malformed
+  registration (`ovos.intent.register.template` with no `samples`,
+  `ovos.entity.register` with an empty value-set) draws no `.response`/`.error`
+  (§2 fire-and-forget holds for malformed too), is not indexed, and does not
+  crash or corrupt the orchestrator — a subsequent well-formed registration on
+  the same skill still matches (the bus-observable proxy for "MUST NOT index +
+  no crash").
+- **[C]** §8 — `TestSec8DeregisterUnregistered`: deregistering a
+  never-registered skill is a no-op (no ack/error, a later registration still
+  matches).
+
+**Remaining** (not bus-observable / not deterministic here):
+
+- **[C]** §5.3 WARN-log companion: "MUST log the rejection at WARN with
+  `skill_id`, the offending value, and the rule violated" (spec §294, §361,
+  §398, §728). A logging obligation with no bus emission — not observable
+  through the harness. Would need a log-capture fixture.
+- **[C]** §5.2 finer descriptors: combined `required` and `one_of` MUST NOT
+  both be empty (spec §278); every vocabulary descriptor MUST carry a
+  non-empty `samples` array (§284, §286). The keyword-engine §5 spec topic is
+  itself still an xfail against `PADACIOSO_HIGH` (a template driver), so the
+  per-descriptor keyword-rejection path is not deterministically drivable in
+  this combo; the template `samples`-missing case is the one exercised above.
+  The per-role overlap rule (§281) is covered as an xfail in the INTENT-3 suite.
 - §2 / §11: `intent_name` MUST NOT be one reserved by another spec (§276) — the
   `stop` case **is** covered (STOP-1 §2 xfail); other reserved names
   (`common_query`, `converse`) are not enumerated.
 
-### OVOS-SESSION-1 — wire-shape MUSTs (§2.1 / §5 / §6)
+### OVOS-SESSION-1 — wire-shape MUSTs (§2.1 / §3.1 / §5 / §6)
 
-The cross-cutting session suite asserts the **state-ownership** fields
-(`active_handlers` / `converse_handlers` / `response_mode` /
-`fallback_handlers` / `updated_session`). The **wire-shape** MUSTs of the
-session carrier are asserted (for the envelope) by MSG-1 §4 / §6, but not for
-the `session` object specifically:
+**Now covered** (`test_session_conformance.py`):
 
-- **[C]** §2.1: "A producer MUST NOT emit any field as JSON `null`" and "a
-  consumer that encounters an explicit `null` MUST treat it as a malformed
-  value … behave as if the field were omitted" (spec §64, §71). No test drives
-  a `session` carrying an explicit `null` field and asserts omitted-semantics.
+- **[C]** §2.1 — `TestSec21OmissionAndNull`: an omitted field resolves to the
+  deployment default, and an explicit `null` is treated as omitted (not a
+  deferral sentinel) — the consumer substitutes the default and does not reject
+  (spec §64, §71). Green against the installed bus-client.
+- **[C]** §3.1 keying (spec §227) — `TestSec31PerSessionKeying`: per-session
+  state is keyed on `session_id`; an active handler in session A is not visible
+  to session B. This is the generic form of the MUST the GUI-1 §5 and OCP-1 §5
+  xfails track for those two consumers.
+- **[C]** §3.1 identity — `TestSec31SessionIdentity`: an empty/absent session
+  MUST resolve to `session_id: "default"` (spec §95, §99). **strict-xfail** —
+  the installed `ovos-bus-client` mints a random uuid instead; flips loudly
+  when bus-client fills the reserved value.
+
+**Remaining** (need a capability not present / not deterministic here):
+
 - **[C]** §6: within `session`, "numbers MUST be finite (no NaN, no
   infinities)" and "a consumer that cannot parse `session` as a JSON object
   MUST treat it as malformed" (spec §574, §578). MSG-1 covers this for the
-  envelope; the session-object-specific path is not separately asserted.
-- **[C]** §3.4 / consumer-keying (spec §227): "a consumer that maintains
-  per-session state MUST key that state on `session_id`." This is the same MUST
-  the GUI-1 §5 and OCP-1 §5 xfails now track for those two consumers; there is
-  no generic SESSION-1 assertion of it.
+  envelope; the session-object-specific path is not separately asserted (JSON
+  cannot carry NaN on the wire, so driving it needs a crafted non-JSON payload).
+- **[C]** §4.1 default materialization on derivation: a materialized default
+  MUST set `session_id: "default"` and MUST NOT populate no-behaviour fields
+  (spec §553). Needs an orchestrator derivation from a no-`session` source; not
+  cleanly drivable in this combo.
 - **[N]** §5: `secondary_langs` MUST NOT contain `lang` and MUST NOT contain
   duplicates (spec §301); `request_lang` MUST NOT be treated as a guarantee
   (§400). Language-signal invariants — unasserted.
@@ -448,19 +466,24 @@ the `session` object specifically:
 
 ### OVOS-SESSION-2 — ownership / statelessness MUSTs
 
-`updated_session` echo and forward-mutation are green. Uncovered:
+**Now covered** (`test_session_conformance.py`):
 
-- **[C]** §... "The message bus MUST be stateless with respect to session … MUST
-  NOT interpret, mutate, persist, or special-case" it (spec §543). No test
-  asserts the bus leaves `session` untouched in transit.
-- **[C]** §... "the orchestrator MUST merge `Message.data.session` from an
-  in-progress round and reflect the merged state" (spec §347, §355). Related to
-  CONTEXT-1 §5.3 sync (tracked there); the SESSION-2 merge MUST is not
-  separately asserted.
-- **[N]** §... a client MUST make every round self-sufficient via the session
+- **[C]** §2.1 (spec §543) — `TestSec21BusStateless`: the message bus is
+  stateless with respect to session — a Message carrying a session is delivered
+  to a bus observer byte-identical; the bus does not interpret, mutate, or
+  persist it.
+
+**Remaining**:
+
+- **[C]** §5.1 (spec §347, §355): "the orchestrator MUST merge
+  `Message.data.session` from an in-progress round and reflect the merged
+  state." Overlaps CONTEXT-1 §5.3 sync (tracked there as a strict-xfail). Not
+  separately asserted for SESSION-2, and a blind strict-xfail risks XPASS on
+  the CI stack, so it stays documented pending a deterministic driver.
+- **[N]** a client MUST make every round self-sufficient via the session
   (spec §625); a component MUST NOT rely on async bus events for session state
-  (§596). Client-contract MUSTs — no client in the stack, arguably
-  not-bus-observable; listed for completeness.
+  (§596). Client-contract MUSTs — no client in the stack, not bus-observable;
+  listed for completeness.
 
 ### OVOS-INTENT-1 / INTENT-2 / INTENT-3
 

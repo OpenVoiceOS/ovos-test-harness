@@ -105,6 +105,8 @@ green when the contract lands.
 | `TestSec85Disable` | §8.5 | `ovos.intent.disable` suppresses an intent. | **xfail** |
 | `TestSec85Enable` | §8.5 | `ovos.intent.enable` re-arms a disabled intent. | green |
 | `TestSec10Introspection` | §10.1, §10.2 | `ovos.intent.list` / `ovos.intent.describe` introspection responds. | **xfail** (legacy `intent.service.intent.get`) |
+| `TestSec53MalformedRejection` | §2, §3.2, §5.3, §6.2 | A malformed registration (no `samples` / empty value-set) draws no ack/error and is not indexed; a later well-formed registration on the same skill still matches (no crash/corruption). The §5.3 WARN-log rule is not bus-observable. | green |
+| `TestSec8DeregisterUnregistered` | §8 | Deregistering a never-registered skill is a no-op — no ack/error, and a later well-formed registration still matches. | green |
 
 ## OVOS-INTENT-4 (per-plugin) — `test_intent4_plugins_conformance.py`
 
@@ -183,6 +185,10 @@ Clauses naming the spec field skip until `ovos-bus-client` populates it.
 | `TestResponseMode.test_response_mode_spec_field` | CONVERSE-1 §2.2 | `session.response_mode` names the owner holding response mode. | skip-guarded |
 | `TestFallbackHandlersField` | FALLBACK-1 §4 | `session.fallback_handlers` is carried on the session. | skip-guarded |
 | `TestUpdatedSessionEcho` | SESSION-2 §2, §2.6 | The echoed session keeps the entry `session_id`. A pipeline-side mutation rides forward on the response. | green |
+| `TestSec21OmissionAndNull` | SESSION-1 §2.1 | An omitted field resolves to the deployment default; an explicit `null` is treated as omitted (not a deferral sentinel) and is not rejected. | green |
+| `TestSec31SessionIdentity` | SESSION-1 §3.1 | An empty/absent session resolves to `session_id: "default"`. | **xfail** (bus-client mints a random uuid) |
+| `TestSec31PerSessionKeying` | SESSION-1 §3.1 (spec §227) | Per-session state is keyed on `session_id` — an active handler in session A is not visible to session B. | green |
+| `TestSec21BusStateless` | SESSION-2 §2.1 (spec §543) | The bus leaves `session` byte-identical in transit — it does not interpret, mutate, or persist it. | green |
 
 ---
 
