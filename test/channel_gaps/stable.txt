@@ -35,6 +35,9 @@
 
 [modules]
 test/conformance/test_transform1_conformance.py
+# stable ships ovos-core before IntentTransformersService existed, so the
+# per-implementer transform plugin conformance suite cannot even import.
+test/conformance/test_transform1_plugins_conformance.py
 
 [tests]
 # NOTE: the test_intent4_conformance.py and test_session_conformance.py entries
