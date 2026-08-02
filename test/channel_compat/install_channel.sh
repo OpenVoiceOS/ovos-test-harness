@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install the conformance stack as one OVOS distro release channel ships it.
 #
-# Usage:  test/channel_compat/install_channel.sh <stable|testing> [work-dir]
+# Usage:  test/channel_compat/install_channel.sh <stable|testing|alpha> [work-dir]
 #
 # The constraints file is fetched LIVE, never vendored: this gate is supposed to
 # track the fleet, so the day the distro bumps a pin the next run sees it. The
@@ -26,13 +26,13 @@
 # does not apply constraints to a direct URL.
 set -euo pipefail
 
-CHANNEL="${1:?usage: install_channel.sh <stable|testing> [work-dir]}"
+CHANNEL="${1:?usage: install_channel.sh <stable|testing|alpha> [work-dir]}"
 WORK="${2:-${RUNNER_TEMP:-/tmp}/channel-compat}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 case "$CHANNEL" in
-  stable|testing) ;;
-  *) echo "unknown channel: $CHANNEL (want stable or testing)" >&2; exit 2 ;;
+  stable|testing|alpha) ;;
+  *) echo "unknown channel: $CHANNEL (want stable, testing, or alpha)" >&2; exit 2 ;;
 esac
 
 BASE_URL="${CHANNEL_CONSTRAINTS_BASE_URL:-https://raw.githubusercontent.com/OpenVoiceOS/OpenVoiceOS/main}"
@@ -74,9 +74,21 @@ fi
 # pins an incompatible ovos-bus-client, so it is installed the same way
 # integration.yml installs it: --no-deps plus the leaf deps ovos_media.player
 # actually imports.
+#
+# ovos-gui-api-client's only PyPI release pins ovos-bus-client<2.0. The
+# stable/testing constraints allow that, so they install the leaf deps under -c
+# as before. The alpha constraints (bus-client>=2.7.2a1) make it unsatisfiable
+# under -c, so alpha installs the leaf deps unconstrained (as integration.yml
+# does) and with --no-deps for the client itself, so the resolver never tries to
+# downgrade the alpha bus-client 2.x already installed for the core.
 echo "==> [4/4] ovos-media (OCP-1 harness)"
 "${PIP[@]}" --no-deps ovos-media
-"${PIP[@]}" -c "$CFILE" ovos-gui-api-client dbus_next json-database
+if [ "$CHANNEL" = "alpha" ]; then
+  "${PIP[@]}" --no-deps ovos-gui-api-client
+  "${PIP[@]}" dbus_next json-database
+else
+  "${PIP[@]}" -c "$CFILE" ovos-gui-api-client dbus_next json-database
+fi
 
 echo
 echo "==> resolved channel versions"

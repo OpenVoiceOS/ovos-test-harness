@@ -1,0 +1,32 @@
+# Known conformance gaps on the OVOS distro "alpha" release channel.
+#
+# Each line is a pytest node id that FAILS when the conformance suite runs
+# against the package versions alpha pins. These are real spec gaps in the
+# shipped stack, not harness problems, so the channel-compat job xfails exactly
+# these and stays green — anything NOT listed here that breaks turns the job
+# red, which is the whole point of the file.
+#
+# The xfails are strict. A listed node that starts PASSING also turns the job
+# red: the channel caught up and the line must be deleted. A listed node that
+# no longer exists fails the run too, so a renamed test cannot rot in here.
+#
+# Regenerate after a channel bump:
+#
+#   test/channel_compat/install_channel.sh alpha
+#   pytest test/ --json-report --json-report-file=report.json --tb=no -q
+#   python3 test/channel_compat/seed_gaps.py alpha report.json
+#
+# Seeded from a real run of the alpha channel stack:
+#   (unrecorded)
+#
+# Sections:
+#   [modules]  files that do not import at all on this channel
+#   [tests]    individual node ids that fail
+#   [xpass]    node ids the suite marks xfail(strict) for a dev-stack reason
+#              that does not hold here, so they pass; the marker is relaxed
+
+[modules]
+
+[tests]
+
+[xpass]
