@@ -38,7 +38,7 @@ small, uniform vocabulary every test is written in.
 | Helper | What it does |
 |--------|--------------|
 | `ENTRY_TOPIC` | `SpecMessage.UTTERANCE.value`, `"ovos.utterance.handle"`. The spec entry topic the orchestrator subscribes to. |
-| `use_spec_namespace()` / `reset_namespace()` | Flip `Configuration()["legacy_namespace"]` off / on. Call from `setUpModule` / `tearDownModule`. |
+| `use_spec_namespace(dual_emit=True)` / `reset_namespace()` | Drive the REAL back-compat flags `websocket.modernize` / `websocket.emit_legacy` (default `True`, matching production dual-emit). Pass `dual_emit=False` to disable the bridge entirely, so a spec topic only appears if code emits it natively — real V1-native evidence, not bridge echo. Call from `setUpModule` / `tearDownModule`, before `get_minicroft()` (the flags are read once at bus-client construction). |
 | `utterance(text, session_id, pipeline, **session_fields)` | Build an entry `Message` on `ENTRY_TOPIC` for one session, with an explicit `session.pipeline`. |
 | `capture(mc, message, timeout)` | Emit `message` and return every bus `Message` seen within `timeout` (subscribes to the `FakeBus` catch-all, so the full ordered sequence is captured). |
 | `types(recs)` | The ordered list of `msg_type` strings. |
@@ -50,22 +50,28 @@ A test is therefore almost always: build an `utterance(...)`,
 
 ## The spec-namespace injection model
 
-The suites assert the spec (`ovos.*`) topic names, so they must run with
-core in the spec namespace. `use_spec_namespace()` sets
-`legacy_namespace = False`, and the `IntentService` then subscribes to the
-spec entry topic:
+The suites assert the spec (`ovos.*`) topic names. `ovos-core` subscribes
+`ovos.utterance.handle` (`ENTRY_TOPIC`) unconditionally — it does not depend
+on any namespace flag — so tests inject the utterance there (PIPELINE-1
+§9.1), not on the legacy `recognizer_loop:utterance`, regardless of dual-emit
+mode.
 
 ```python
 ENTRY_TOPIC = SpecMessage.UTTERANCE.value  # "ovos.utterance.handle"
 ```
 
-This is why the injection topic matters. Tests inject the utterance on
-`ovos.utterance.handle`, the spec entry topic (PIPELINE-1 §9.1), not on the
-legacy `recognizer_loop:utterance`. With `legacy_namespace=False`, core
-handles the utterance natively on the spec topic. Injecting on the legacy
-topic would never reach the handler, so the test would prove nothing.
-Injecting on the spec topic is what makes the run an assertion about the
-spec contract rather than the legacy one.
+What `use_spec_namespace()` actually controls is the dual-emit bridge —
+`websocket.modernize` / `websocket.emit_legacy` — not the entry point. An
+earlier version of this function wrote `Configuration()["legacy_namespace"]`,
+a key no repo in the stack reads; every suite therefore ran under full
+production dual-emit no matter what the function claimed, and a "spec topic
+observed" assertion could be satisfied by the `modernize` bridge mirroring a
+legacy emission rather than by conformant code. `use_spec_namespace(
+dual_emit=True)` (the default) keeps that production-matching dual-emit
+mode; `use_spec_namespace(dual_emit=False)` disables the bridge outright, so
+a spec-topic assertion under that mode is real evidence the orchestrator
+emits it natively — see `test_stop1_dual_emit_off_conformance.py` for an
+example pairing.
 
 ## Assert against `SpecMessage`, never string literals
 

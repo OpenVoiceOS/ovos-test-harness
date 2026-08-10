@@ -45,32 +45,63 @@ from ovos_config.config import Configuration
 from ovos_spec_tools import SpecMessage
 
 # The spec-namespace entry topic the IntentService subscribes to
-# (``IntentService.bus.on(SpecMessage.UTTERANCE, ...)``). The conformance
-# suites run with ``legacy_namespace=False`` (see :func:`use_spec_namespace`),
-# so core handles the utterance natively on this topic — injecting on the
-# legacy ``recognizer_loop:utterance`` would never reach the handler.
+# (``IntentService.bus.on(SpecMessage.UTTERANCE, ...)``). ovos-core subscribes
+# this topic unconditionally (the entry point never depended on the dead
+# ``legacy_namespace`` key below), so injecting here reaches the handler
+# regardless of the dual-emit mode a suite runs under.
 ENTRY_TOPIC = SpecMessage.UTTERANCE.value  # "ovos.utterance.handle"
 
 
 _NAMESPACE_STACK: List[object] = []
 _SENTINEL = object()
 
+# The REAL back-compat flags (ovos-bus-client client.py, ovos-utils
+# fakebus.py): emitting a legacy topic also emits the ovos.* spec one when
+# ``modernize`` is set; emitting a spec topic also emits the legacy one when
+# ``emit_legacy`` is set. Both default True in production (full dual-emit).
+# `MessageBusClient`/`FakeBus` resolve these ONCE at construction time, so the
+# config MUST be set before ``get_minicroft()`` builds the process's bus
+# client — callers still switch from ``setUpModule``, before boot.
+_WS_FLAG_KEYS = ("modernize", "emit_legacy")
 
-def use_spec_namespace():
-    """Switch ovos-core to the spec (``ovos.*``) bus namespace.
 
-    The conformance suites assert the spec topic names, so they flip the
-    deployment ``legacy_namespace`` config off. Call from ``setUpModule``.
-    The previous value is remembered so :func:`reset_namespace` can put the
-    process-wide :class:`Configuration` back exactly as it was.
+def use_spec_namespace(dual_emit: bool = True):
+    """Switch the conformance stack to assert the spec (``ovos.*``) topics.
+
+    Previously this wrote ``Configuration()["legacy_namespace"]`` — a key no
+    repo in the stack reads (the real switch is ``websocket.modernize`` /
+    ``websocket.emit_legacy``, see ``ovos_bus_client.client.client._bus_flag``
+    and ``ovos_utils.fakebus._bus_flag``). Every suite therefore ran under
+    full production dual-emit regardless of what this function claimed to do,
+    so a "spec topic observed" assertion could be satisfied by the modernize
+    bridge mirroring a legacy emission rather than by conformant code.
+
+    ``dual_emit=True`` (default): drive ``websocket.modernize`` /
+    ``websocket.emit_legacy`` to ``True`` — the suite's original, still most
+    common mode, matching production defaults. A pass here does NOT by
+    itself prove native spec-topic emission.
+
+    ``dual_emit=False``: drive both flags ``False``. A spec topic can reach
+    the bus ONLY via native code in this mode — the bridge is fully disabled
+    — so a pass here is real V1-native evidence, not bridge echo. Suites (or
+    individual tests) that want this stronger guarantee call
+    ``use_spec_namespace(dual_emit=False)`` and document, in their module
+    coverage map, which clauses they verify in which mode.
+
+    Call from ``setUpModule``, before ``get_minicroft()``. The previous
+    ``websocket.*`` values are remembered so :func:`reset_namespace` restores
+    the process-wide :class:`Configuration` exactly as it was.
     """
     cfg = Configuration()
-    _NAMESPACE_STACK.append(cfg.get("legacy_namespace", _SENTINEL))
-    cfg["legacy_namespace"] = False
+    ws = cfg.get("websocket", {})
+    _NAMESPACE_STACK.append({k: ws.get(k, _SENTINEL) for k in _WS_FLAG_KEYS})
+    ws = cfg.setdefault("websocket", {})
+    for k in _WS_FLAG_KEYS:
+        ws[k] = dual_emit
 
 
 def reset_namespace():
-    """Restore the bus namespace captured by :func:`use_spec_namespace`.
+    """Restore the bus flags captured by :func:`use_spec_namespace`.
 
     Call from ``tearDownModule`` (in a ``finally``), and also from the error
     path of a ``setUpModule`` that fails after switching the namespace.
@@ -79,12 +110,13 @@ def reset_namespace():
         return
     previous = _NAMESPACE_STACK.pop()
     cfg = Configuration()
-    if previous is _SENTINEL:
-        # Configuration.pop() does not accept a default argument
-        if "legacy_namespace" in cfg:
-            del cfg["legacy_namespace"]
-    else:
-        cfg["legacy_namespace"] = previous
+    ws = cfg.setdefault("websocket", {})
+    for k in _WS_FLAG_KEYS:
+        val = previous[k]
+        if val is _SENTINEL:
+            ws.pop(k, None)
+        else:
+            ws[k] = val
 
 PADACIOSO_HIGH = "ovos-padacioso-pipeline-plugin-high"
 STOP_HIGH = "ovos-stop-pipeline-plugin-high"

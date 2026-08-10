@@ -13,13 +13,20 @@ matching. Drivers and the xfail discipline are described in ``_conformance.py``.
 
 During the transition both the legacy and the spec topic names are emitted.
 
-Coverage map (clause -> status against current ovos-core):
+Coverage map (clause -> status against current ovos-core@dev):
 - §2.1 most-recently-active owner is polled first ............... green
 - §3   activating a skill records it as an active/converse owner  green
-- §4   an active owner consumes the follow-up before intent match ... xfail (falls through to ovos.intent.unmatched)
+- §4   an active owner consumes the follow-up before intent match  green
 - §4   a declining owner falls through to the normal pipeline ... green
 - §6.4 exactly one ``ovos.utterance.handled`` per utterance ..... green
 - §2.1 ``session.converse_handlers`` reflects the owner ......... xfail (active_skills)
+
+2026-08-10 harness-credibility repoint: "an active owner consumes the
+follow-up" un-flipped from xfail to green by this repoint. It was marked
+xfail against CLOSED PR #777's dead branch (feat/stop-1-conformance); real
+ovos-core@dev already claims the follow-up correctly — the xfail was stale,
+not a real gap. Caught as a strict-xfail XPASS failure when the suite was
+first run against @dev.
 """
 import time
 from unittest import TestCase
@@ -130,13 +137,6 @@ class TestSec4ConverseRoundTrip(TestCase):
     the owner consumes the follow-up utterance. The parrot owner echoes it on
     ``ovos.utterance.speak`` and the utterance terminates with one end-marker."""
 
-    @pytest.mark.xfail(strict=True,
-                       reason="CONVERSE-1 §4.3 MUST: a claimed follow-up "
-                              "dispatches '<skill_id>:converse'; ovos-core @dev "
-                              "does not claim the follow-up for the active owner "
-                              "and instead falls through to "
-                              "'ovos.intent.unmatched' (stack drift since "
-                              "2026-07-16)")
     def test_followup_consumed_by_active_owner(self):
         """A follow-up utterance is routed through ``converse:skill`` to the
         active owner before normal intent matching (§4)."""
