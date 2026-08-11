@@ -153,28 +153,45 @@ class TestNamespacePushPop(TestCase):
     """``use_spec_namespace`` / ``reset_namespace`` restore Configuration
     exactly, including the ``_SENTINEL`` (key-was-absent) path.
 
-    The live ``Configuration`` is a layered singleton — a default layer always
-    carries ``legacy_namespace``, so the key can never be made genuinely absent
-    on it. To exercise the key-absent (``_SENTINEL``) branch these tests patch
-    ``_conformance.Configuration`` with a plain-dict factory, isolating the
-    push/pop logic from the real config.
+    These drive the REAL back-compat flags (``websocket.modernize`` /
+    ``websocket.emit_legacy`` — see ``ovos_bus_client.client.client._bus_flag``
+    and ``ovos_utils.fakebus._bus_flag``), not the dead ``legacy_namespace``
+    key the old implementation wrote. The live ``Configuration`` is a layered
+    singleton — a default layer always carries a ``websocket`` dict, so the
+    keys can never be made genuinely absent on it. To exercise the key-absent
+    (``_SENTINEL``) branch these tests patch ``_conformance.Configuration``
+    with a plain-dict factory, isolating the push/pop logic from the real
+    config.
     """
 
-    def test_sentinel_restore_deletes_absent_key(self):
-        fake = {}  # legacy_namespace absent -> use_spec_namespace pushes _SENTINEL
+    def test_sentinel_restore_deletes_absent_keys(self):
+        fake = {}  # websocket absent -> use_spec_namespace pushes _SENTINEL for both flags
         with patch.object(_conformance, "Configuration", lambda: fake):
             use_spec_namespace()
-            self.assertIs(fake["legacy_namespace"], False)
+            self.assertIs(fake["websocket"]["modernize"], True)
+            self.assertIs(fake["websocket"]["emit_legacy"], True)
             reset_namespace()
-            self.assertNotIn("legacy_namespace", fake)
+            self.assertNotIn("modernize", fake["websocket"])
+            self.assertNotIn("emit_legacy", fake["websocket"])
 
-    def test_value_restore_puts_prior_value_back(self):
-        fake = {"legacy_namespace": True}
+    def test_value_restore_puts_prior_values_back(self):
+        fake = {"websocket": {"modernize": False, "emit_legacy": False}}
         with patch.object(_conformance, "Configuration", lambda: fake):
             use_spec_namespace()
-            self.assertIs(fake["legacy_namespace"], False)
+            self.assertIs(fake["websocket"]["modernize"], True)
+            self.assertIs(fake["websocket"]["emit_legacy"], True)
             reset_namespace()
-            self.assertIs(fake["legacy_namespace"], True)
+            self.assertIs(fake["websocket"]["modernize"], False)
+            self.assertIs(fake["websocket"]["emit_legacy"], False)
+
+    def test_dual_emit_off_mode_drives_both_flags_false(self):
+        fake = {}
+        with patch.object(_conformance, "Configuration", lambda: fake):
+            use_spec_namespace(dual_emit=False)
+            self.assertIs(fake["websocket"]["modernize"], False)
+            self.assertIs(fake["websocket"]["emit_legacy"], False)
+            reset_namespace()
+            self.assertNotIn("modernize", fake["websocket"])
 
 
 class TestFirstAndTypes(TestCase):

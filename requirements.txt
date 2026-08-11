@@ -13,19 +13,24 @@
 # Limitation: two branches of the SAME repo cannot both be installed; pick one
 # ref per repo.
 
-# core with STOP-1 conformance source (PR #777). The old combined
-# test/spec-stack-integration-proof branch is stale: it still caps
-# ovos-spec-tools<1.0.0, which cannot co-resolve with the spec-tools 1.x stack
-# (ovos-adapt-parser 1.5.0a1 requires ovos-spec-tools>=1.4.0a1). feat/stop-1-
-# conformance is rebased on current dev (spec-tools>=1.1.0a1,<2.0.0), carries
-# the INTENT-4 §10 orchestrator manifest, and is the live STOP-1 PR branch.
-git+https://github.com/OpenVoiceOS/ovos-core@feat/stop-1-conformance
+# core @dev. PR #777 (feat/stop-1-conformance) — the branch this pin used to
+# point to — was CLOSED without merging (never landed), so every STOP-1 CI
+# result this harness ever reported, green or xfail, described abandoned
+# code that ovos-core@dev never shipped. Repointing to @dev is a floor pin
+# per house style: as STOP-1 lands for real (ovos-core#802), the newly-green
+# clauses un-xfail here in a follow-up, not by resurrecting a dead branch.
+# See the PR that repointed this pin for the full list of verdict changes
+# this repoint caused.
+git+https://github.com/OpenVoiceOS/ovos-core@dev
 # INTENT-4 producer (emits ovos.intent.register.* etc.), stacked with the
 # PIPELINE-1 §9.5 fix that stops FallbackSkill/ConversationalSkill from
 # double-emitting ovos.utterance.handled when core (>=2.3.0a1) owns the
-# end-marker (ovos-workshop #453, based on feat/intent-4-producer #431). Flip to
-# @feat/intent-4-producer (or @dev) once #453 merges into the producer branch.
-git+https://github.com/OpenVoiceOS/ovos-workshop@fix/core-owns-utterance-handled-fallback-converse
+# end-marker. Both #453 (the §9.5 fix) and #431 (its base, the INTENT-4
+# producer) merged to dev on 2026-07-03 / 2026-07-24 — the branch this pin
+# used to point at is stale relative to dev's own floor (ovos-core@dev now
+# requires ovos-workshop>=9.3.2a1, which the merged branch itself predates,
+# 9.0.2a1). @dev (9.3.3a1) is both current and resolves against ovos-core@dev.
+git+https://github.com/OpenVoiceOS/ovos-workshop@dev
 # session spec fields (active_handlers / converse_handlers / response_mode)
 ovos-bus-client>=2.4.0a1
 # pipeline engines (workshop-9-compatible)
