@@ -110,14 +110,14 @@ jobs:
         run: >-
           pytest test/ -v --tb=short -rxX
           --timeout=180 --timeout-method=thread
-          --ignore=test/backcompat
+          --ignore=test/backcompat --ignore=test/skills_fleet
 
       # A gap list is only useful if it can be refreshed. This produces the
       # exact file a maintainer would commit after a channel bump.
       - name: Regenerate the baseline for comparison
         if: always()
         run: |
-          pytest test/ -q --tb=no --ignore=test/backcompat \
+          pytest test/ -q --tb=no --ignore=test/backcompat --ignore=test/skills_fleet \
             --timeout=180 --timeout-method=thread \
             --json-report --json-report-file="$RUNNER_TEMP/report.json" || true
           python3 test/channel_compat/seed_gaps.py "${{ matrix.channel }}" \

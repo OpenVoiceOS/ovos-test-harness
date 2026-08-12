@@ -1,0 +1,47 @@
+# Runtime dependencies the fleet skills import but do not declare correctly
+# resolvable alongside each other's `ovos-workshop` pin (see FINDINGS.md
+# "install strategy"). The fleet skills themselves install `--no-deps`
+# (like this repo's existing `ovos-media` install in integration.yml) so one
+# skill's pin cannot downgrade another's; these are the leaf runtime imports
+# that `--no-deps` then skips, discovered by actually importing every
+# installed skill's plugin entry-point module.
+attrs
+beautifulsoup4
+caldav~=1.2
+cattrs
+cffi
+dateparser
+decorator
+ftfy
+geocoder
+h3
+icalendar
+ifaddr
+jplephem
+lxml
+mss
+# pypi 0.11.0 ships without ovos_color_parser/core.py (ModuleNotFoundError on
+# import); install from dev until a fixed release goes out.
+git+https://github.com/OpenVoiceOS/ovos-color-parser@dev
+ovos-date-parser
+ovos-i2c-detection
+ovos-lang-parser
+ovos-utterance-normalizer
+ovos-wikipedia-plugin
+ovos-wolfram-alpha-plugin
+ovos-wordnet-plugin
+psutil
+pyserial
+pytz
+pywikihow
+ratelim
+requests-cache
+sgp4
+skyfield
+speedtest-cli
+timezonefinder
+tmdbv3api
+tzlocal
+url-normalize
+vobject
+wn
