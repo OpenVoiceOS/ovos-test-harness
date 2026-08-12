@@ -25,15 +25,34 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 from os.path import join
 
 from ovos_bus_client.client import MessageBusClient
 from ovos_bus_client.message import Message
-from ovos_workshop.skills.ovos import OVOSSkill
+
+# The converse/activate/get_response call surface used below
+# (can_converse, converse, activate, get_response, speak) is present on
+# EVERY workshop vintage this suite builds against, but its home class
+# moved: current and dev workshop split it into a ``ConversationalSkill``
+# mixin; the "stable" distro channel pin (ovos-workshop==3.4.0) predates
+# that split and carries the same methods directly on ``OVOSSkill``. Import
+# whichever exists rather than assuming — vintage-tolerant by the real
+# symbol, the same principle ``driver.core_canonicalizes()`` already uses
+# for the padatious fold, not a version-string guess.
+try:
+    from ovos_workshop.skills.converse import ConversationalSkill as _SkillBase
+    HAS_CONVERSE_MIXIN = True
+except ImportError:
+    from ovos_workshop.skills.ovos import OVOSSkill as _SkillBase
+    HAS_CONVERSE_MIXIN = False
 
 SKILL_ID = os.environ.get("BACKCOMPAT_SKILL_ID", "backcompat.mixed.test")
 INTENT_FILE = "food.order.intent"
+CONVERSE_TRIGGER_TOPIC = f"{SKILL_ID}:converse.trigger"
+GET_RESPONSE_TRIGGER_TOPIC = f"{SKILL_ID}:get_response.trigger"
+SPEAK_WAIT_TRIGGER_TOPIC = f"{SKILL_ID}:speak_wait.trigger"
 
 #: Sample lines for the padatious resource. The matcher is never exercised —
 #: the driver dispatches the registered topic directly, the way ovos-core's
@@ -57,16 +76,29 @@ def _make_skill_dir() -> str:
     return root
 
 
-class BackCompatSkill(OVOSSkill):
-    """One intent, registered the ordinary way.
+class BackCompatSkill(_SkillBase):
+    """One intent, registered the ordinary way, plus the three interactive
+    flows an old bus-only skill container leans on: converse, get_response,
+    and a blocking ``speak(..., wait=True)``.
 
-    Nothing here is version-aware. The skill is written exactly as a skill
-    author would write it, and the matrix observes what each workshop release
-    does with it.
+    Nothing here is version-aware except the base-class selection above
+    (``_SkillBase``): the call surface itself — ``can_converse``,
+    ``converse``, ``activate``, ``get_response``, ``speak``/
+    wait_while_speaking — is identical across every workshop vintage this
+    suite builds against, checked directly: 9.3.1a2, dev, the "testing"
+    channel pin (7.0.10a1, has the ``ConversationalSkill`` split) and the
+    "stable" channel pin (3.4.0, predates the split — same methods live
+    directly on ``OVOSSkill``). The skill is written exactly as a skill
+    author would write it, and the matrix observes what each workshop
+    release does with it.
     """
 
     def initialize(self):
         self.register_intent_file(INTENT_FILE, self.handle_order)
+        self.add_event(CONVERSE_TRIGGER_TOPIC, self.handle_converse_trigger)
+        self.add_event(GET_RESPONSE_TRIGGER_TOPIC,
+                       self.handle_get_response_trigger)
+        self.add_event(SPEAK_WAIT_TRIGGER_TOPIC, self.handle_speak_wait_trigger)
 
     def handle_order(self, message: Message):
         self.bus.emit(message.forward(
@@ -75,6 +107,71 @@ class BackCompatSkill(OVOSSkill):
              "skill_id": SKILL_ID,
              "data": message.data}))
         self.speak("ordering tacos")
+
+    # -- converse -----------------------------------------------------
+    def can_converse(self, message: Message) -> bool:
+        # Gating happens through activation (see handle_converse_trigger),
+        # not here: a real skill almost always returns True unconditionally
+        # and relies on the active-skill list to decide whether converse is
+        # even offered the utterance.
+        return True
+
+    def converse(self, message: Message) -> bool:
+        utterances = (message.data or {}).get("utterances", [])
+        self.bus.emit(message.forward(
+            "backcompat.skill.converse_fired",
+            {"utterances": utterances, "skill_id": SKILL_ID}))
+        return True  # claims the utterance, exactly like a real skill would
+
+    def handle_converse_trigger(self, message: Message):
+        self.activate()
+        self.bus.emit(message.forward(
+            "backcompat.skill.activated",
+            {"skill_id": SKILL_ID, "token": message.data.get("token")}))
+
+    # -- get_response ---------------------------------------------------
+    def handle_get_response_trigger(self, message: Message):
+        token = message.data.get("token")
+
+        # ``msg`` is a real parameter (not a closure lookup) so that
+        # ``dig_for_message()`` — a stack walk for a Message-typed local —
+        # still finds the *trigger's* message (and therefore its session)
+        # from inside this new thread's own frame. A closure variable
+        # wouldn't show up: dig_for_message only inspects each frame's own
+        # arguments, and a bare closure isn't one.
+        def _run(msg: Message):
+            # dialog='' skips speak_dialog (no dialog resource exists for
+            # this throwaway skill) and goes straight to listening, per
+            # OVOSSkill.get_response. num_retries=0 means: one poll window
+            # (skills.get_response_timeout, pinned low by the driver's
+            # shared config) and then give up — this is the bounded
+            # no-answer/timeout path.
+            answer = self.get_response(dialog="", num_retries=0, message=msg)
+            self.bus.emit(Message(
+                "backcompat.skill.get_response.done",
+                {"answer": answer, "skill_id": SKILL_ID, "token": token}))
+
+        threading.Thread(target=_run, args=(message,), daemon=True).start()
+
+    # -- speak(wait=True) / audio-output bridging ------------------------
+    def handle_speak_wait_trigger(self, message: Message):
+        token = message.data.get("token")
+
+        def _run(msg: Message):
+            # Blocks inside SessionManager.wait_while_speaking until a
+            # recognizer_loop:audio_output_end for this session lands on
+            # the bus. Run off the bus's own dispatch thread so that this
+            # client's reader keeps servicing incoming messages (including
+            # that audio_output_end) while the call is parked — calling
+            # this synchronously from the dispatch thread would deadlock,
+            # since the same thread would need to be free to receive the
+            # message it is waiting for.
+            self.speak("ordering tacos", wait=True)
+            self.bus.emit(Message(
+                "backcompat.skill.speak_wait.done",
+                {"skill_id": SKILL_ID, "token": token}))
+
+        threading.Thread(target=_run, args=(message,), daemon=True).start()
 
 
 def main():
@@ -87,10 +184,16 @@ def main():
     # the constructor, so there is no separate ``_startup`` call to make here.
     BackCompatSkill(skill_id=SKILL_ID, bus=bus, resources_dir=root)
 
-    # Report what this workshop actually bound, so a failing combo says which
-    # spellings existed rather than only that nothing fired.
+    # Report what this workshop actually bound for the INTENT topic, so a
+    # failing combo says which spellings existed rather than only that
+    # nothing fired. The interactive-flow trigger topics
+    # (converse/get_response/speak_wait .trigger) are bound on the same
+    # skill_id prefix but aren't intent registrations and aren't subject to
+    # the suffixed-vs-canonical drift this list exists to catch, so they're
+    # filtered out here rather than turning test_pins_are_the_intended_
+    # vintage's exact-match assertion into a superset check.
     bound = sorted(t for t in getattr(bus.emitter, "_events", {})
-                   if t.startswith(f"{SKILL_ID}:"))
+                   if t.startswith(f"{SKILL_ID}:") and not t.endswith(".trigger"))
     print("BOUND_TOPICS " + json.dumps(bound), flush=True)
 
     # The versions actually resolved inside THIS venv, and whether the
@@ -101,6 +204,17 @@ def main():
         "ovos_workshop": _dist_version("ovos-workshop"),
         "ovos_bus_client": _dist_version("ovos-bus-client"),
         "has_reemit_hook": hasattr(MessageBusClient, "_reemit_legacy_intent"),
+        # which class actually supplied converse/activate/get_response —
+        # the split ConversationalSkill mixin (current/dev/testing-channel
+        # workshop), or the pre-split OVOSSkill (stable-channel workshop).
+        "has_converse_mixin": HAS_CONVERSE_MIXIN,
+        # whether this vintage has the converse/get_response call surface
+        # AT ALL, on whichever base class was actually selected. Both
+        # observed vintages do (see BackCompatSkill's docstring), but this
+        # is the real capability check the driver's tests gate on, in case
+        # some future or unobserved vintage genuinely has neither.
+        "has_converse_api": hasattr(_SkillBase, "converse")
+                            and hasattr(_SkillBase, "get_response"),
     }), flush=True)
     print("SKILL_READY", flush=True)
 

@@ -109,9 +109,20 @@ import pytest
 
 from ovos_bus_client.message import Message
 
-from .driver import (CANONICAL_TOPIC, LEGACY_TOPIC, SKILL_ID, BusServer,
-                     Capture, SkillProcess, core_canonicalizes, dispatch,
-                     dispatch_topic_for)
+from .driver import (ACTIVATED_TOPIC, AUDIO_OUTPUT_END_TOPIC,
+                     CANONICAL_TOPIC, CONVERSE_FIRED_TOPIC,
+                     CONVERSE_MATCH_TOPIC, CONVERSE_REQUEST_TOPIC,
+                     CONVERSE_RESPONSE_TOPIC,
+                     CONVERSE_TRIGGER_TOPIC, GET_RESPONSE_ANSWER_TOPIC,
+                     GET_RESPONSE_DONE_TOPIC, GET_RESPONSE_TIMEOUT,
+                     GET_RESPONSE_TRIGGER_TOPIC, LEGACY_TOPIC, SKILL_ID,
+                     SPEAK_WAIT_DONE_TOPIC, SPEAK_WAIT_TRIGGER_TOPIC,
+                     BusServer, Capture, SkillProcess, converse_match,
+                     core_canonicalizes, core_has_pipeline_match_api,
+                     dispatch, dispatch_match,
+                     dispatch_topic_for, make_converse_service,
+                     session_context, wait_for_active_skill,
+                     wait_for_response_mode)
 
 #: What each combo is *supposed* to be, so a silent pin drift (a new workshop
 #: release changing what it binds, or the padatious fold being reverted) fails
@@ -208,6 +219,37 @@ def _registered_name(registrations) -> str:
     assert names, ("the skill never registered an intent with the padatious "
                    "contract; nothing to dispatch")
     return names[0]
+
+
+@pytest.fixture(scope="module")
+def converse_service(stack):
+    """The real, per-combo ``ConverseService`` from ``driver.
+    make_converse_service``, running on the shared bus for the module's
+    converse/get_response tests.
+
+    A separate fixture (not folded into ``stack``) so the plain
+    intent-dispatch tests above don't pay for it and aren't coupled to it —
+    only the interactive-flow tests below ask for this.
+
+    Skips (own reason, never the #271 marker) when this core venv's
+    ``ConverseService`` predates the plugin-pipeline ``.match()`` API this
+    module's helpers are built on — real today only for the "stable"
+    distro channel's ``ovos-core==1.3.1`` pin. See
+    ``driver.core_has_pipeline_match_api``.
+    """
+    if not core_has_pipeline_match_api():
+        pytest.skip(
+            f"{COMBO}: this core venv's ConverseService predates the "
+            f"plugin-pipeline .match() API (pre ovos-core pipeline "
+            f"refactor) — converse/get_response routing here uses a "
+            f"different, older object model this suite does not adapt to "
+            f"yet; unrelated to the #271 canonical-topic gap")
+    _server, bus, _skill, _regs = stack
+    service = make_converse_service(bus)
+    try:
+        yield service
+    finally:
+        service.shutdown()
 
 
 def test_pins_are_the_intended_vintage(stack):
@@ -368,6 +410,290 @@ def test_the_handler_runs_exactly_once(stack):
             f"(skill bound {skill.bound_topics})")
     finally:
         handled.close()
+
+
+#: The interactive-flow tests below are NOT marked with the IS_BROKEN_CELL
+#: xfail. That marker exists for one specific gap: an old skill binds the
+#: suffixed `<skill_id>:<file>.intent` topic only, and a canonicalizing core
+#: dispatches `<skill_id>:<file>` only, so registered-intent names never line
+#: up. converse and get_response are routed through the real, per-combo
+#: `ovos_core.intent_services.converse_service.ConverseService` (see the
+#: `converse_service` fixture / `driver.make_converse_service`) — genuine
+#: core-side code decides the match, the driver only forwards
+#: `match.match_type` verbatim, same as `dispatch()` already does for
+#: intents. That match_type is a FIXED literal
+#: (`<skill_id>.converse.request` / `<skill_id>.converse.get_response`) in
+#: every venv this suite builds, never derived from a registered intent
+#: name, so it never touches padatious's registration-time canonicalization.
+#: wait_while_speaking is legitimately audio-service territory — there is no
+#: core-side code to route it through — and stays a direct simulation of
+#: `recognizer_loop:audio_output_end`, also a fixed literal, also unchanged
+#: across every venv checked (including the "stable" distro channel's
+#: ovos-bus-client==1.3.8a4). There is no boundary pin on any of these three
+#: flows, so nothing here should need the same kill switch; if a real gap
+#: ever does show up on one of them, give it its own xfail with its own
+#: reason instead of folding it into this one (see module docstring: "any PR
+#: that drops the compat must flip these deliberately" — a borrowed marker
+#: would hide the wrong signal).
+
+
+def _require_converse_api(skill) -> None:
+    """Skip with an honest, own reason if this vintage genuinely has no
+    converse/get_response call surface at all — NOT the #271 xfail marker,
+    which is about a completely different gap (suffixed vs canonical intent
+    topics). Every vintage this suite currently builds against (9.3.1a2,
+    dev, and both the "stable" and "testing" distro channel pins) reports
+    ``has_converse_api: true`` — see ``skill_process.py``'s ``VERSIONS``
+    line — so this is a safety net for a vintage nobody has pinned yet, not
+    a marker anyone should expect to see flip today.
+    """
+    if not skill.versions.get("has_converse_api", True):
+        pytest.skip(
+            f"{COMBO}: ovos-workshop {skill.versions.get('ovos_workshop')} "
+            f"has no converse/get_response machinery on either "
+            f"ConversationalSkill or plain OVOSSkill — unrelated to the "
+            f"#271 canonical-topic gap, this vintage simply predates the "
+            f"call surface these tests exercise")
+
+
+def test_converse_fires_before_a_followup_utterance_matches_an_intent(
+        stack, converse_service):
+    """An activated skill's converse() must be offered a follow-up utterance
+    ahead of intent matching.
+
+    This is the multi-turn-dialog contract every bus-only skill container
+    leans on: ``activate()`` puts the skill on the active list, and the
+    pipeline is supposed to try ``converse()`` before falling through to
+    intent matching. Genuinely cross-version this time: the driver calls the
+    real, per-combo ``ConverseService.match()`` (see ``converse_service``
+    fixture / ``driver.make_converse_service``) to decide whether and how to
+    route the follow-up utterance, then forwards ``match.match_type``
+    verbatim — the same shortcut ``dispatch()`` already takes for the
+    food-order intent, except the topic now comes from real core code
+    instead of a constant the driver assumes.
+    """
+    _server, bus, skill, _regs = stack
+    _require_converse_api(skill)
+    token = uuid.uuid4().hex
+    session_id = f"backcompat-converse-{token[:8]}"
+    activated = Capture(bus, ACTIVATED_TOPIC, token=token)
+    # the real second hop: ConverseService.handle_converse (triggered by
+    # dispatch_match below) re-emits to this exact skill-facing topic —
+    # capturing it independently of the "converse_fired" marker proves the
+    # WIRE contract, not just that the skill's converse() method ran.
+    requested = Capture(bus, CONVERSE_REQUEST_TOPIC)
+    fired = Capture(bus, CONVERSE_FIRED_TOPIC)
+    responded = Capture(bus, CONVERSE_RESPONSE_TOPIC)
+    try:
+        # self.activate() (real workshop code, either vintage) emits the
+        # real "intent.service.skills.activate" message, which the real
+        # converse_service.handle_activate_skill_request (bound in its
+        # __init__) puts the skill on SessionManager's live active-skills
+        # list for this session_id.
+        bus.emit(Message(CONVERSE_TRIGGER_TOPIC, {"token": token},
+                         session_context(session_id)))
+        assert activated.wait(), (
+            f"{COMBO}: skill never confirmed activation:\n{skill.log}")
+        # activate_skill_request is itself async over the wire (our own
+        # "activated" marker races the real core-side session update it
+        # rides alongside); wait for the actual evidence — the skill_id
+        # showing up on the live session — rather than guessing a delay.
+        assert wait_for_active_skill(session_id, SKILL_ID), (
+            f"{COMBO}: skill confirmed activation but never showed up on "
+            f"the live session's active-skill list")
+
+        match = converse_match(converse_service, ["i changed my mind"],
+                               "en-us", session_id)
+        assert match is not None, (
+            f"{COMBO}: ConverseService.match() found no active skill to "
+            f"converse with — activation never reached the real core-side "
+            f"session state.\nskill process log:\n{skill.log}")
+        assert match.match_type == CONVERSE_MATCH_TOPIC, (
+            f"{COMBO}: real ConverseService.match() picked "
+            f"{match.match_type!r}, not the expected {CONVERSE_MATCH_TOPIC!r}")
+        dispatch_match(bus, match)
+
+        assert requested.wait(), (
+            f"{COMBO}: real ConverseService.handle_converse never re-emitted "
+            f"onto {CONVERSE_REQUEST_TOPIC!r} — the skill-facing wire hop "
+            f"itself never fired, not just the marker.")
+        assert fired.wait(), (
+            f"{COMBO}: an activated skill's converse() was never reached by "
+            f"a follow-up utterance routed through the real converse "
+            f"service — a real skill container would silently lose "
+            f"multi-turn dialog on this core.\nskill process log:\n"
+            f"{skill.log}")
+        assert fired.messages[0].data["utterances"] == ["i changed my mind"]
+
+        assert responded.wait(), (
+            f"{COMBO}: converse() ran but the skill never answered "
+            f"{CONVERSE_RESPONSE_TOPIC!r}")
+        assert responded.messages[0].data["result"] is True, (
+            "converse() claimed the utterance (returned True) but the "
+            "pipeline-facing response says it did not consume it")
+    finally:
+        activated.close()
+        requested.close()
+        fired.close()
+        responded.close()
+
+
+def test_get_response_receives_the_answer_utterance(stack, converse_service):
+    """A handler blocked in ``get_response()`` must unblock on the answer,
+    delivered through the real core-side response-mode match.
+
+    ``OVOSSkill.get_response`` enables response-mode over the real
+    ``skill.converse.get_response.enable`` topic, which the real
+    ``ConverseService.handle_get_response_enable`` uses to flip
+    ``session.utterance_states[skill_id]`` — genuine per-version core state,
+    not something the driver sets by hand. The driver then calls the real
+    ``ConverseService.match()`` with the answer utterance, gets back
+    ``match_type == f"{skill_id}.converse.get_response"`` from that real
+    state, and forwards it verbatim, same as the converse test above.
+
+    ``ConverseService.match()`` only considers a skill for
+    response-mode if it is ALSO on the session's active-skill list
+    (``_collect_converse_skills`` / ``get_active_skills`` gate — see
+    ``match()``'s ``gr_skills`` computation) — in a real deployment this is
+    implicit, since ``get_response`` is normally called from inside a
+    handler for an intent that was just dispatched to this skill, which
+    activates it as a side effect. This harness has no intent-dispatch
+    pipeline standing that context up, so the skill is activated explicitly
+    first, the same way the converse test above does.
+    """
+    _server, bus, skill, _regs = stack
+    _require_converse_api(skill)
+    token = uuid.uuid4().hex
+    session_id = f"backcompat-getresp-{token[:8]}"
+    activated = Capture(bus, ACTIVATED_TOPIC, token=token)
+    done = Capture(bus, GET_RESPONSE_DONE_TOPIC, token=token)
+    try:
+        bus.emit(Message(CONVERSE_TRIGGER_TOPIC, {"token": token},
+                         session_context(session_id)))
+        assert activated.wait(), (
+            f"{COMBO}: skill never confirmed activation:\n{skill.log}")
+        assert wait_for_active_skill(session_id, SKILL_ID), (
+            f"{COMBO}: skill confirmed activation but never showed up on "
+            f"the live session's active-skill list")
+
+        bus.emit(Message(GET_RESPONSE_TRIGGER_TOPIC, {"token": token},
+                         session_context(session_id)))
+        # get_response's real "skill.converse.get_response.enable" round
+        # trip is async over the wire; wait for the actual evidence — the
+        # live session's response-mode holder — rather than guessing a
+        # delay long enough.
+        assert wait_for_response_mode(session_id, SKILL_ID), (
+            f"{COMBO}: get_response() never showed up as the live "
+            f"session's response-mode holder\nskill process log:\n{skill.log}")
+
+        match = converse_match(converse_service, ["tacos please"], "en-us",
+                               session_id)
+        assert match is not None, (
+            f"{COMBO}: ConverseService.match() found no skill in "
+            f"response-mode — get_response's enable call never reached "
+            f"real core-side session state.\nskill process log:\n{skill.log}")
+        assert match.match_type == GET_RESPONSE_ANSWER_TOPIC, (
+            f"{COMBO}: real ConverseService.match() picked "
+            f"{match.match_type!r}, not the expected "
+            f"{GET_RESPONSE_ANSWER_TOPIC!r}")
+        dispatch_match(bus, match)
+
+        assert done.wait(), (
+            f"{COMBO}: get_response() never returned after the real "
+            f"converse-service match landed.\nskill process log:\n{skill.log}")
+        assert done.messages[0].data["answer"] == "tacos please", (
+            f"{COMBO}: get_response() returned "
+            f"{done.messages[0].data['answer']!r} instead of the answer "
+            f"utterance sent")
+    finally:
+        activated.close()
+        done.close()
+
+
+def test_get_response_completes_without_hanging_when_unanswered(stack):
+    """The no-answer path must complete, not hang, within a generous bound.
+
+    This is a plain no-hang smoke test, not a boundedness proof for any
+    specific historical fix: ``get_response``'s internal poll loop
+    (``__get_response``) has always been bounded by
+    ``skills.get_response_timeout`` — pinned low here (see
+    :data:`driver.GET_RESPONSE_TIMEOUT` / ``make_shared_config``) so this
+    stays fast — regardless of the separate killable-thread stall that
+    ovos-workshop 9.3.5a1 fixed for the *external abort* path
+    (``mycroft.skills.abort_question`` / ``_handle_killed_wait_response``),
+    which this test does not exercise. No answer is ever sent here; this
+    only proves the ordinary no-answer path returns.
+    """
+    _server, bus, skill, _regs = stack
+    _require_converse_api(skill)
+    token = uuid.uuid4().hex
+    session = {"session_id": f"backcompat-getresp-timeout-{token[:8]}"}
+    done = Capture(bus, GET_RESPONSE_DONE_TOPIC, token=token)
+    try:
+        bus.emit(Message(GET_RESPONSE_TRIGGER_TOPIC, {"token": token},
+                         {"session": session}))
+        # A generous multiple of the pinned poll window, not the window
+        # itself: proves the path completes promptly without turning a
+        # slightly slow CI runner into a false "it hung" failure.
+        assert done.wait(timeout=GET_RESPONSE_TIMEOUT * 4), (
+            f"{COMBO}: get_response() never returned with no answer sent — "
+            f"looks like a hang rather than a timeout.\nskill process log:\n"
+            f"{skill.log}")
+        assert done.messages[0].data["answer"] is None, (
+            f"{COMBO}: get_response() returned "
+            f"{done.messages[0].data['answer']!r} with no answer ever sent")
+    finally:
+        done.close()
+
+
+def test_speak_wait_unblocks_on_audio_output_end(stack):
+    """``speak(..., wait=True)`` must unblock once audio output ends.
+
+    Exercises the receive side of whatever topic the CURRENT core emits for
+    output-end against whatever the OLD workshop's ``wait_while_speaking``
+    listens for. Both ``venv_skill_old`` and ``venv_skill_new`` resolve the
+    same current ``ovos-bus-client`` off their workshop floor (the property
+    ``test_old_container_resolves_a_current_bus_client`` already asserts),
+    and that client's ``SessionManager.wait_while_speaking`` is where this
+    listens — reading both venvs' ``ovos_bus_client/session.py`` side by
+    side shows the same literal ``recognizer_loop:audio_output_end`` topic
+    in both, so there is no cross-version drift here for this suite to
+    catch today. The driver plays the audio service's part the way
+    ``ovoscope`` does: it does not run one, it just emits the end-of-output
+    message the real one would.
+    """
+    _server, bus, skill, _regs = stack
+    token = uuid.uuid4().hex
+    session = {"session_id": f"backcompat-speakwait-{token[:8]}"}
+    done = Capture(bus, SPEAK_WAIT_DONE_TOPIC, token=token)
+    try:
+        start = time.monotonic()
+        bus.emit(Message(SPEAK_WAIT_TRIGGER_TOPIC, {"token": token},
+                         {"session": session}))
+        # give speak() time to run, set is_speaking, and register its
+        # audio_output_end listener before the driver plays audio-service
+        # and ends the "output" — wait_while_speaking bails out immediately
+        # if it does not see is_speaking already set (see session.py), so
+        # firing too early would make this a false pass for the wrong
+        # reason (skipped the wait entirely) rather than the wait actually
+        # unblocking.
+        time.sleep(0.5)
+        bus.emit(Message(AUDIO_OUTPUT_END_TOPIC, {}, {"session": session}))
+        assert done.wait(), (
+            f"{COMBO}: speak(wait=True) never unblocked after "
+            f"{AUDIO_OUTPUT_END_TOPIC!r} fired for its session — the old "
+            f"skill container would hang forever waiting for audio output "
+            f"it will never see end.\nskill process log:\n{skill.log}")
+        elapsed = time.monotonic() - start
+        # SessionManager.wait_while_speaking's own timeout defaults to 15s;
+        # unblocking well under that proves the bridge fired the wait open
+        # rather than the call merely timing out on its own.
+        assert elapsed < 10, (
+            f"{COMBO}: speak(wait=True) took {elapsed:.1f}s to unblock — "
+            f"looks like it rode out its own internal timeout instead of "
+            f"reacting to {AUDIO_OUTPUT_END_TOPIC!r}")
+    finally:
+        done.close()
 
 
 @pytest.mark.skipif(not IS_BROKEN_CELL,
