@@ -707,11 +707,22 @@ def test_kill_switch_disables_the_compat_mirror():
     that no mirror exists; once ``#271`` ships it becomes the real negative
     half of the pair, and a compat-drop PR has to flip the cell above while
     leaving this one green.
+
+    The kill switch is applied on BOTH sides, belt and braces, but the one
+    that actually matters here is the DRIVER's: bus-client#271 rule 1 (the
+    legacy ``.intent``-suffixed twin) fires inside ``emit()`` in whichever
+    process calls it, and the canonical dispatch below is emitted from the
+    driver's own bus client, not the skill subprocess. ``server.client(
+    emit_legacy=False)`` sets ``OVOS_BUS_EMIT_LEGACY`` for that client before
+    it is constructed (see ``BusServer.client``); ``SkillProcess(...,
+    emit_legacy=False)`` sets the same flag in the skill subprocess's own
+    environment, which matters once the skill side ever emits anything of
+    its own.
     """
     server = BusServer()
     skill = None
     try:
-        bus = server.client()
+        bus = server.client(emit_legacy=False)
         skill = SkillProcess(SKILL_PYTHON, server.xdg, emit_legacy=False)
         token = uuid.uuid4().hex
         handled = Capture(bus, "backcompat.skill.handled", token=token)

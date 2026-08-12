@@ -356,12 +356,34 @@ class BusServer:
             time.sleep(0.25)
         raise RuntimeError(f"messagebus never accepted on port {self.port}")
 
-    def client(self) -> MessageBusClient:
-        bus = MessageBusClient(host="127.0.0.1", port=self.port, route="/core")
-        bus.run_in_thread()
-        if not bus.connected_event.wait(30):
-            raise RuntimeError("driver could not connect to the messagebus")
-        return bus
+    def client(self, emit_legacy: Optional[bool] = None) -> MessageBusClient:
+        """A driver-side bus client, optionally overriding #271's rule 1.
+
+        bus-client#271 rule 1 (the legacy ``.intent``-suffixed twin) fires
+        inside ``MessageBusClient.emit()``, in whichever process calls
+        ``emit`` — for every dispatch this suite drives, that is the
+        driver/core side, not the skill side. The flag is read from
+        ``OVOS_BUS_EMIT_LEGACY`` at ``MessageBusClient`` construction time
+        (see ``ovos_bus_client.client.client._bus_flag``), so overriding it
+        for one client means setting the env var in THIS process just before
+        building that client. Restored immediately after, so it does not
+        leak into any client built after this one returns.
+        """
+        prev = os.environ.get("OVOS_BUS_EMIT_LEGACY")
+        if emit_legacy is not None:
+            os.environ["OVOS_BUS_EMIT_LEGACY"] = str(emit_legacy).lower()
+        try:
+            bus = MessageBusClient(host="127.0.0.1", port=self.port, route="/core")
+            bus.run_in_thread()
+            if not bus.connected_event.wait(30):
+                raise RuntimeError("driver could not connect to the messagebus")
+            return bus
+        finally:
+            if emit_legacy is not None:
+                if prev is None:
+                    os.environ.pop("OVOS_BUS_EMIT_LEGACY", None)
+                else:
+                    os.environ["OVOS_BUS_EMIT_LEGACY"] = prev
 
     def stop(self):
         self.proc.terminate()
@@ -374,17 +396,20 @@ class BusServer:
 class SkillProcess:
     """The other venv's skill, as a child process on the same bus.
 
-    ``emit_legacy`` is threaded through as an environment flag because the
-    kill-switch control needs to turn the compat bridge off in the **skill**
-    process, where bus-client#271's mirror runs — not in the driver.
+    ``emit_legacy`` is threaded through as an environment flag for this
+    process too — belt and braces — but the mirror's actual send-side rule
+    (bus-client#271 rule 1, the legacy ``.intent``-suffixed twin) runs in
+    whichever process calls ``bus.emit()`` for the dispatch, which in this
+    suite is the DRIVER/core side (see ``BusServer.client``), not here. This
+    process's own ``OVOS_BUS_EMIT_LEGACY`` only gates rule 2 (receive-side
+    canonicalization) for traffic this process itself emits, which none of
+    these tests currently do.
     """
 
-    def __init__(self, python: str, xdg: str, emit_legacy: bool = True,
-                 blanket: bool = False):
+    def __init__(self, python: str, xdg: str, emit_legacy: bool = True):
         env = dict(os.environ,
                    XDG_CONFIG_HOME=xdg,
                    OVOS_BUS_EMIT_LEGACY=str(emit_legacy).lower(),
-                   OVOS_BUS_INTENT_REEMIT_BLANKET=str(blanket).lower(),
                    BACKCOMPAT_SKILL_ID=SKILL_ID,
                    PYTHONUNBUFFERED="1")
         self.lines = []

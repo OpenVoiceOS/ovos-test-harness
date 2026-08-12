@@ -203,7 +203,12 @@ def main():
     print("VERSIONS " + json.dumps({
         "ovos_workshop": _dist_version("ovos-workshop"),
         "ovos_bus_client": _dist_version("ovos-bus-client"),
-        "has_reemit_hook": hasattr(MessageBusClient, "_reemit_legacy_intent"),
+        # The shipped #271 symbol is `_send_legacy_intent_twin` (RULE 1, the
+        # send-side twin) — `_modernize_intent_topic` is RULE 2 (receive-side
+        # canonicalization), also added by #271, both on MessageBusClient.
+        # `_reemit_legacy_intent` was never the real name; probing for it
+        # would report the mirror absent even once #271 ships.
+        "has_reemit_hook": hasattr(MessageBusClient, "_send_legacy_intent_twin"),
         # which class actually supplied converse/activate/get_response —
         # the split ConversationalSkill mixin (current/dev/testing-channel
         # workshop), or the pre-split OVOSSkill (stable-channel workshop).
