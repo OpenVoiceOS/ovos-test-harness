@@ -1,0 +1,114 @@
+{
+  "ovos-skill-alerts.openvoiceos::I have a work event next tuesday at 7 PM": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-alerts.openvoiceos' should have matched it."
+  },
+  "ovos-skill-alerts.openvoiceos::alarm daily for the next week at 9 AM": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-alerts.openvoiceos' should have matched it."
+  },
+  "ovos-skill-alerts.openvoiceos::alarm in an hour": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-alerts.openvoiceos' should have matched it."
+  },
+  "ovos-skill-alerts.openvoiceos::audible adjourn": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-alerts.openvoiceos' should have matched it."
+  },
+  "ovos-skill-alerts.openvoiceos::audible adjourn next": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-alerts.openvoiceos' should have matched it."
+  },
+  "ovos-skill-alerts.openvoiceos::decrease the bread timer by 5 minutes": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-alerts.openvoiceos' should have matched it."
+  },
+  "ovos-skill-alerts.openvoiceos::download": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-alerts.openvoiceos' should have matched it."
+  },
+  "ovos-skill-alerts.openvoiceos::extend the pizza timer by 2 minutes": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-alerts.openvoiceos' should have matched it."
+  },
+  "ovos-skill-alerts.openvoiceos::move the baseball event to 08:00 pm": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-alerts.openvoiceos' should have matched it."
+  },
+  "ovos-skill-alerts.openvoiceos::remind me to go to work weekday mornings at 8": {
+    "category": "conflict",
+    "reason": "cross-skill intent theft: 'ovos-skill-date-time.openvoiceos' claims this utterance instead of 'ovos-skill-alerts.openvoiceos' in the full fleet population."
+  },
+  "ovos-skill-application-launcher.openvoiceos::terminate something": {
+    "category": "conflict",
+    "reason": "cross-skill intent theft: 'ovos-skill-dictation.openvoiceos' claims this utterance instead of 'ovos-skill-application-launcher.openvoiceos' in the full fleet population."
+  },
+  "ovos-skill-diagnostics.openvoiceos::is there a gpu in your system": {
+    "category": "conflict",
+    "reason": "cross-skill intent theft: 'ovos-skill-date-time.openvoiceos' claims this utterance instead of 'ovos-skill-diagnostics.openvoiceos' in the full fleet population."
+  },
+  "ovos-skill-fuster-quotes.openvoiceos::qui est Fuster": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-fuster-quotes.openvoiceos' should have matched it."
+  },
+  "ovos-skill-fuster-quotes.openvoiceos::qui est Joan Fuster": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-fuster-quotes.openvoiceos' should have matched it."
+  },
+  "ovos-skill-fuster-quotes.openvoiceos::qui \u00e9tait Fuster": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-fuster-quotes.openvoiceos' should have matched it."
+  },
+  "ovos-skill-fuster-quotes.openvoiceos::qui \u00e9tait Joan Fuster": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-fuster-quotes.openvoiceos' should have matched it."
+  },
+  "ovos-skill-icanhazdadjokes.openvoiceos::make me laugh": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-icanhazdadjokes.openvoiceos' should have matched it."
+  },
+  "ovos-skill-naptime.openvoiceos::begin downtime": {
+    "category": "conflict",
+    "reason": "cross-skill intent theft: 'ovos-skill-parrot.openvoiceos' claims this utterance instead of 'ovos-skill-naptime.openvoiceos' in the full fleet population."
+  },
+  "ovos-skill-naptime.openvoiceos::wake up": {
+    "category": "conflict",
+    "reason": "cross-skill intent theft: 'ovos-skill-alerts.openvoiceos' claims this utterance instead of 'ovos-skill-naptime.openvoiceos' in the full fleet population."
+  },
+  "ovos-skill-weather.openvoiceos::What is the high temperature friday night": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-weather.openvoiceos' should have matched it."
+  },
+  "ovos-skill-weather.openvoiceos::What is the low temperature friday night": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-weather.openvoiceos' should have matched it."
+  },
+  "ovos-skill-weather.openvoiceos::What is the temperature friday night": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-weather.openvoiceos' should have matched it."
+  },
+  "ovos-skill-weather.openvoiceos::What is the temperature monday morning": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-weather.openvoiceos' should have matched it."
+  },
+  "ovos-skill-weather.openvoiceos::What is the temperature monday night": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-weather.openvoiceos' should have matched it."
+  },
+  "ovos-skill-weather.openvoiceos::What is the temperature saturday morning": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-weather.openvoiceos' should have matched it."
+  },
+  "ovos-skill-weather.openvoiceos::any weather alerts for after tomorrow in here": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-weather.openvoiceos' should have matched it."
+  },
+  "ovos-skill-weather.openvoiceos::any weather alerts for tomorrow in here": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-weather.openvoiceos' should have matched it."
+  },
+  "ovos-skill-weather.openvoiceos::do I need to bring an umbrella to the event": {
+    "category": "coverage-gap",
+    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-weather.openvoiceos' should have matched it."
+  }
+}

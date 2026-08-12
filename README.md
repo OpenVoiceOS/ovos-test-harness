@@ -174,6 +174,24 @@ validate two in-flight branches of one repo together, merge them into a
 single combined branch and pin that. See
 [docs/testing-combos.md](docs/testing-combos.md#the-single-ref-per-repo-limitation).
 
+## Fleet-level cross-skill intent-routing suite
+
+Every suite above boots one skill (or none) at a time. That setup cannot
+catch cross-skill intent theft: if skill B's vocabulary overlaps skill A's,
+B silently wins every time A's suite runs alone, because nothing else is
+loaded to lose the race to. `test/skills_fleet/` is the one suite that boots
+MANY real fleet skills into a single MiniCroft against a vendored corpus of
+golden utterances (`test/skills_fleet/golden_utterances.jsonl`) and asserts
+each utterance still routes to the skill that authored it. Known conflicts
+and coverage gaps are triaged in `test/skills_fleet/FINDINGS.md`. It runs as
+its own CI job (`skills_fleet.yml`), sharded by corpus rows — never by skill
+population, since the whole point is routing accuracy against the full fleet.
+Booting ~31 real skills is compute-heavy enough that it does not fit inside
+GitHub's per-job time ceiling on hosted runners (observed: 20-40 minutes
+locally, ~5h17m-5h37m on a GitHub-hosted runner for the identical code, not
+a hang — see `FINDINGS.md`), so this job runs on `workflow_dispatch` and a
+weekly schedule rather than blocking every PR.
+
 ## Mixed-version back-compat matrix
 
 One stack per run also hides a whole class of bug: a skill container frozen

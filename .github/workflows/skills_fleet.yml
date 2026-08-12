@@ -1,0 +1,96 @@
+name: skills fleet routing
+
+# Fleet-level cross-skill intent-routing gate: boots ALL corpus skills into
+# ONE MiniCroft and asserts each golden utterance from test/skills_fleet/
+# routes to the skill that authored it. The per-skill ovoscope suites cannot
+# catch cross-skill intent theft — they each boot one skill alone, so nothing
+# is present to steal from it. This is that missing test.
+#
+# Sharding splits the CORPUS ROWS across jobs, never the skill population:
+# every shard boots the full fleet, because the whole point is routing
+# accuracy against the full population. Four shards keep any one job's log
+# volume manageable and reduce the post-boot row-sweep tail without
+# weakening the assertion (every shard still boots all ~31 skills).
+#
+# NOT a required pull_request check. Booting ~31 real skills is expensive by
+# construction: every new skill's intent registration re-trains the shared
+# adapt/padatious/markov containers against ALL previously-registered
+# intents, so per-skill boot cost grows with fleet size (superlinear, not a
+# fixed per-skill constant). Locally this consistently takes 20-40 minutes.
+# On GitHub-hosted standard runners the identical code has been observed
+# consistently needing ~5h17m-5h37m of wall clock — confirmed NOT a hang
+# (job logs show real, correct PASSED/XFAILed progress through 50+ rows each
+# run, matching the local triage in FINDINGS.md exactly) but a genuine
+# compute-bound cost this runner class cannot clear inside GitHub's 360
+# minute per-job ceiling for hosted runners. Gating every PR on that would
+# block unrelated changes on an infra limit nobody merging a PR can fix.
+# Runs on workflow_dispatch (on demand, e.g. before merging a change to
+# test/skills_fleet/ itself) and a weekly schedule instead — the same
+# pattern channel_compat.yml uses for its own expensive full-suite run.
+# FINDINGS.md documents the routing results directly, confirmed against real
+# CI execution logs, independent of this job ever reaching a green checkmark.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly, not tied to PR velocity — this validates the fleet against
+    # whatever each pinned skill's @dev currently ships, on its own clock.
+    - cron: "0 6 * * 1"
+
+jobs:
+  fleet-routing:
+    runs-on: ubuntu-latest
+    # See the module-level comment above for why this is generous: the
+    # observed cost is ~5h17m-5h37m per shard on this runner class.
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install system deps (padatious needs swig + libfann)
+        run: sudo apt-get update && sudo apt-get install -y swig libfann-dev
+
+      - name: Install the base conformance stack
+        run: |
+          pip install -r requirements.txt
+          pip install pytest-timeout pytest-split
+          pip install --no-deps ovos-media
+          pip install ovos-gui-api-client dbus_next json-database
+
+      - name: "Install the fleet skills (--no-deps -- see FINDINGS.md)"
+        run: pip install --no-deps -r test/skills_fleet/requirements-fleet.txt
+
+      - name: Install the fleet skills' runtime dependencies
+        run: pip install -r test/skills_fleet/requirements-fleet-extra.txt
+
+      - name: Record the installed stack
+        run: pip freeze > fleet-stack-freeze.txt
+
+      - name: Upload the installed-stack freeze
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fleet-stack-freeze-${{ matrix.group }}
+          path: fleet-stack-freeze.txt
+
+      - name: Run fleet routing suite (group ${{ matrix.group }}/4)
+        # pytest-timeout's per-test clock covers BOTH the module-scoped
+        # setup_module fixture (the full ~31-skill fleet boot) and the first
+        # test's own call phase, because xunit_setup_module_fixture runs as
+        # part of the first test item's setup. 21000s (5h50m) sits just
+        # inside the 360-minute job ceiling, leaving room for the install
+        # steps above.
+        run: >-
+          pytest test/skills_fleet/test_fleet_routing.py -v --tb=short -rxX
+          --timeout=21000 --timeout-method=thread
+          --splits 4 --group ${{ matrix.group }}
+          --splitting-algorithm least_duration
