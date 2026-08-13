@@ -21,9 +21,6 @@ name: mixed-version back-compat matrix
 # releases. It is `strict=True`, so the day the fix ships this job goes RED
 # with an XPASS. That is the intended signal: drop the marker and the cell
 # becomes a permanent guard.
-#
-# ovos-core runs the same four cells against its own checkout. The duplication
-# is deliberate — a breakage should be traceable to the repo that caused it.
 
 on:
   pull_request:
@@ -43,33 +40,56 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `skill`/`core` are the venv-name arguments passed to
+          # build_venvs.sh, and also which subdirectory of $RUNNER_TEMP/venvs
+          # each one lands in: boundary venvs (venv_*_old/new) build directly
+          # under $RUNNER_TEMP/venvs, channel venvs (venv_*_stable/testing)
+          # build under $RUNNER_TEMP/venvs/channel — see build_venvs.sh's
+          # header for why. `skill_dir`/`core_dir` spell out that path per
+          # cell so the later steps don't need to re-derive it.
           - combo: old-skill/old-core
             skill: venv_skill_old
             core: venv_core_old
+            skill_dir: venvs
+            core_dir: venvs
           - combo: old-skill/new-core
             skill: venv_skill_old
             core: venv_core_new
+            skill_dir: venvs
+            core_dir: venvs
           - combo: new-skill/old-core
             skill: venv_skill_new
             core: venv_core_old
+            skill_dir: venvs
+            core_dir: venvs
           - combo: new-skill/new-core
             skill: venv_skill_new
             core: venv_core_new
+            skill_dir: venvs
+            core_dir: venvs
           # channel cells: one side pinned by a live OVOS distro constraints
           # file (fetched fresh in build_venvs.sh), the other at dev. These
           # verify the fleet, not a boundary — see test_mixed_version_matrix.py.
           - combo: stable-skill/dev-core
             skill: venv_skill_stable
             core: venv_core_new
+            skill_dir: venvs/channel
+            core_dir: venvs
           - combo: dev-skill/stable-core
             skill: venv_skill_new
             core: venv_core_stable
+            skill_dir: venvs
+            core_dir: venvs/channel
           - combo: testing-skill/dev-core
             skill: venv_skill_testing
             core: venv_core_new
+            skill_dir: venvs/channel
+            core_dir: venvs
           - combo: dev-skill/testing-core
             skill: venv_skill_new
             core: venv_core_testing
+            skill_dir: venvs
+            core_dir: venvs/channel
     name: ${{ matrix.combo }}
     steps:
       - uses: actions/checkout@v4
@@ -85,19 +105,23 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Build the venv pairs
+      - name: Build this cell's venvs
         env:
           BACKCOMPAT_PYTHON: "3.11"
         run: |
           chmod +x test/backcompat/build_venvs.sh
-          test/backcompat/build_venvs.sh "$RUNNER_TEMP/venvs"
+          test/backcompat/build_venvs.sh "$RUNNER_TEMP/venvs" "${{ matrix.skill }}" "${{ matrix.core }}"
 
       - name: Record the resolved versions
         run: |
-          # Glob the venvs dir rather than naming venvs, so a new cell (or a
-          # renamed one) is picked up here automatically.
-          for v in "$RUNNER_TEMP"/venvs/*/; do
+          # Glob both the boundary dir and the channel subdir rather than
+          # naming venvs, so a new cell (or a renamed one) is picked up here
+          # automatically. Each job only ever has its own one or two venvs
+          # present, since build_venvs.sh is now called with explicit names.
+          for v in "$RUNNER_TEMP"/venvs/*/ "$RUNNER_TEMP"/venvs/channel/*/; do
+            [ -d "$v" ] || continue
             name="$(basename "$v")"
+            [ "$name" = "channel" ] && continue
             echo "== $name"
             "$v/bin/python" -m pip freeze 2>/dev/null || true
           done | tee venv-freeze.txt
@@ -117,14 +141,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: constraints-${{ strategy.job-index }}
-          path: ${{ runner.temp }}/venvs/*.constraints.txt
+          path: ${{ runner.temp }}/venvs/channel/*.constraints.txt
           if-no-files-found: ignore
 
       - name: Run the combo
         env:
           BACKCOMPAT_COMBO: ${{ matrix.combo }}
         run: |
-          export BACKCOMPAT_SKILL_PYTHON="$RUNNER_TEMP/venvs/${{ matrix.skill }}/bin/python"
-          "$RUNNER_TEMP/venvs/${{ matrix.core }}/bin/pytest" \
+          export BACKCOMPAT_SKILL_PYTHON="$RUNNER_TEMP/${{ matrix.skill_dir }}/${{ matrix.skill }}/bin/python"
+          "$RUNNER_TEMP/${{ matrix.core_dir }}/${{ matrix.core }}/bin/pytest" \
             test/backcompat/ -v --tb=short -rxX \
             --timeout=300 --timeout-method=thread
