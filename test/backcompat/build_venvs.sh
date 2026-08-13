@@ -5,12 +5,48 @@
 # core's. They talk over a real websocket, which is the only way one test run
 # can observe two different package sets.
 #
-# Usage:  test/backcompat/build_venvs.sh <target-dir> [core-spec]
+# Usage:  test/backcompat/build_venvs.sh <target-dir> [venv-name ...]
+#
+# With no venv-name arguments, all eight venvs are built (this is what keeps
+# any existing caller that just passes a target dir working unchanged, e.g.
+# `docs/ci.md`'s usage example). Name one or more of the venvs below to build
+# only those — this is what lets each CI matrix job build exactly the pair (or
+# triple) its cell needs instead of all eight:
+#
+#   venv_skill_old venv_skill_new venv_core_old venv_core_new
+#   venv_skill_stable venv_skill_testing venv_core_stable venv_core_testing
+#
+# An unrecognized name is a hard error (not a silent no-op), since a typo'd
+# name would otherwise build nothing and look like a build that just skipped
+# fast.
+#
+# Layout note: the four *boundary* venvs (venv_skill_old/new, venv_core_old/
+# new) live directly under $TARGET, unchanged from before this script gained
+# venv-name filtering. The four *channel* venvs (venv_skill_stable/testing,
+# venv_core_stable/testing) live under $TARGET/channel/ instead.
+#
+# NOT a cache boundary: these venvs are NOT safe to cache across CI runs.
+# venv_skill_new and venv_core_new install `@dev` git refs, so "already built"
+# does not mean "still current". venv_skill_old deliberately leaves
+# ovos-bus-client unpinned — that float is what makes it the ovos-bus-client
+# #271 XPASS tripwire (a real frozen skill container resolving a *current*
+# client); pinning it away would permanently disarm the signal this suite
+# exists to raise. venv_core_old's test deps (pytest, pytest-timeout,
+# ovos-messagebus) are unpinned too. None of the four venvs this script builds
+# are exact enough to cache safely; see the pins list below for what is and
+# is not pinned in each.
+#
+# Rebuild safety: each mkvenv call only skips a directory that has a
+# `.build-complete` marker written after a fully successful install. A
+# directory that exists WITHOUT the marker (e.g. a prior run killed mid-build)
+# is removed and rebuilt, so a half-built venv is never mistaken for a
+# finished one. mkvenv_channel always rebuilds unconditionally — it must, so
+# it re-resolves the live distro constraints every call; that's the whole
+# point of a channel venv.
 #
 # This harness installs no package of its own (see docs/how-it-works.md), so
 # the "new core" side is pinned to a ref the way requirements.txt pins the rest
-# of the stack. ovos-core carries its own copy of this suite, where that side
-# is the checkout under test instead.
+# of the stack.
 #
 # Pins, and why each one is where it is:
 #
@@ -55,20 +91,59 @@
 #              can be traced back to exactly what was pinned that day.
 set -euo pipefail
 
-TARGET="${1:?usage: build_venvs.sh <target-dir> [core-spec]}"
-CORE_SPEC="${2:-ovos-core @ git+https://github.com/OpenVoiceOS/ovos-core@dev}"
+TARGET="${1:?usage: build_venvs.sh <target-dir> [venv-name ...]}"
+shift
+CORE_SPEC="${CORE_SPEC:-ovos-core @ git+https://github.com/OpenVoiceOS/ovos-core@dev}"
 
 STABLE_CONSTRAINTS_URL="${BACKCOMPAT_STABLE_CONSTRAINTS_URL:-https://raw.githubusercontent.com/OpenVoiceOS/OpenVoiceOS/main/constraints-stable.txt}"
 TESTING_CONSTRAINTS_URL="${BACKCOMPAT_TESTING_CONSTRAINTS_URL:-https://raw.githubusercontent.com/OpenVoiceOS/OpenVoiceOS/main/constraints-testing.txt}"
 
 PY="${BACKCOMPAT_PYTHON:-python3.11}"
-mkdir -p "$TARGET"
+
+ALL_BOUNDARY_VENVS=(venv_skill_old venv_skill_new venv_core_old venv_core_new)
+ALL_CHANNEL_VENVS=(venv_skill_stable venv_skill_testing venv_core_stable venv_core_testing)
+ALL_VENVS=("${ALL_BOUNDARY_VENVS[@]}" "${ALL_CHANNEL_VENVS[@]}")
+
+REQUESTED=("$@")
+if [ "${#REQUESTED[@]}" -eq 0 ]; then
+  REQUESTED=("${ALL_VENVS[@]}")
+else
+  for name in "${REQUESTED[@]}"; do
+    known=0
+    for v in "${ALL_VENVS[@]}"; do
+      [ "$name" = "$v" ] && known=1 && break
+    done
+    if [ "$known" -eq 0 ]; then
+      echo "error: unknown venv name '$name'" >&2
+      echo "valid names: ${ALL_VENVS[*]}" >&2
+      exit 1
+    fi
+  done
+fi
+
+wants() {
+  local name="$1"
+  for v in "${REQUESTED[@]}"; do
+    [ "$name" = "$v" ] && return 0
+  done
+  return 1
+}
+
+mkdir -p "$TARGET" "$TARGET/channel"
 
 have_uv() { command -v uv >/dev/null 2>&1; }
 
 mkvenv() {
   local name="$1"; shift
   local dir="$TARGET/$name"
+  if [ -f "$dir/.build-complete" ]; then
+    echo "==> $name already built, skipping"
+    return
+  fi
+  if [ -d "$dir" ]; then
+    echo "==> $name exists without a completion marker (half-built), rebuilding"
+    rm -rf "$dir"
+  fi
   echo "==> building $name"
   if have_uv; then
     uv venv --python "$PY" "$dir" >/dev/null
@@ -79,14 +154,18 @@ mkvenv() {
     "$dir/bin/pip" install --quiet --pre "$@"
   fi
   echo "    $("$dir/bin/python" -c 'import sys; print(sys.version.split()[0])')"
+  touch "$dir/.build-complete"
 }
 
 # Like mkvenv, but constrained by a distro constraints file fetched fresh at
-# build time. $1=name $2=constraints-url $3..=packages to install
+# build time, and always rebuilt unconditionally (no completion marker, no
+# skip) — it must re-resolve the live distro constraints every call, which is
+# the whole point of a channel venv.
+# $1=name $2=constraints-url $3..=packages to install
 mkvenv_channel() {
   local name="$1" url="$2"; shift 2
-  local dir="$TARGET/$name"
-  local cfile="$TARGET/${name#venv_}.constraints.txt"
+  local dir="$TARGET/channel/$name"
+  local cfile="$TARGET/channel/${name#venv_}.constraints.txt"
   echo "==> fetching constraints for $name from $url"
   curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 "$url" -o "$cfile"
   echo "==> building $name (constrained)"
@@ -101,22 +180,25 @@ mkvenv_channel() {
   echo "    $("$dir/bin/python" -c 'import sys; print(sys.version.split()[0])')"
 }
 
-mkvenv venv_skill_old "ovos-workshop==9.3.1a2" "setuptools<81"
-mkvenv venv_skill_new "ovos-workshop @ git+https://github.com/OpenVoiceOS/ovos-workshop@dev" "setuptools<81"
-mkvenv venv_core_old  "ovos-core==2.5.5a2" "ovos-padatious==2.0.0a1" ovos-messagebus pytest pytest-timeout "setuptools<81"
-mkvenv venv_core_new  "$CORE_SPEC" "ovos-padatious>=2.0.1a2" ovos-messagebus pytest pytest-timeout "setuptools<81"
+wants venv_skill_old && mkvenv venv_skill_old "ovos-workshop==9.3.1a2" "setuptools<81"
+wants venv_skill_new && mkvenv venv_skill_new "ovos-workshop @ git+https://github.com/OpenVoiceOS/ovos-workshop@dev" "setuptools<81"
+wants venv_core_old  && mkvenv venv_core_old  "ovos-core==2.5.5a2" "ovos-padatious==2.0.0a1" ovos-messagebus pytest pytest-timeout "setuptools<81"
+wants venv_core_new  && mkvenv venv_core_new  "$CORE_SPEC" "ovos-padatious>=2.0.1a2" ovos-messagebus pytest pytest-timeout "setuptools<81"
 
-mkvenv_channel venv_skill_stable  "$STABLE_CONSTRAINTS_URL"  ovos-workshop "setuptools<81"
-mkvenv_channel venv_skill_testing "$TESTING_CONSTRAINTS_URL" ovos-workshop "setuptools<81"
-mkvenv_channel venv_core_stable   "$STABLE_CONSTRAINTS_URL"  ovos-core ovos-padatious ovos-messagebus pytest pytest-timeout "setuptools<81"
-mkvenv_channel venv_core_testing  "$TESTING_CONSTRAINTS_URL" ovos-core ovos-padatious ovos-messagebus pytest pytest-timeout "setuptools<81"
+wants venv_skill_stable  && mkvenv_channel venv_skill_stable  "$STABLE_CONSTRAINTS_URL"  ovos-workshop "setuptools<81"
+wants venv_skill_testing && mkvenv_channel venv_skill_testing "$TESTING_CONSTRAINTS_URL" ovos-workshop "setuptools<81"
+wants venv_core_stable   && mkvenv_channel venv_core_stable   "$STABLE_CONSTRAINTS_URL"  ovos-core ovos-padatious ovos-messagebus pytest pytest-timeout "setuptools<81"
+wants venv_core_testing  && mkvenv_channel venv_core_testing  "$TESTING_CONSTRAINTS_URL" ovos-core ovos-padatious ovos-messagebus pytest pytest-timeout "setuptools<81"
 
 echo
 echo "resolved versions:"
-for v in venv_skill_old venv_skill_new venv_core_old venv_core_new \
-         venv_skill_stable venv_skill_testing venv_core_stable venv_core_testing; do
+for v in "${REQUESTED[@]}"; do
+  dir="$TARGET/$v"
+  case " ${ALL_CHANNEL_VENVS[*]} " in
+    *" $v "*) dir="$TARGET/channel/$v" ;;
+  esac
   echo "  $v:"
-  "$TARGET/$v/bin/python" - <<'EOF' || true
+  "$dir/bin/python" - <<'EOF' || true
 from importlib.metadata import version, PackageNotFoundError
 for p in ("ovos-workshop", "ovos-bus-client", "ovos-core", "ovos-padatious",
           "ovos-spec-tools"):
