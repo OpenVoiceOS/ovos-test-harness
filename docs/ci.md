@@ -128,6 +128,74 @@ actually resolved, plus the fetched constraints file for the channel cells, so
 a surprising result can be reproduced and traced to exactly what was pinned
 that day.
 
+### Trigger tiers
+
+The workflow's `generate-matrix` job picks which cells run from one
+single-sourced list, filtered by what triggered the run:
+
+| Trigger | Cells |
+|---|---|
+| `pull_request` (paths: `test/backcompat/**`, this workflow file) | 4 boundary cells (`old-skill/old-core`, `old-skill/new-core`, `new-skill/old-core`, `new-skill/new-core`) |
+| `schedule` nightly (`0 3 * * *`) | 4 boundary cells (today, the same set as PR-time — there is no larger boundary tier to grow into yet) |
+| `schedule` weekly (`0 4 * * 0`) | 4 boundary + 4 channel cells |
+| `push: dev` / `workflow_dispatch` | 4 boundary + 4 channel cells (unchanged from before the trigger split) |
+
+Channel cells stay off `pull_request` and the nightly run deliberately: they
+fetch live distro constraints, so an unrelated PR (or an unrelated nightly
+tick) should not go red because the fleet's own pins moved.
+
+This tiering covers the *cell* dimension only. It does not yet also select
+scenarios by which file a PR touched — the design this feeds off of
+(`backcompat-matrix-design.md` §3.2) describes a fuller 16-boundary-cell /
+matcher-skew / transport-variant matrix with per-scenario file splitting;
+today's suite is still one file (`test_mixed_version_matrix.py`) covering
+every scenario, and standing up the rest of that matrix needs new buildable
+cells in `build_venvs.sh` that are out of scope here. Per-cell axis pruning
+(`test/backcompat/conftest.py`'s `pytest_collection_modifyitems`, see its
+module docstring) is what keeps each cell's actual run down to its
+non-redundant scenarios today.
+
+### The findings feed and `FINDINGS/SPRINT.md`
+
+Every matrix job's `pytest test/backcompat/` run writes
+`backcompat-findings-<cell>.json` (via `test/backcompat/conftest.py`'s
+`pytest_terminal_summary` hook calling into `test/backcompat/findings.py`) —
+one JSON record per `xfail`ed or `xpass`ed test in that cell:
+
+```json
+{
+  "cell": "Sold-Cnew-Mnew-Anew",
+  "scenario": "test/backcompat/test_mixed_version_matrix.py::test_the_skill_handler_runs",
+  "axes": ["S", "C", "M"],
+  "boundary": "<the reason text, or the boundary_xfail(...) boundary= field once that helper exists>",
+  "blocked_on": "ovos-bus-client#271",
+  "owner": "ovos-bus-client",
+  "outcome": "xfail"
+}
+```
+
+`boundary`/`blocked_on`/`owner` are parsed from the test's `xfail` reason
+string: the structured `boundary_xfail(boundary=..., axes=..., blocked_on=...,
+owner=..., note=...)` call form when a reason is written that way, or a
+best-effort heuristic (an `owner#issue` token) over today's free-text
+reasons otherwise — see `findings.py`'s module docstring for the exact rule
+and why (`driver.py` does not define `boundary_xfail` as of this writing).
+
+The workflow uploads each job's JSON as a `backcompat-findings-<job-index>`
+artifact (`if: always()`, same shape as the `venv-freeze`/constraints
+uploads above). A final `summarize` job (`needs: matrix`, `if: always()`)
+downloads every findings artifact, groups the records **by boundary** (a
+boundary is the unit of compat work; a cell is not), and renders
+`FINDINGS/SPRINT.md`: an XPASS section first ("a fix shipped, drop the
+marker"), then a table of red boundaries (`boundary | axes | cells red |
+scenarios | blocked on | owner`). The same content is echoed into
+`$GITHUB_STEP_SUMMARY` and uploaded as the `backcompat-sprint-findings`
+artifact.
+
+`summarize` makes **no GitHub writes** — no commits, no PR comments, no
+issues. It is purely an artifact-and-step-summary report for whoever triages
+the sprint backlog to read.
+
 ## The `channel compat` workflow
 
 `integration.yml` and `backcompat_matrix.yml` both answer questions about the
