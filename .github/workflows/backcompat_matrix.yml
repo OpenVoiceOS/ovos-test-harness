@@ -47,24 +47,36 @@ jobs:
           # build under $RUNNER_TEMP/venvs/channel — see build_venvs.sh's
           # header for why. `skill_dir`/`core_dir` spell out that path per
           # cell so the later steps don't need to re-derive it.
+          # `audio` (venv_audio, T2.3/design §2.6) rides along on all four
+          # boundary cells: it is a single behavioural venv (pins only
+          # ovos-bus-client), not an old/new pair, so there is nothing to
+          # cross it against here beyond running it. The PR-time/nightly
+          # trigger split design §3.2 calls for is left to T2.7 -- this
+          # workflow still has one job set for both pull_request and push,
+          # so the audio-axis scenarios simply join the existing per-push
+          # matrix rather than getting their own trigger tier.
           - combo: old-skill/old-core
             skill: venv_skill_old
             core: venv_core_old
+            audio: venv_audio
             skill_dir: venvs
             core_dir: venvs
           - combo: old-skill/new-core
             skill: venv_skill_old
             core: venv_core_new
+            audio: venv_audio
             skill_dir: venvs
             core_dir: venvs
           - combo: new-skill/old-core
             skill: venv_skill_new
             core: venv_core_old
+            audio: venv_audio
             skill_dir: venvs
             core_dir: venvs
           - combo: new-skill/new-core
             skill: venv_skill_new
             core: venv_core_new
+            audio: venv_audio
             skill_dir: venvs
             core_dir: venvs
           # channel cells: one side pinned by a live OVOS distro constraints
@@ -110,7 +122,7 @@ jobs:
           BACKCOMPAT_PYTHON: "3.11"
         run: |
           chmod +x test/backcompat/build_venvs.sh
-          test/backcompat/build_venvs.sh "$RUNNER_TEMP/venvs" "${{ matrix.skill }}" "${{ matrix.core }}"
+          test/backcompat/build_venvs.sh "$RUNNER_TEMP/venvs" "${{ matrix.skill }}" "${{ matrix.core }}" ${{ matrix.audio }}
 
       - name: Record the resolved versions
         run: |
@@ -149,6 +161,12 @@ jobs:
           BACKCOMPAT_COMBO: ${{ matrix.combo }}
         run: |
           export BACKCOMPAT_SKILL_PYTHON="$RUNNER_TEMP/${{ matrix.skill_dir }}/${{ matrix.skill }}/bin/python"
+          # Channel cells don't get an `audio` entry (empty string), so this
+          # only lands for the four boundary cells -- see the matrix comment
+          # above.
+          if [ -n "${{ matrix.audio }}" ]; then
+            export BACKCOMPAT_AUDIO_PYTHON="$RUNNER_TEMP/venvs/${{ matrix.audio }}/bin/python"
+          fi
           "$RUNNER_TEMP/${{ matrix.core_dir }}/${{ matrix.core }}/bin/pytest" \
             test/backcompat/ -v --tb=short -rxX \
             --timeout=300 --timeout-method=thread

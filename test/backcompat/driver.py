@@ -73,6 +73,78 @@ SPEAK_WAIT_DONE_TOPIC = "backcompat.skill.speak_wait.done"
 #: this suite depends on). This is the CURRENT core's audio-output-end
 #: contract; the driver plays audio-service here.
 AUDIO_OUTPUT_END_TOPIC = "recognizer_loop:audio_output_end"
+#: The legacy ``begin`` counterpart, and the topic ``audio_process.py``'s
+#: ``old`` vintage subscribes ``speak`` and emits both of these against.
+AUDIO_OUTPUT_START_TOPIC = "recognizer_loop:audio_output_start"
+LEGACY_SPEAK_TOPIC = "speak"
+#: The spec-side counterparts (design §2.6 / AUDIO-1), for the A=new bridge
+#: scenarios: an old-vintage skill container's ``SessionManager.
+#: wait_while_speaking`` never subscribes to ``AUDIO_OUTPUT_END_TOPIC``'s
+#: spec counterpart directly -- the only way it unblocks against a
+#: spec-only emitter is the bus-client ``NamespaceTranslator``'s
+#: receive-side modernize/emit_legacy bridge (design §1.1's bus-client
+#: namespace-dual-emit row). Copied verbatim from
+#: ``ovos_spec_tools.messages.SpecMessage`` (same source ``audio_process.py``
+#: copies from) -- LAZILY, unlike the legacy topics above. driver.py is
+#: imported at collection time by every cell, INCLUDING the four channel
+#: cells (``venv_core_stable``/``venv_core_testing``, ``build_venvs.sh``'s
+#: ``mkvenv_channel`` calls): those install only
+#: ``ovos-core ovos-padatious ovos-messagebus`` off the OVOS distro's own
+#: V0 (pre-spec) constraints file, with NO ``ovos-spec-tools`` guaranteed --
+#: that is the whole point of a V0 cell (confirmed live: CI collection of
+#: ``dev-skill/stable-core`` failed with ``ModuleNotFoundError:
+#: No module named 'ovos_spec_tools'`` when this was a top-level import,
+#: adversarial-review follow-up to C3). A bare ``except ImportError:
+#: <hard-coded literal>`` fallback would silently restore the exact
+#: tautology C3 removed, so the fix is NOT to resurrect that fallback --
+#: it's to defer the import to the functions that actually need a spec
+#: topic (only ever called from A=new scenarios, which V0-channel cells
+#: never reach), and raise loudly, naming the missing package, if one ever
+#: is reached without ovos-spec-tools installed.
+def _spec_message():
+    """Lazy accessor for ``ovos_spec_tools.messages.SpecMessage``. Raises a
+    clear ``RuntimeError`` (not a tautological hard-coded fallback) naming
+    the current cell and the missing package if called somewhere
+    ovos-spec-tools genuinely isn't installed -- see the module comment
+    above for why this must be lazy, not why it should be silent."""
+    try:
+        from ovos_spec_tools.messages import SpecMessage
+    except ImportError as e:
+        combo = os.environ.get("BACKCOMPAT_COMBO", "<unset>")
+        raise RuntimeError(
+            f"cell {combo!r} tried to resolve a spec-side (AUDIO-1) audio "
+            f"topic, which needs ovos_spec_tools.messages.SpecMessage, but "
+            f"ovos-spec-tools is not installed in this venv. V0-channel "
+            f"cells (stable/testing constraints) predate the spec surface "
+            f"entirely and must never reach an A=new scenario -- if this "
+            f"fired, either a V0 cell's test selection is wrong, or "
+            f"ovos-spec-tools is unexpectedly missing from a boundary "
+            f"cell's venv.") from e
+    return SpecMessage
+
+
+def audio_output_ended_spec_topic() -> str:
+    """The spec-side ``AUDIO_OUTPUT_ENDED`` topic (design §2.6). Lazy -- see
+    the module comment above ``_spec_message``."""
+    return _spec_message().AUDIO_OUTPUT_ENDED
+
+
+def audio_output_started_spec_topic() -> str:
+    """The spec-side ``AUDIO_OUTPUT_STARTED`` topic, needed by the C1
+    simulator-emission tests (test_mixed_version_matrix.py): they drive a
+    real ``SPEAK`` message onto the bus and assert the audio_process.py
+    subprocess itself -- not the test -- is what emits these, in order."""
+    return _spec_message().AUDIO_OUTPUT_STARTED
+
+
+def speak_spec_topic() -> str:
+    """The spec-side ``SPEAK`` topic (``SpecMessage.SPEAK``)."""
+    return _spec_message().SPEAK
+
+
+def mic_listen_spec_topic() -> str:
+    """The spec-side ``MIC_LISTEN`` topic (``SpecMessage.MIC_LISTEN``)."""
+    return _spec_message().MIC_LISTEN
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL_SCRIPT = os.path.join(HERE, "skill_process.py")
@@ -165,16 +237,28 @@ def adapt_consumes_intent4_keywords():
     return topic in src
 
 
-def audio_output_end_topic_probe():
-    """Placeholder for the A/audio axis's real-symbol probe (design §2.6).
+def audio_output_end_topic_probe(audio: Optional["AudioProcess"] = None):
+    """The A/audio axis's real-symbol probe (design §2.6), now wired to a
+    live ``audio_process.py`` subprocess instead of the T2.3 placeholder.
 
-    The audio simulator (``test/backcompat/audio_process.py``) lands in
-    T2.3, not here -- this file must not invent an audio venv. Returns
-    ``None`` unconditionally today; callers must treat ``None`` as "axis
-    not exercised yet", never as a pass or a fail, and any assertion built
-    on this must be conditional on that.
+    ``audio`` is an already-started :class:`AudioProcess` -- its own
+    ``VERSIONS`` line (read at startup, the same handshake
+    ``SkillProcess`` uses) is what this returns, i.e. the end-topic THAT
+    PROCESS actually subscribed to emit, not an assumption derived from
+    the cell id.
+
+    Returns ``None`` -- never a guess -- when no audio process is running
+    for this test (most scenarios don't spawn one; only the speak-wait
+    scenario does, design §2.4's pruning table). Callers must keep
+    treating ``None`` as "axis not exercised in this test", never as a
+    pass or a fail. This is why ``"A"`` stays in ``cells.UNPROBED_AXES``:
+    the probe is genuinely live only while the audio process is actually
+    running, not for every cell unconditionally (design instruction:
+    "probe live when the process runs, axis stays unprobed otherwise").
     """
-    return None
+    if audio is None:
+        return None
+    return audio.versions.get("audio_output_end_topic")
 
 
 def dispatch_topic_for(registered_name: str) -> str:
@@ -512,6 +596,92 @@ class SkillProcess:
             self.proc.kill()
 
 
+AUDIO_SCRIPT = os.path.join(HERE, "audio_process.py")
+#: How long to wait for the audio simulator to import ovos-bus-client (and,
+#: for 'new' vintage, ovos-spec-tools) and subscribe. Cheaper than the skill
+#: boot (no workshop resource loading), but generous for the same reason
+#: SKILL_BOOT_TIMEOUT is: a slow CI runner should never read as "the bridge
+#: is broken".
+AUDIO_BOOT_TIMEOUT = 60
+
+
+class AudioProcess:
+    """The audio-axis simulator (``audio_process.py``), as a third child
+    process on the same bus (design §2.6). Mirrors ``SkillProcess``'s
+    handshake shape (a ``VERSIONS`` line, then a ready marker) so the two
+    classes stay easy to read side by side.
+    """
+
+    def __init__(self, python: str, xdg: str, vintage: str):
+        if vintage not in ("old", "new"):
+            raise ValueError(f"vintage must be 'old' or 'new', got {vintage!r}")
+        env = dict(os.environ,
+                   XDG_CONFIG_HOME=xdg,
+                   BACKCOMPAT_AUDIO_VINTAGE=vintage,
+                   PYTHONUNBUFFERED="1")
+        if vintage == "old":
+            # The old-vintage simulator's own client must NOT locally
+            # deliver "speak" as the receive-side counterpart of an
+            # incoming spec-only SPEAK -- a real pre-#165 ovos-audio
+            # predates the NamespaceTranslator concept entirely and would
+            # never react to a spec-only producer. counterpart_topics()
+            # (ovos_spec_tools.messages.NamespaceTranslator) gates a
+            # RECEIVED spec topic's legacy counterpart on ``emit_legacy``,
+            # not ``modernize`` (modernize is the other direction: a
+            # received LEGACY topic's spec counterpart) -- confirmed by
+            # reading the implementation, not assumed; an earlier attempt
+            # at this fix disabled the wrong flag (modernize) and the
+            # cross-talk persisted. Disabling both here is deliberate:
+            # neither direction of the migration bridge should exist on a
+            # process simulating a pre-migration vintage. Leaving either
+            # flag at its default (True, since venv_audio only ever pins a
+            # CURRENT bus-client -- design §2.6, the vintage is behavioural,
+            # not a package pin) makes an A=old simulator react to A=new
+            # traffic too, which is both unrealistic and -- confirmed live
+            # -- silently masked a gutted ``_play_spec`` behind the
+            # still-alive old process's own (unmutated) ``_play`` reacting
+            # to the bridged counterpart whenever an ``audio_stack_old`` and
+            # an ``audio_stack`` fixture were alive on the same bus at once
+            # (adversarial-review mutation testing, C1 follow-up).
+            env["OVOS_BUS_MODERNIZE"] = "false"
+            env["OVOS_BUS_EMIT_LEGACY"] = "false"
+        self.vintage = vintage
+        self.lines = []
+        self.versions = {}
+        self.proc = subprocess.Popen(
+            [python, AUDIO_SCRIPT],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, env=env)
+        self._wait_ready()
+
+    def _wait_ready(self):
+        deadline = time.time() + AUDIO_BOOT_TIMEOUT
+        while time.time() < deadline:
+            line = self.proc.stdout.readline()
+            if not line:
+                if self.proc.poll() is not None:
+                    raise RuntimeError(
+                        "audio process died before registering:\n" + self.log)
+                continue
+            self.lines.append(line.rstrip())
+            if line.startswith("VERSIONS "):
+                self.versions = json.loads(line[len("VERSIONS "):])
+            if line.startswith("READY"):
+                return
+        raise RuntimeError(f"audio process never reported ready:\n{self.log}")
+
+    @property
+    def log(self) -> str:
+        return "\n".join(self.lines)
+
+    def stop(self):
+        self.proc.terminate()
+        try:
+            self.proc.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+
+
 class Capture:
     """Collect messages seen on a topic, with a wait-for-first helper.
 
@@ -520,18 +690,34 @@ class Capture:
     it has moved on, so counting everything that ever appeared on a topic would
     charge one test for another test's traffic — and a duplicate-firing check
     has to be able to tell those apart.
+
+    ``session_id`` is the same narrowing, but keyed off ``message.context``
+    instead of ``message.data``: needed for anything downstream of
+    ``Message.forward(topic)`` (both ``audio_process.py``'s ``_play_spec``
+    and the real ``PlaybackThread.begin_audio``/``end_audio`` use exactly
+    this), because ``forward()`` carries ``context`` (verified live) but
+    resets ``data`` to ``{}`` (also verified live, NOT the same as
+    ``context`` -- confirmed by reading the actual return value, not
+    assumed) -- a ``token`` placed in a triggering message's ``data`` never
+    reaches a topic reached only via ``forward()``.
     """
 
     def __init__(self, bus: MessageBusClient, topic: str,
-                 token: Optional[str] = None):
+                 token: Optional[str] = None,
+                 session_id: Optional[str] = None):
         self.bus = bus
         self.topic = topic
         self.token = token
+        self.session_id = session_id
         self.messages = []
         self._seen = Event()
         bus.on(topic, self._handle)
 
     def _matches(self, message: Message) -> bool:
+        if self.session_id is not None:
+            ctx_session = (message.context or {}).get("session") or {}
+            if ctx_session.get("session_id") != self.session_id:
+                return False
         if self.token is None:
             return True
         data = message.data or {}
