@@ -21,6 +21,38 @@ name: mixed-version back-compat matrix
 # releases. It is `strict=True`, so the day the fix ships this job goes RED
 # with an XPASS. That is the intended signal: drop the marker and the cell
 # becomes a permanent guard.
+#
+# T2.7 trigger split (design §3.2), implemented against the cells that exist
+# TODAY -- 4 boundary + 4 channel, not the aspirational full 16-boundary /
+# matcher-skew / transport-variant matrix, which needs new buildable cells
+# (independent M/A axis crossings) that T2.3+ / a later PR must add to
+# `build_venvs.sh` and `cells.py` first (out of this change's scope):
+#
+#   | trigger                 | cells run                    |
+#   |--------------------------|------------------------------|
+#   | pull_request              | 4 boundary cells             |
+#   | schedule 03:00 (nightly)  | 4 boundary cells (same set — |
+#   |                            | there is no larger boundary  |
+#   |                            | tier yet to grow into)       |
+#   | schedule 04:00 Sun (weekly)| 4 boundary + 4 channel       |
+#   | push: dev / workflow_dispatch | 4 boundary + 4 channel (unchanged from before this split) |
+#
+# Channel cells stay off pull_request and the nightly boundary-only run
+# deliberately (design §3.2): they fetch live distro constraints, so a
+# pin bump anywhere in the fleet should not turn an unrelated PR red.
+#
+# Scenario-level pruning (design §3.2's "scenarios 1, 4, and any scenario
+# whose file the PR touched" at PR-time) is NOT implemented here: today's
+# suite is one file (`test_mixed_version_matrix.py`) covering every
+# scenario, not yet split one-file-per-scenario, so there is nothing to
+# select by touched file. The existing per-cell axis pruning
+# (`conftest.py`'s `pytest_collection_modifyitems`) is what currently keeps
+# each cell's run down to its non-redundant scenarios; a scenario-by-file
+# split is future work for whoever lands the full 16-cell matrix.
+#
+# The cell list itself stays single-sourced in the `generate-matrix` job
+# below (one Python list), which every other trigger's cell selection reads
+# from, rather than being duplicated per tier.
 
 on:
   pull_request:
@@ -30,78 +62,141 @@ on:
   push:
     branches:
       - dev
+  schedule:
+    # nightly: all boundary cells (today, the same 4 as PR-time — see the
+    # table above; this tier exists so a future PR that adds more boundary
+    # cells only needs to teach generate-matrix about them, not re-plumb
+    # the trigger split).
+    - cron: '0 3 * * *'
+    # weekly: boundary + channel, the full cell set.
+    - cron: '0 4 * * 0'
   workflow_dispatch:
 
+# Read-only: this workflow makes no GitHub writes (no commit, no PR
+# comment, no issue -- see the summarize job's own docstring), so the
+# default token needs nothing beyond checking out the repo.
+permissions:
+  contents: read
+
 jobs:
-  matrix:
+  generate-matrix:
+    # Single source of the cell list (design §3.2's instruction: do not
+    # duplicate the matrix block per tier). Every cell definition lives in
+    # ALL_CELLS below, tagged with the tier(s) it belongs to; this job just
+    # filters that one list by `github.event_name` (and, for `schedule`,
+    # which cron fired) and hands the `matrix` job below a ready-made
+    # `strategy.matrix` object via `fromJson`.
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
+    outputs:
+      cells: ${{ steps.gen.outputs.cells }}
+      combos: ${{ steps.gen.outputs.combos }}
+    steps:
+      - name: Select this run's cells by trigger tier
+        id: gen
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CRON: ${{ github.event.schedule }}
+        run: |
+          python3 - <<'PYEOF'
+          import json
+          import os
+
           # `skill`/`core` are the venv-name arguments passed to
           # build_venvs.sh, and also which subdirectory of $RUNNER_TEMP/venvs
           # each one lands in: boundary venvs (venv_*_old/new) build directly
           # under $RUNNER_TEMP/venvs, channel venvs (venv_*_stable/testing)
           # build under $RUNNER_TEMP/venvs/channel — see build_venvs.sh's
           # header for why. `skill_dir`/`core_dir` spell out that path per
-          # cell so the later steps don't need to re-derive it.
-          # `audio` (venv_audio, T2.3/design §2.6) rides along on all four
-          # boundary cells: it is a single behavioural venv (pins only
+          # cell so the later steps don't need to re-derive it. `audio`
+          # (venv_audio, T2.3/design §2.6) rides along on all four boundary
+          # cells: it is a single behavioural venv (pins only
           # ovos-bus-client), not an old/new pair, so there is nothing to
-          # cross it against here beyond running it. The PR-time/nightly
-          # trigger split design §3.2 calls for is left to T2.7 -- this
-          # workflow still has one job set for both pull_request and push,
-          # so the audio-axis scenarios simply join the existing per-push
-          # matrix rather than getting their own trigger tier.
-          - combo: old-skill/old-core
-            skill: venv_skill_old
-            core: venv_core_old
-            audio: venv_audio
-            skill_dir: venvs
-            core_dir: venvs
-          - combo: old-skill/new-core
-            skill: venv_skill_old
-            core: venv_core_new
-            audio: venv_audio
-            skill_dir: venvs
-            core_dir: venvs
-          - combo: new-skill/old-core
-            skill: venv_skill_new
-            core: venv_core_old
-            audio: venv_audio
-            skill_dir: venvs
-            core_dir: venvs
-          - combo: new-skill/new-core
-            skill: venv_skill_new
-            core: venv_core_new
-            audio: venv_audio
-            skill_dir: venvs
-            core_dir: venvs
-          # channel cells: one side pinned by a live OVOS distro constraints
-          # file (fetched fresh in build_venvs.sh), the other at dev. These
-          # verify the fleet, not a boundary — see test_mixed_version_matrix.py.
-          - combo: stable-skill/dev-core
-            skill: venv_skill_stable
-            core: venv_core_new
-            skill_dir: venvs/channel
-            core_dir: venvs
-          - combo: dev-skill/stable-core
-            skill: venv_skill_new
-            core: venv_core_stable
-            skill_dir: venvs
-            core_dir: venvs/channel
-          - combo: testing-skill/dev-core
-            skill: venv_skill_testing
-            core: venv_core_new
-            skill_dir: venvs/channel
-            core_dir: venvs
-          - combo: dev-skill/testing-core
-            skill: venv_skill_new
-            core: venv_core_testing
-            skill_dir: venvs
-            core_dir: venvs/channel
+          # cross it against here beyond running it. `tier` is this file's
+          # own addition (not read by build_venvs.sh) -- it is what the
+          # filter below selects on.
+          ALL_CELLS = [
+              {"combo": "old-skill/old-core", "skill": "venv_skill_old",
+               "core": "venv_core_old", "audio": "venv_audio",
+               "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
+              {"combo": "old-skill/new-core", "skill": "venv_skill_old",
+               "core": "venv_core_new", "audio": "venv_audio",
+               "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
+              {"combo": "new-skill/old-core", "skill": "venv_skill_new",
+               "core": "venv_core_old", "audio": "venv_audio",
+               "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
+              {"combo": "new-skill/new-core", "skill": "venv_skill_new",
+               "core": "venv_core_new", "audio": "venv_audio",
+               "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
+              # channel cells: one side pinned by a live OVOS distro
+              # constraints file (fetched fresh in build_venvs.sh), the
+              # other at dev. These verify the fleet, not a boundary — see
+              # test_mixed_version_matrix.py.
+              {"combo": "stable-skill/dev-core", "skill": "venv_skill_stable",
+               "core": "venv_core_new", "skill_dir": "venvs/channel",
+               "core_dir": "venvs", "tier": "channel"},
+              {"combo": "dev-skill/stable-core", "skill": "venv_skill_new",
+               "core": "venv_core_stable", "skill_dir": "venvs",
+               "core_dir": "venvs/channel", "tier": "channel"},
+              {"combo": "testing-skill/dev-core", "skill": "venv_skill_testing",
+               "core": "venv_core_new", "skill_dir": "venvs/channel",
+               "core_dir": "venvs", "tier": "channel"},
+              {"combo": "dev-skill/testing-core", "skill": "venv_skill_new",
+               "core": "venv_core_testing", "skill_dir": "venvs",
+               "core_dir": "venvs/channel", "tier": "channel"},
+          ]
+
+          # ALL_CELLS' own "tier" values are a closed whitelist -- the
+          # filter below only ever selects cells whose tier is in the
+          # `tiers` set built per-trigger further down, and every one of
+          # those sets is drawn from {"boundary", "channel"}. A typo'd tier
+          # value on a new cell (e.g. "boundry") would match none of those
+          # sets on ANY trigger, so the cell silently vanishes from every
+          # run with exit 0 and zero signal -- an adversarial-review
+          # finding. Assert the whitelist here, at collection time, so a
+          # bad tier value fails the job loudly instead.
+          assert {c["tier"] for c in ALL_CELLS} <= {"boundary", "channel"}, (
+              f"unknown tier(s) in ALL_CELLS: "
+              f"{ {c['tier'] for c in ALL_CELLS} - {'boundary', 'channel'} }")
+
+          event = os.environ["EVENT_NAME"]
+          cron = os.environ.get("CRON", "")
+
+          if event == "pull_request":
+              tiers = {"boundary"}
+          elif event == "schedule" and cron == "0 3 * * *":
+              tiers = {"boundary"}
+          elif event == "schedule" and cron == "0 4 * * 0":
+              tiers = {"boundary", "channel"}
+          else:
+              # push:dev / workflow_dispatch / any other schedule: today's
+              # unchanged behaviour, the full cell set.
+              tiers = {"boundary", "channel"}
+
+          selected = [
+              {k: v for k, v in cell.items() if k != "tier"}
+              for cell in ALL_CELLS if cell["tier"] in tiers
+          ]
+          print(f"event={event!r} cron={cron!r} tiers={sorted(tiers)} "
+                f"-> {len(selected)} cell(s): "
+                f"{[c['combo'] for c in selected]}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write("cells=" + json.dumps({"include": selected}) + "\n")
+              # The combo names selected for THIS run, independent of
+              # whether the `matrix` job for each one ever produces a
+              # findings artifact -- the `summarize` job diffs this
+              # against what it actually downloaded, so a cell whose venv
+              # build fails before pytest runs (no artifact at all, not
+              # even an exitstatus) doesn't just vanish silently.
+              fh.write("combos=" + json.dumps([c["combo"] for c in selected]) + "\n")
+          PYEOF
+
+  matrix:
+    needs: generate-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.cells) }}
     name: ${{ matrix.combo }}
     steps:
       - uses: actions/checkout@v4
@@ -170,3 +265,225 @@ jobs:
           "$RUNNER_TEMP/${{ matrix.core_dir }}/${{ matrix.core }}/bin/pytest" \
             test/backcompat/ -v --tb=short -rxX \
             --timeout=300 --timeout-method=thread
+
+      # test/backcompat/conftest.py's pytest_terminal_summary writes
+      # backcompat-findings-<cell>.json into the job's working directory
+      # (design §4.2) whenever BACKCOMPAT_COMBO was set -- i.e. every run of
+      # this step, `if: always()` so a job that failed (a genuine
+      # regression, not an expected xfail) still uploads what it saw.
+      - name: Upload the findings feed
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backcompat-findings-${{ strategy.job-index }}
+          path: backcompat-findings-*.json
+          if-no-files-found: warn
+
+  summarize:
+    needs: [generate-matrix, matrix]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # One artifact per matrix job (named backcompat-findings-<job-index>,
+      # see the upload step above); merge-multiple flattens them all into
+      # one directory rather than one subdirectory per artifact, since this
+      # job only cares about the union of every *.json file, not which job
+      # produced which.
+      - name: Download every cell's findings
+        uses: actions/download-artifact@v4
+        with:
+          pattern: backcompat-findings-*
+          path: findings
+          merge-multiple: true
+
+      # Purely informational (design §4.2): reads the downloaded JSON,
+      # groups by BOUNDARY (not cell -- a boundary is the unit of work),
+      # writes FINDINGS/SPRINT.md, echoes it into the step summary, and
+      # makes NO GitHub writes (no commit, no PR comment, no issue). Inline
+      # per design §4.2's own preference, to keep this logic out of
+      # test/backcompat/ (which is scoped to test-time concerns, not CI
+      # reporting).
+      - name: Render FINDINGS/SPRINT.md
+        env:
+          SUMMARY_DATE: ${{ github.event.head_commit.timestamp }}
+          EXPECTED_COMBOS: ${{ needs.generate-matrix.outputs.combos }}
+        run: |
+          # Fall back to `date -u` if SUMMARY_DATE above resolved to
+          # nothing (e.g. a workflow_dispatch/schedule run has no
+          # head_commit) -- a real timestamp is always available as the
+          # guaranteed fallback.
+          export SUMMARY_DATE="${SUMMARY_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+          python3 - <<'PYEOF'
+          import glob
+          import json
+          import os
+          from collections import defaultdict
+
+          # Each findings file is now an object, {"cell", "combo",
+          # "exitstatus", "records"} (see test/backcompat/findings.py's
+          # write_findings) -- exitstatus is what lets a cell that died at
+          # collection (e.g. an import-time assert) be told apart from a
+          # clean run, since both used to write the same bare `[]`.
+          # Old-shape files (a bare list) are still accepted -- treated as
+          # records with unknown exitstatus -- so a mixed-vintage findings
+          # download never crashes this step.
+          #
+          # `cells_red` (exitstatus == 1, real test failures -- the cell
+          # DID complete, pytest just found a genuine regression) and
+          # `did_not_complete` (exitstatus is None/unknown or >= 2, i.e.
+          # the run itself never produced a normal pass/fail result --
+          # collection errors, crashes, timeouts) are reported as two
+          # separate sections: a red cell is signal a maintainer should
+          # act on immediately, a cell that never finished is a
+          # "the matrix ran blind here" gap -- conflating the two under one
+          # heading was itself a reviewed defect (both used `exitstatus not
+          # in (0, None)`, which put ordinary test failures in the same
+          # bucket as collection deaths).
+          records = []
+          cells_red = []
+          did_not_complete = []
+          found_combos = set()
+          for path in sorted(glob.glob("findings/backcompat-findings-*.json")):
+              with open(path) as f:
+                  try:
+                      payload = json.load(f)
+                  except json.JSONDecodeError as e:
+                      print(f"::warning::{path}: not valid JSON ({e}), skipping")
+                      continue
+              if isinstance(payload, list):
+                  # old shape: bare records list, exitstatus/combo unknown.
+                  records.extend(payload)
+                  continue
+              cell = payload.get("cell") or os.path.basename(path)
+              combo = payload.get("combo")
+              if combo:
+                  found_combos.add(combo)
+              exitstatus = payload.get("exitstatus")
+              records.extend(payload.get("records") or [])
+              if exitstatus == 1:
+                  cells_red.append((cell, exitstatus, path))
+              elif exitstatus is None or (isinstance(exitstatus, int) and exitstatus >= 2):
+                  did_not_complete.append((cell, exitstatus, path))
+
+          # FIX (adversarial re-review): a cell whose venv build fails
+          # before pytest ever runs produces NO findings file at all --
+          # `download-artifact` with `pattern:` succeeds on zero matches,
+          # so that cell was previously invisible everywhere, including
+          # this "did not complete" accounting. `generate-matrix`'s own
+          # `combos` output (the combo names it selected for THIS run,
+          # independent of whether the matrix job for each one ever
+          # produced an artifact) is what lets this step notice a combo
+          # nothing was ever uploaded for.
+          expected_combos = set(json.loads(os.environ.get("EXPECTED_COMBOS", "[]")))
+          for combo in sorted(expected_combos - found_combos):
+              did_not_complete.append((combo, "no artifact", "<none uploaded>"))
+
+          xpass = [r for r in records if r.get("outcome") == "xpass"]
+          xfail = [r for r in records if r.get("outcome") == "xfail"]
+
+          by_boundary = defaultdict(lambda: {
+              "axes": set(), "cells": set(), "scenarios": set(),
+              "blocked_on": set(), "owner": set(),
+          })
+          for r in xfail:
+              key = r.get("boundary") or "<unlabeled boundary>"
+              entry = by_boundary[key]
+              entry["axes"].update(r.get("axes") or [])
+              entry["cells"].add(r.get("cell") or "<unknown cell>")
+              entry["scenarios"].add(r.get("scenario") or "<unknown scenario>")
+              if r.get("blocked_on"):
+                  entry["blocked_on"].add(r["blocked_on"])
+              if r.get("owner"):
+                  entry["owner"].add(r["owner"])
+
+          run_url = (
+              f"{os.environ.get('GITHUB_SERVER_URL', '')}/"
+              f"{os.environ.get('GITHUB_REPOSITORY', '')}/actions/runs/"
+              f"{os.environ.get('GITHUB_RUN_ID', '')}"
+          )
+          date = os.environ.get("SUMMARY_DATE", "")
+
+          lines = []
+          lines.append(f"# back-compat matrix — sprint input (generated {date}, run {run_url})")
+          lines.append("")
+          lines.append("## Cells red")
+          lines.append("")
+          if cells_red:
+              lines.append("| cell | exitstatus | findings file |")
+              lines.append("|---|---|---|")
+              for cell, exitstatus, path in sorted(cells_red, key=lambda t: (t[0], str(t[1]))):
+                  lines.append(f"| {cell} | {exitstatus} | {path} |")
+          else:
+              lines.append("None this run -- no cell exited with a genuine test failure.")
+          lines.append("")
+          lines.append("## Cells that did not complete")
+          lines.append("")
+          if did_not_complete:
+              lines.append("| cell | exitstatus | findings file |")
+              lines.append("|---|---|---|")
+              for cell, exitstatus, path in sorted(did_not_complete, key=lambda t: (t[0], str(t[1]))):
+                  lines.append(f"| {cell} | {exitstatus} | {path} |")
+          else:
+              lines.append("None this run -- every selected cell produced a normal pass/fail result.")
+          lines.append("")
+          lines.append("## XPASS — a fix shipped, drop the marker")
+          lines.append("")
+          if xpass:
+              lines.append("| cell | scenario | boundary | what to do |")
+              lines.append("|---|---|---|---|")
+              for r in xpass:
+                  lines.append(
+                      f"| {r.get('cell', '')} | {r.get('scenario', '')} | "
+                      f"{(r.get('boundary') or '').replace(chr(10), ' ')} | "
+                      "drop the xfail marker |")
+          else:
+              lines.append("None this run.")
+          lines.append("")
+          lines.append("## Red boundaries")
+          lines.append("")
+          if by_boundary:
+              lines.append("| boundary | axes | cells red | scenarios | blocked on | owner |")
+              lines.append("|---|---|---|---|---|---|")
+              def _scrub(s):
+                  return s.replace("|", "\\|").replace(chr(10), " ")
+
+              for boundary, entry in sorted(by_boundary.items()):
+                  scenarios = "; ".join(sorted(entry["scenarios"]))
+                  blocked_on = "; ".join(sorted(entry["blocked_on"])) or "—"
+                  owner = "; ".join(sorted(entry["owner"])) or "—"
+                  lines.append(
+                      f"| {_scrub(boundary)} | {','.join(sorted(entry['axes']))} | "
+                      f"{len(entry['cells'])} | "
+                      f"{_scrub(scenarios)} | "
+                      f"{_scrub(blocked_on)} | "
+                      f"{_scrub(owner)} |")
+          else:
+              lines.append("No red boundaries this run.")
+
+          out = "\n".join(lines) + "\n"
+          os.makedirs("FINDINGS", exist_ok=True)
+          with open("FINDINGS/SPRINT.md", "w") as f:
+              f.write(out)
+
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_path:
+              with open(summary_path, "a") as f:
+                  f.write(out)
+
+          print(out)
+          PYEOF
+
+      - name: Upload FINDINGS/SPRINT.md
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backcompat-sprint-findings
+          path: FINDINGS/SPRINT.md
+          if-no-files-found: warn
