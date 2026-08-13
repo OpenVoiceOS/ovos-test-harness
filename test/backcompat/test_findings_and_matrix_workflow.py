@@ -378,20 +378,24 @@ def test_generate_matrix_script_runs_clean_on_real_cells(tmp_path):
 
 
 def test_generate_matrix_rejects_unknown_tier(tmp_path):
-    """The exact defect: a typo'd ``tier`` value (e.g. ``"boundry"``
-    instead of ``"boundary"``) on a cell matches none of the trigger-tier
-    sets on ANY trigger, so the cell silently vanishes from every run with
-    exit 0 and zero signal. Mutates the real extracted script's first
-    cell's tier to an unknown value and asserts the job now fails loudly
-    instead."""
+    """The exact defect: a typo'd tier value (e.g. ``"boundry"`` instead of
+    ``"boundary"``) inside a cell's ``tiers`` list matches none of the
+    trigger-tier sets on ANY trigger, so the cell silently vanishes from
+    every run with exit 0 and zero signal. Mutates the real extracted
+    script's first cell's tiers list to include an unknown value and
+    asserts the job now fails loudly instead. (T2.7: cells now carry a
+    `tiers` LIST, not a single `tier` string, so a cell can be in both
+    `pr-fast` and `boundary` at once -- this test targets the list shape.)
+    """
     script = _step_script("generate-matrix", "Select this run's cells by trigger tier")
 
-    assert script.count('"tier": "boundary"') >= 1, (
+    assert script.count('"tiers": ["pr-fast", "boundary"]') >= 1, (
         "generate-matrix's ALL_CELLS literal in backcompat_matrix.yml must "
         "have changed shape; update this test's replace() target")
-    # Mutate just the FIRST cell's tier to an unrecognized value -- proves
-    # a single typo'd cell is enough to trip the new assert.
-    mutated = script.replace('"tier": "boundary"', '"tier": "boundry"', 1)
+    # Mutate just the FIRST cell's tiers to include an unrecognized value --
+    # proves a single typo'd tier on one cell is enough to trip the assert.
+    mutated = script.replace(
+        '"tiers": ["pr-fast", "boundary"]', '"tiers": ["pr-fast", "boundry"]', 1)
     assert mutated != script
 
     out_path = tmp_path / "github_output"
@@ -408,3 +412,113 @@ def test_generate_matrix_rejects_unknown_tier(tmp_path):
         "an unknown tier value must fail the job, not exit 0 silently")
     assert "unknown tier" in result.stderr.lower() or \
         "unknown tier" in result.stdout.lower()
+
+
+# ---------------------------------------------------------------------
+# T2.7: the CI trigger split. `pull_request` now runs a smaller `pr-fast`
+# lane (6 cells) rather than the full 10-cell `boundary` tier; nightly
+# still runs all 10 boundary cells; weekly/push/dispatch run everything
+# (14). Each test below runs the REAL extracted generate-matrix script
+# with a specific EVENT_NAME/CRON pair and asserts the exact selected
+# combo set -- mutation-proof: dropping a cell from a tier, or a typo in
+# the tier name, drops (or adds) an entry from `combos` and fails these.
+# ---------------------------------------------------------------------
+
+_PR_FAST_COMBOS = {
+    "old-skill/old-core",
+    "old-skill/new-core",
+    "new-skill/old-core",
+    "new-skill/new-core",
+    "old-skill/old-core-new-matchers",
+    "new-skill/new-core-old-matchers",
+}
+
+_BOUNDARY_COMBOS = _PR_FAST_COMBOS | {
+    "old-skill/new-core-old-matchers",
+    "new-skill/old-core-new-matchers",
+    "old-skill/new-core-padatious-old-adapt-new",
+    "new-skill/new-core-padatious-old-adapt-new",
+}
+
+_CHANNEL_COMBOS = {
+    "stable-skill/dev-core",
+    "dev-skill/stable-core",
+    "testing-skill/dev-core",
+    "dev-skill/testing-core",
+}
+
+_ALL_COMBOS = _BOUNDARY_COMBOS | _CHANNEL_COMBOS
+
+
+def _run_generate_matrix(script, event_name, cron, tmp_path):
+    out_path = tmp_path / "github_output"
+    out_path.write_text("")
+    env = dict(os.environ)
+    env["EVENT_NAME"] = event_name
+    env["CRON"] = cron
+    env["GITHUB_OUTPUT"] = str(out_path)
+
+    result = subprocess.run(
+        [sys.executable, "-c", script], env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    output = out_path.read_text()
+    combos_line = next(ln for ln in output.splitlines() if ln.startswith("combos="))
+    combos = json.loads(combos_line[len("combos="):])
+    return set(combos)
+
+
+def test_pull_request_trigger_selects_the_six_cell_pr_fast_lane(tmp_path):
+    """`pull_request` must select exactly the 6-cell fast lane: the 4
+    original S/C aliases plus the 2 highest-value matcher cells
+    (old-skill/old-core-new-matchers, new-skill/new-core-old-matchers) --
+    NOT the full 10-cell boundary tier, and NOT any channel cell."""
+    script = _step_script("generate-matrix", "Select this run's cells by trigger tier")
+    combos = _run_generate_matrix(script, "pull_request", "", tmp_path)
+    assert combos == _PR_FAST_COMBOS
+    assert len(combos) == 6
+    # The 4 matcher/skew cells the fast lane deliberately skips must be
+    # absent -- a dropped exclusion (i.e. the fast lane silently growing
+    # back to the full boundary tier) would pass a subset check but fail
+    # this exact-equality one.
+    assert combos.isdisjoint(_BOUNDARY_COMBOS - _PR_FAST_COMBOS)
+    assert combos.isdisjoint(_CHANNEL_COMBOS)
+
+
+def test_nightly_cron_selects_all_ten_boundary_cells(tmp_path):
+    """The `0 3 * * *` (nightly) schedule must select all 10 boundary
+    cells -- the 6 PR-fast cells PLUS the 4 matcher/skew cells the PR
+    lane skips -- and no channel cell."""
+    script = _step_script("generate-matrix", "Select this run's cells by trigger tier")
+    combos = _run_generate_matrix(script, "schedule", "0 3 * * *", tmp_path)
+    assert combos == _BOUNDARY_COMBOS
+    assert len(combos) == 10
+    assert combos.isdisjoint(_CHANNEL_COMBOS)
+
+
+def test_weekly_cron_selects_everything_including_channel(tmp_path):
+    """The `0 4 * * 0` (weekly) schedule must select all 14 cells: 10
+    boundary + 4 channel."""
+    script = _step_script("generate-matrix", "Select this run's cells by trigger tier")
+    combos = _run_generate_matrix(script, "schedule", "0 4 * * 0", tmp_path)
+    assert combos == _ALL_COMBOS
+    assert len(combos) == 14
+
+
+def test_workflow_dispatch_selects_everything(tmp_path):
+    """`workflow_dispatch` (manual run) must also select all 14 cells --
+    unchanged from before the T2.7 split, and NOT the pr-fast subset."""
+    script = _step_script("generate-matrix", "Select this run's cells by trigger tier")
+    combos = _run_generate_matrix(script, "workflow_dispatch", "", tmp_path)
+    assert combos == _ALL_COMBOS
+    assert len(combos) == 14
+
+
+def test_push_dev_selects_everything(tmp_path):
+    """`push` (to dev) must also select all 14 cells, matching
+    workflow_dispatch and the weekly cron -- unchanged from before this
+    split."""
+    script = _step_script("generate-matrix", "Select this run's cells by trigger tier")
+    combos = _run_generate_matrix(script, "push", "", tmp_path)
+    assert combos == _ALL_COMBOS
+    assert len(combos) == 14
