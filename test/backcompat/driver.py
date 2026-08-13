@@ -132,6 +132,51 @@ def emitter_side_has_reemit_hook() -> bool:
     return hasattr(MessageBusClient, "_send_legacy_intent_twin")
 
 
+def adapt_consumes_intent4_keywords():
+    """Whether the installed ovos-adapt-parser's keyword engine subscribes
+    to the INTENT-4 keyword registration topic (design §2.5's M/adapt
+    probe): the real symbol is ``SpecMessage.INTENT_REGISTER_KEYWORD``
+    handling inside the installed ``ovos_adapt``, not a version string.
+
+    Returns ``None`` -- not ``True``/``False`` -- when ``ovos-adapt-parser``
+    or ``ovos-spec-tools`` are not importable in this venv. None of the
+    venvs ``build_venvs.sh`` builds today pin ``ovos-adapt-parser`` (only
+    ``ovos-padatious`` -- see its header comment); standing up a real
+    M/adapt axis cell is out of this file's scope. This probe exists so
+    ``test_pins_are_the_intended_vintage`` can record what it sees today
+    without inventing an axis that isn't reachable yet.
+    """
+    try:
+        import ovos_adapt.opm as adapt_opm
+    except ImportError:
+        return None
+    try:
+        from ovos_spec_tools.messages import SpecMessage
+    except ImportError:
+        return None
+    topic = getattr(SpecMessage, "INTENT_REGISTER_KEYWORD", None)
+    if topic is None:
+        return None
+    import inspect
+    try:
+        src = inspect.getsource(adapt_opm)
+    except (OSError, TypeError):
+        return None
+    return topic in src
+
+
+def audio_output_end_topic_probe():
+    """Placeholder for the A/audio axis's real-symbol probe (design §2.6).
+
+    The audio simulator (``test/backcompat/audio_process.py``) lands in
+    T2.3, not here -- this file must not invent an audio venv. Returns
+    ``None`` unconditionally today; callers must treat ``None`` as "axis
+    not exercised yet", never as a pass or a fail, and any assertion built
+    on this must be conditional on that.
+    """
+    return None
+
+
 def dispatch_topic_for(registered_name: str) -> str:
     """The topic this core stack would dispatch for ``registered_name``."""
     if not core_canonicalizes():

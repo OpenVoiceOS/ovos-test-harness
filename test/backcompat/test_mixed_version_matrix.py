@@ -109,6 +109,8 @@ import pytest
 
 from ovos_bus_client.message import Message
 
+from .cells import (BOUNDARY_ALIASES, CHANNEL_CELLS, OTHER, REFERENCE,
+                    axis_values, resolve_cell)
 from .driver import (ACTIVATED_TOPIC, AUDIO_OUTPUT_END_TOPIC,
                      CANONICAL_TOPIC, CONVERSE_FIRED_TOPIC,
                      CONVERSE_MATCH_TOPIC, CONVERSE_REQUEST_TOPIC,
@@ -117,7 +119,9 @@ from .driver import (ACTIVATED_TOPIC, AUDIO_OUTPUT_END_TOPIC,
                      GET_RESPONSE_DONE_TOPIC, GET_RESPONSE_TIMEOUT,
                      GET_RESPONSE_TRIGGER_TOPIC, LEGACY_TOPIC, SKILL_ID,
                      SPEAK_WAIT_DONE_TOPIC, SPEAK_WAIT_TRIGGER_TOPIC,
-                     BusServer, Capture, SkillProcess, converse_match,
+                     BusServer, Capture, SkillProcess,
+                     adapt_consumes_intent4_keywords,
+                     audio_output_end_topic_probe, converse_match,
                      core_canonicalizes, core_has_pipeline_match_api,
                      dispatch, dispatch_match, emitter_side_has_reemit_hook,
                      dispatch_topic_for, make_converse_service,
@@ -158,6 +162,43 @@ COMBOS = {
     "testing-skill/dev-core": (True, True, False),
     "dev-skill/testing-core": (False, False, True),
 }
+
+#: T2.2: the four boundary combo names above are now aliases resolving to a
+#: 4-tuple cell (``cells.BOUNDARY_ALIASES``, design §2.5); this asserts the
+#: alias table and this dict never drift apart, since ``BOUNDARY_ALIASES``
+#: is what ``BACKCOMPAT_COMBO``, the axis-pruning conftest hook, and the CI
+#: matrix all resolve through. Checked at import time so a typo in either
+#: table is a collection-time failure, not a silent mismatch.
+assert set(BOUNDARY_ALIASES) == {c for c in COMBOS if c not in CHANNEL_CELLS}
+#: Channel cells stay a separate tier (design §2.5) -- not resolved to a
+#: 4-tuple cell, not axis-pruned. This asserts every channel combo COMBOS
+#: knows about is one ``cells.py`` also recognizes.
+assert CHANNEL_CELLS == {c for c in COMBOS if c in CHANNEL_CELLS}
+
+#: Adversarial-review finding: the two asserts above only ever compared
+#: KEY sets, so a value drift -- e.g. flipping new-skill/old-core's M axis
+#: to "new" in cells.py -- would pass silently. COMBOS' own columns ARE
+#: the S and M axes verified against real symbols: column 0
+#: (``want_suffixed_only``) is exactly what ``skill.bound_topics`` probes
+#: for the S axis, and column 1 (``want_canon``) is exactly what
+#: ``core_canonicalizes()`` probes for the M axis (that probe lives in the
+#: padatious pipeline plugin, the M-axis package -- see
+#: ``core_canonicalizes``'s own docstring). So the S/M vintage a cell
+#: claims must match those columns, checked here per-alias, at import
+#: time.
+for _combo, _cell in BOUNDARY_ALIASES.items():
+    _want_suffixed_only, _want_canon, _ = COMBOS[_combo]
+    _values = axis_values(_cell)
+    _want_S = OTHER if _want_suffixed_only else REFERENCE
+    assert _values["S"] == _want_S, (
+        f"{_combo!r}: COMBOS says want_suffixed_only={_want_suffixed_only} "
+        f"(S={_want_S!r}), but cells.py's alias {_cell!r} pins S="
+        f"{_values['S']!r}")
+    _want_M = REFERENCE if _want_canon else OTHER
+    assert _values["M"] == _want_M, (
+        f"{_combo!r}: COMBOS says want_canon={_want_canon} (M={_want_M!r})"
+        f", but cells.py's alias {_cell!r} pins M={_values['M']!r}")
+del _combo, _cell, _want_suffixed_only, _want_canon, _values, _want_S, _want_M
 
 #: Combos expected to fail today because the skill side is suffixed-only and
 #: the core side canonicalizes — the same gap ``old-skill/new-core`` marks,
@@ -271,6 +312,29 @@ def test_pins_are_the_intended_vintage(stack):
         f"{COMBO}: expected the core venv to canonicalize at registration="
         f"{want_canon}, got {core_canonicalizes()}")
 
+    # M/adapt axis (design §2.5): recorded, not asserted. No venv this
+    # suite builds pins ovos-adapt-parser (only ovos-padatious -- see
+    # build_venvs.sh), so there is nothing to assert a boundary against
+    # yet; this just proves the real-symbol probe runs cleanly and shows
+    # what it sees, same discipline as the padatious/workshop probes above.
+    adapt_probe = adapt_consumes_intent4_keywords()
+    print(f"{COMBO}: M/adapt probe "
+          f"(INTENT_REGISTER_KEYWORD consumer)={adapt_probe} (None means "
+          f"ovos-adapt-parser or ovos-spec-tools' SpecMessage."
+          f"INTENT_REGISTER_KEYWORD is not present in this venv)")
+
+    # A/audio axis (design §2.6): the simulator lands in T2.3, not here.
+    # The probe is wired but always returns None today; asserting that
+    # keeps this file honest about not having invented the axis, and turns
+    # into a loud collection-time signal if someone half-wires it without
+    # also wiring a real assertion.
+    audio_probe = audio_output_end_topic_probe()
+    assert audio_probe is None, (
+        f"{COMBO}: audio_output_end_topic_probe() returned {audio_probe!r} "
+        f"instead of None -- the A axis is not backed by a real audio "
+        f"simulator in this file yet (T2.3); either this was wired early "
+        f"(add a real assertion here too) or the probe changed by mistake")
+
 
 #: Channel cells pin the whole stack from a distro constraints file, which
 #: caps ovos-bus-client too — unlike the boundary cells, where only
@@ -349,7 +413,40 @@ def test_core_dispatches_the_topic_this_combo_expects(stack):
         seen.close()
 
 
+def test_the_handler_binding_matches_the_probed_dispatch_topic(stack):
+    """Derived from the real probes, not the ``COMBOS`` table's static
+    "fires" column: whether the topic this cell's core will actually
+    dispatch (``dispatch_topic_for``, itself probe-derived) is one the
+    skill actually bound (``skill.bound_topics``, probed from the live
+    subprocess).
+
+    This is the T2.2 item 5 truth-fix: the ``new-skill/old-core`` COMBOS
+    entry says ``fires=True`` today, correct as of #500 being unmerged
+    (ovos-workshop still binds both spellings). The day
+    ovos-workshop#500 lands and removes the suffixed binding, this
+    assertion flips to catching that automatically -- ``dispatch_topic_for``
+    for an old core still returns the suffixed name (padatious hasn't
+    changed), ``skill.bound_topics`` on a post-#500 skill no longer
+    contains it, so ``reaches`` goes False here without anyone touching
+    this test. If that happens, the fix is to update the stale COMBOS
+    entry (and IS_BROKEN_CELL / the xfail reason above it) to match --
+    this test failing IS the signal to do that, not a bug to silence.
+    """
+    _server, _bus, skill, regs = stack
+    topic = dispatch_topic_for(_registered_name(regs))
+    reaches = topic in skill.bound_topics
+    _want_suffixed_only, _want_canon, want_fires = COMBOS[COMBO]
+    assert reaches == want_fires, (
+        f"{COMBO}: COMBOS says fires={want_fires}, but the probe-derived "
+        f"check says {reaches} (dispatch topic {topic!r}, skill bound "
+        f"{skill.bound_topics}). If ovos-workshop#500 landed (removing the "
+        f"suffixed binding) or the padatious fold changed, the COMBOS "
+        f"entry for {COMBO!r} is stale and must be updated to match -- see "
+        f"this test's docstring, the #500 hazard it names.")
+
+
 @pytest.mark.xfail(IS_BROKEN_CELL, strict=True, reason=_XFAIL_REASON)
+@pytest.mark.axes("S", "C", "M")
 def test_the_skill_handler_runs(stack):
     """The contract: a canonical dispatch must reach the skill's handler.
 
@@ -388,6 +485,7 @@ def test_the_skill_handler_runs(stack):
 
 
 @pytest.mark.xfail(IS_BROKEN_CELL, strict=True, reason=_XFAIL_REASON)
+@pytest.mark.axes("S", "C", "M")
 def test_the_handler_runs_exactly_once(stack):
     """A skill bound to both spellings must not answer twice.
 
@@ -464,6 +562,7 @@ def _require_converse_api(skill) -> None:
             f"call surface these tests exercise")
 
 
+@pytest.mark.axes("S", "C")
 def test_converse_fires_before_a_followup_utterance_matches_an_intent(
         stack, converse_service):
     """An activated skill's converse() must be offered a follow-up utterance
@@ -546,6 +645,7 @@ def test_converse_fires_before_a_followup_utterance_matches_an_intent(
         responded.close()
 
 
+@pytest.mark.axes("S", "C")
 def test_get_response_receives_the_answer_utterance(stack, converse_service):
     """A handler blocked in ``get_response()`` must unblock on the answer,
     delivered through the real core-side response-mode match.
@@ -618,6 +718,7 @@ def test_get_response_receives_the_answer_utterance(stack, converse_service):
         done.close()
 
 
+@pytest.mark.axes("S", "C", "A")
 def test_get_response_completes_without_hanging_when_unanswered(stack):
     """The no-answer path must complete, not hang, within a generous bound.
 
@@ -688,6 +789,7 @@ def test_get_response_completes_without_hanging_when_unanswered(stack):
         "issue/PR. Strict so this flips to a loud XPASS failure the day "
         "that gap is closed upstream, which is the signal to remove this "
         "marker."))
+@pytest.mark.axes("S", "A")
 def test_speak_wait_unblocks_on_audio_output_end(stack):
     """``speak(..., wait=True)`` must unblock once audio output ends.
 
