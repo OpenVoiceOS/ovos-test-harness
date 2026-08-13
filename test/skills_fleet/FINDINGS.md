@@ -230,6 +230,99 @@ is a separate PR against `ovos-skill-alerts`
 (OpenVoiceOS/ovos-skill-alerts#145); this row's `xfail` entry stays until
 that PR merges.
 
+### Were the conflicts state-carryover artifacts? No — investigated and refuted
+
+Three of the conflict rows did not reproduce in clean two-skill MiniCrofts,
+which raised the obvious suspicion: the fleet suite drives ~582 rows through
+ONE long-lived MiniCroft, so a row could be inheriting session state, adapt
+context, converse activation or skill-activation state from the rows before
+it. That hypothesis was tested directly and **does not hold** for the rows it
+was raised about.
+
+Method: one MiniCroft booted with a 7-skill subset (`alerts`,
+`application-launcher`, `date-time`, `diagnostics`, `dictation`, `naptime`,
+`parrot` — every skill named as either victim or thief in the conflict
+table), driven with this suite's own `_capture`/`_claimant`, replaying each
+suspect row both standalone and after the rows that could plausibly have
+poisoned it.
+
+| row | standalone | after a preceding activation | verdict |
+|---|---|---|---|
+| `terminate something` | `dictation` claims it | `dictation` claims it (after `activate dictation`; and again on repeat) | real conflict, sequence-independent |
+| `begin downtime` | `naptime` claims it | `naptime` claims it (after `activate sleep mode`, after `engage parrot mode`) | real fix, sequence-independent |
+| `is there a gpu in your system` | `diagnostics` claims it | `diagnostics` claims it | not reproduced at 7 skills — see below |
+
+Each row was replayed three times across two boots with identical results, so
+these are stable, not flaky.
+
+**What actually explains "did not reproduce in a two-skill MiniCroft":
+population size, not carryover.** `terminate something` is the clean proof in
+the opposite direction — it reproduces perfectly at 7 skills, with no
+preceding rows at all, because `dictation` is in that population.
+`ovos-skill-dictation`'s `stop_dictation.intent` lists
+`(stop|end|cancel|terminate|finish|complete) [taking] dictation`, so
+"terminate" is a literal trained padatious token for dictation, and it
+outscores `application-launcher`'s open-slot
+`(close|exit|kill|quit|terminate) {application}`. That is exactly why the
+sibling rows `close something` / `exit something` / `kill something` /
+`quit something` all route correctly and only `terminate something` is
+stolen: those four verbs appear in no dictation sample. A two-skill
+MiniCroft that omits `dictation` cannot see this, and that is a property of
+the population, not of state left behind by an earlier row.
+
+The `gpu` row is the honest loose end: `date-time` is present in the 7-skill
+population and does **not** steal the row there, while it did at 31 skills.
+So its non-reproduction is neither confirmed as a population-scale effect nor
+as carryover — it is unresolved, and settling it needs the full 31-skill
+population, not a subset.
+
+### Row isolation in the harness (fixed here)
+
+The carryover hypothesis was refuted for the rows above, but probing it
+surfaced two real isolation defects in the driver. Both are fixed in
+`test_fleet_routing.py`, with unit-level regression tests in
+`test_fleet_harness_isolation.py` that need no fleet boot. All four
+properties they assert fail against the pre-fix driver.
+
+1. **Rows with the same utterance text shared a session.** The session id was
+   `f"fleet-{abs(hash(utterance_text))}"`, so every row with identical text
+   got an identical session id — and the corpus does repeat utterances
+   ("remind me to go to work weekday mornings at 8" appears twice, and is
+   itself one of the counted conflicts). The second occurrence therefore ran
+   against the first's `Session.active_skills`, adapt `intent_context`, and
+   any skill-side per-session bookkeeping keyed on `session_id` (e.g.
+   `DictationSkill.dictation_sessions`). Now a monotonic counter, so every
+   capture is its own session. Replaying `activate dictation` three times
+   into the same session was measured and did **not** flip that row's
+   claimant — the mechanism is real but was not observed changing a verdict.
+
+2. **Claims were not attributed by session.** `_claimant` read any
+   `<skill_id>:<intent_name>` topic in the capture window as a claim,
+   regardless of which session carried it. Foreign-session traffic really
+   does land in these windows: `ovos-skill-naptime`'s `handle_go_to_sleep`
+   emits a bare `Message("recognizer_loop:sleep")` (no session context), and
+   the resulting 16-message enclosure/GUI/`add_context`/`configuration.patch`
+   chain arrives inside the row's window tagged `default`, not the row's
+   session. The same blind spot let a foreign `ovos.intent.unmatched` mask a
+   genuine own-session claim, and let a foreign terminal event close the
+   capture window early. `_claimant` and the EOF barrier are now scoped to
+   the row's own session.
+
+   This does not weaken wrong-skill detection. Bus captures confirm the
+   dispatch topic the check depends on
+   (`ovos-skill-naptime.openvoiceos:naptime`,
+   `ovos-skill-dictation.openvoiceos:stop_dictation`) is carried under the
+   row's own session, so a genuine thief is still caught — a skill that
+   steals THIS row's utterance is dispatched on THIS row's session by
+   construction. Filtering is one-sided for safety: a message is dropped only
+   when it positively names some other session; messages carrying no session
+   are kept. No conflict or coverage-gap verdict changes as a result of this
+   fix, so **the counts above are unchanged** (553 correct, 5 conflicts, 28
+   gaps).
+
+Session state travels per-message on each utterance's own context. The
+harness pushes no session to the core and reads none back.
+
 ### A note on "default pipeline" in this file
 
 Earlier text in this document (and in PR descriptions referencing it) says

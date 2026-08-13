@@ -24,6 +24,7 @@ category (``conflict`` names both the expected and the thieving skill;
 ``coverage-gap`` names the skill whose vocabulary should have matched) and a
 human-readable reason. See FINDINGS.md for the full triage.
 """
+import itertools
 import time
 
 import pytest
@@ -47,6 +48,20 @@ EOF_TYPES = {
 BOOT_SETTLE = 3.0
 CAPTURE_TIMEOUT = 8.0
 CAPTURE_SETTLE = 0.4
+
+# One MiniCroft serves all ~582 parametrized rows, so every row's session id
+# must be unique or rows share per-session state. The id used to be derived
+# from ``hash(utterance_text)``, which handed the SAME id to every row with
+# the same utterance text -- and the corpus does contain repeated utterances
+# (see FINDINGS.md, "remind me to go to work weekday mornings at 8" appears
+# twice). Two rows sharing a session id share ``Session.active_skills``, the
+# adapt ``intent_context`` map, and any skill-side per-session bookkeeping
+# keyed on ``session_id`` (e.g. ``DictationSkill.dictation_sessions``), so
+# the second occurrence is matched against state the first one left behind.
+# A monotonic counter makes every capture its own session. Session state
+# travels per-message, on this context and nowhere else: the harness pushes
+# no session to the core and reads none back.
+_SESSION_SEQ = itertools.count()
 
 _ROWS = load_corpus()
 _FLEET_IDS = fleet_skill_ids(_ROWS)
@@ -81,6 +96,42 @@ def teardown_module(_module):
         _MC.stop()
 
 
+def _session_of(msg) -> str:
+    """The ``session_id`` this message is carried under, or ``""``.
+
+    Session state travels per-message, in ``context["session"]`` -- there is
+    no push topic to consult and no ambient "current session" to fall back
+    on. A message with no session context reports ``""`` and is treated as
+    un-attributable rather than as belonging to the row.
+    """
+    sess = (msg.context or {}).get("session") or {}
+    if isinstance(sess, dict):
+        return sess.get("session_id") or ""
+    return ""
+
+
+def _own_session(recs, session_id: str):
+    """``recs`` minus every message carried under a DIFFERENT session.
+
+    ``_MC.bus`` is process-global: a skill's scheduled events, and any
+    handler a skill triggers with a bare ``Message(...)`` that carries no
+    session at all, run under the ``default`` session and land in whatever
+    row's capture window happens to be open. Observed concretely:
+    ``ovos-skill-naptime``'s ``handle_go_to_sleep`` emits a bare
+    ``Message("recognizer_loop:sleep")``, and the whole enclosure/GUI/
+    ``add_context`` chain it fires arrives in the row's window tagged
+    ``default``, not the row's session.
+
+    Filtering is deliberately one-sided: a message is dropped ONLY when it
+    positively names some other session. Messages with no session context
+    are kept, because dropping them could hide a genuine claim. This cannot
+    weaken wrong-skill detection -- a skill that really steals THIS row's
+    utterance is dispatched on THIS row's session by construction.
+    """
+    return [m for m in recs
+            if _session_of(m) in ("", session_id)]
+
+
 def _capture(utterance_text: str, lang: str = "en-US"):
     """Send one utterance turn and return every bus Message observed.
 
@@ -110,7 +161,8 @@ def _capture(utterance_text: str, lang: str = "en-US"):
         except Exception:  # noqa: BLE001 - corrupt payload, not fatal here
             pass
 
-    sess = Session(f"fleet-{abs(hash(utterance_text))}")
+    session_id = f"fleet-{next(_SESSION_SEQ):05d}"
+    sess = Session(session_id)
     sess.lang = lang
     msg = Message(ENTRY_TOPIC, {"utterances": [utterance_text], "lang": lang},
                   {"session": sess.serialize(), "source": "A", "destination": "B"})
@@ -121,7 +173,11 @@ def _capture(utterance_text: str, lang: str = "en-US"):
         _MC.bus.emit(msg)
         seen_eof = False
         while time.monotonic() < deadline:
-            if any(m.msg_type in EOF_TYPES for m in recs):
+            # the barrier is this row's own terminal event: another row's
+            # (or a scheduled event's) ``mycroft.skill.handler.complete``
+            # landing here must not close this window early.
+            if any(m.msg_type in EOF_TYPES
+                   for m in _own_session(recs, session_id)):
                 seen_eof = True
                 break
             time.sleep(0.05)
@@ -129,11 +185,16 @@ def _capture(utterance_text: str, lang: str = "en-US"):
             time.sleep(CAPTURE_SETTLE)
     finally:
         _MC.bus.remove("message", _rec)
-    return recs
+    return recs, session_id
 
 
-def _claimant(recs, fleet_ids):
+def _claimant(recs, fleet_ids, session_id=None):
     """Best-effort: which fleet skill_id claimed this utterance turn.
+
+    ``session_id``, when given, restricts the whole judgement to messages
+    carried under that session (see ``_own_session``): a claim belongs to
+    the row whose session it was dispatched on, never to whichever row's
+    capture window it happened to land in.
 
     ``ovos.intent.unmatched`` is authoritative: the intent pipeline itself is
     declaring no skill matched, so this returns ``None`` immediately even if
@@ -156,6 +217,8 @@ def _claimant(recs, fleet_ids):
     reading that as a claim produced false cross-skill-theft positives that
     were not real theft.
     """
+    if session_id is not None:
+        recs = _own_session(recs, session_id)
     types_seen = {m.msg_type for m in recs}
     if "ovos.intent.unmatched" in types_seen:
         return None
@@ -205,8 +268,9 @@ def _params():
 @pytest.mark.parametrize("row", list(_params()))
 def test_utterance_routes_to_expected_skill(row):
     expected = installed_id(row["skill_id"])
-    recs = _capture(row["utterance"])
-    actual = _claimant(recs, set(_FLEET_IDS))
+    recs, session_id = _capture(row["utterance"])
+    recs = _own_session(recs, session_id)
+    actual = _claimant(recs, set(_FLEET_IDS), session_id)
 
     if actual is None:
         raise AssertionError(
