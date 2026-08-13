@@ -214,3 +214,125 @@ def test_a_mislabeled_probe_result_fails_loudly():
     with pytest.raises(AssertionError):
         assert_vintage("C axis probe (mislabeled)", cell=ref_cell, axis="C",
                        observed_is_new=False)
+
+
+# ---------------------------------------------------------------------------
+# Post-#500 dispatch-spelling law -- ``test_mixed_version_matrix.
+# _expected_dispatch_topic`` / ``_skill_binds_canonical_only``, imported here
+# (not re-implemented) so this file exercises the SAME two probes the real
+# venv-backed tests use, with no venv pair needed: both are pure functions of
+# a ``skill.bound_topics`` list and whatever ``core_canonicalizes()`` (an
+# importable, monkeypatchable module attribute) currently returns.
+# ---------------------------------------------------------------------------
+from . import test_mixed_version_matrix as _mvm  # noqa: E402
+
+
+class _FakeSkill:
+    """Just enough of ``driver.SkillProcess`` for ``_expected_dispatch_topic``
+    / ``_skill_binds_canonical_only`` to read: the ``bound_topics`` list."""
+
+    def __init__(self, bound_topics):
+        self.bound_topics = bound_topics
+
+
+def test_skill_binds_canonical_only_is_feature_detected_not_version_compared():
+    """The S-side probe reads the live ``bound_topics`` snapshot, not a
+    version string -- true only for the exact canonical-only shape #500
+    produces, false for every other shape (both-bound, suffixed-only,
+    empty)."""
+    assert _mvm._skill_binds_canonical_only(
+        _FakeSkill([_mvm.CANONICAL_TOPIC])) is True
+    assert _mvm._skill_binds_canonical_only(
+        _FakeSkill([_mvm.CANONICAL_TOPIC, _mvm.LEGACY_TOPIC])) is False
+    assert _mvm._skill_binds_canonical_only(
+        _FakeSkill([_mvm.LEGACY_TOPIC])) is False
+    assert _mvm._skill_binds_canonical_only(_FakeSkill([])) is False
+
+
+@pytest.mark.parametrize("s_canonical,m_dealiases,want", [
+    # THE LAW: canonical unless BOTH are old. Suffixed survives only the
+    # (False, False) cell -- pre-#500 skill against a non-dealiasing matcher.
+    (True, True, "canonical"),
+    (True, False, "canonical"),
+    (False, True, "canonical"),
+    (False, False, "suffixed"),
+])
+def test_expected_dispatch_topic_is_canonical_unless_both_probes_are_old(
+        monkeypatch, s_canonical, m_dealiases, want):
+    """Exhaustive truth table for ``_expected_dispatch_topic``'s OR-law,
+    each probe monkeypatched independently so this is a pure function of
+    the two probes, not of any real venv.
+
+    This is the post-#500 replacement for the pre-#500 "spelling tracks M
+    alone" law: dev CI run 31746623405 is exactly the (s_canonical=True,
+    m_dealiases=False) row going from an M-only-predicted 'suffixed' to the
+    real, probe-observed 'canonical' the day #500's PyPI alphas resolved
+    into new-skill/old-core and its *-old-matchers/skew siblings.
+    """
+    monkeypatch.setattr(_mvm, "core_canonicalizes", lambda: m_dealiases)
+    skill = _FakeSkill(
+        [_mvm.CANONICAL_TOPIC] if s_canonical
+        else [_mvm.LEGACY_TOPIC])
+    topic = _mvm._expected_dispatch_topic(skill)
+    want_topic = _mvm.CANONICAL_TOPIC if want == "canonical" else _mvm.LEGACY_TOPIC
+    assert topic == want_topic, (
+        f"s_canonical={s_canonical}, m_dealiases={m_dealiases}: expected "
+        f"{want_topic!r}, got {topic!r}")
+
+
+def test_expected_dispatch_topic_mutation_proof_s_probe_lying(monkeypatch):
+    """Force the S-side probe to lie in both directions, matcher held OLD
+    (M=False) throughout, and confirm ``_expected_dispatch_topic``'s output
+    actually moves with S -- proving the assertion is sensitive to S, not
+    accidentally constant or M-only (the pre-#500 bug this whole model
+    fix exists to correct).
+
+    A skill that binds BOTH spellings (pre-#500 shape) must never be read
+    as 'registers canonical only', even though ``CANONICAL_TOPIC`` is
+    present in its ``bound_topics`` -- ``_skill_binds_canonical_only`` is an
+    exact-match check (``== [CANONICAL_TOPIC]``), not a membership check,
+    precisely so a both-bound skill can't be mistaken for a canonical-only
+    one.
+    """
+    monkeypatch.setattr(_mvm, "core_canonicalizes", lambda: False)  # M=old
+
+    both_bound = _FakeSkill([_mvm.CANONICAL_TOPIC, _mvm.LEGACY_TOPIC])
+    canonical_only = _FakeSkill([_mvm.CANONICAL_TOPIC])
+
+    assert _mvm._skill_binds_canonical_only(both_bound) is False
+    assert _mvm._skill_binds_canonical_only(canonical_only) is True
+
+    # S "lying old" (both-bound, so the OR's S-term reads False) with M
+    # already False -- the (False, False) cell, suffixed.
+    assert _mvm._expected_dispatch_topic(both_bound) == _mvm.LEGACY_TOPIC, (
+        "S=old (both-bound) + M=old must dispatch suffixed -- a mutant "
+        "that hardcoded canonical here would pass the M-only law's old "
+        "assertion but is exactly the bug this file exists to catch")
+    # S "lying new" (canonical-only) with M still False -- the
+    # (True, False) cell that dev CI run 31746623405 actually hit: this is
+    # the row where the pre-#500 M-only model got it wrong (predicted
+    # suffixed, real wire was canonical).
+    assert _mvm._expected_dispatch_topic(canonical_only) == _mvm.CANONICAL_TOPIC, (
+        "S=new (canonical-only) + M=old must still dispatch canonical -- "
+        "a mutant that reverted to the M-only law (canonical iff M) would "
+        "wrongly predict suffixed here and this assertion catches it")
+
+
+def test_expected_dispatch_topic_mutation_proof_m_probe_lying(monkeypatch):
+    """Force the M-side probe to lie in both directions, S held OLD
+    (suffixed-only skill) throughout, and confirm the two-probe law's
+    output moves with M too -- the S-mutation test above alone would not
+    catch a regression that dropped the M term from the OR entirely.
+    """
+    suffixed_only_skill = _FakeSkill([_mvm.LEGACY_TOPIC])
+
+    monkeypatch.setattr(_mvm, "core_canonicalizes", lambda: False)
+    assert _mvm._expected_dispatch_topic(suffixed_only_skill) == _mvm.LEGACY_TOPIC, (
+        "S=old + M=old must dispatch suffixed")
+
+    monkeypatch.setattr(_mvm, "core_canonicalizes", lambda: True)
+    assert _mvm._expected_dispatch_topic(suffixed_only_skill) == _mvm.CANONICAL_TOPIC, (
+        "S=old + M=new must dispatch canonical -- a mutant that dropped "
+        "the M term from the OR (spelling tracks S alone) would wrongly "
+        "predict suffixed here and this assertion catches it")
+
