@@ -67,12 +67,41 @@
 #              cell red.
 #
 #   core_old   ovos-core==2.5.5a2 + ovos-padatious==2.0.0a1
+#              + ovos-workshop==9.2.3a1 + ovos-bus-client==2.7.0a1
 #              The newest padatious release BEFORE registration-time
 #              canonicalization (`_dealias_intent_name`, added in 2.0.1a1), so
 #              this side dispatches whatever the skill registered. ovos-core is
 #              pinned to its contemporary release; core itself forwards
 #              `match.match_type` verbatim, so the pipeline plugin is the part
 #              that decides the spelling.
+#              ovos-workshop and ovos-bus-client are WHOLE-COHORT pins, not a
+#              belated ceiling on today's specific break: ovos-core's own
+#              `dependencies` list floats both (`ovos-workshop<10.0.0,
+#              >=9.0.2a1`, `ovos_bus_client<3.0.0,>=2.6.0a1`), so this venv
+#              silently resolves whatever is newest on PyPI at BUILD time, not
+#              whatever was current when 2.5.5a2 shipped. That is exactly what
+#              let ovos-workshop 9.3.12a1 (2026-08-13, workshop#500 — dropped
+#              the suffixed `<skill_id>:<file>.intent` binding) resolve into
+#              this nominally-old-core venv and flip
+#              `backcompat.mixed.test:food.order` (actual) against
+#              `...food.order.intent` (expected) on 2026-08-13 (CI run
+#              31746623405), across every venv that pins ovos-core==2.5.5a2 --
+#              see HANDOFF.md's "Harness defect found by the #39 review:
+#              venv_core_old workshop drift". Both pins are each package's
+#              latest PyPI release at or before 2.5.5a2's own release
+#              (2026-07-17T19:10:10Z): ovos-workshop 9.2.3a1 (released
+#              2026-07-17T17:08:18Z) and ovos-bus-client 2.7.0a1 (released
+#              2026-07-16T22:06:56Z) -- i.e. what pip would actually have
+#              resolved on the day this core vintage shipped, not a version
+#              picked to merely dodge today's specific flip. Every OTHER
+#              floating dependency of ovos-core (ovos-utils, ovos-config,
+#              ovos-plugin-manager, ovos-spec-tools, rapidfuzz, ...) is left
+#              unpinned: pinning the whole transitive graph would make this
+#              venv a frozen snapshot instead of a "same-vintage container",
+#              and none of those packages are on `test_mixed_version_matrix.
+#              py`'s dispatch-spelling critical path the way workshop and the
+#              bus client are. ovos-padatious keeps its exact pin (unchanged
+#              by this fix) since it was already pinned, not floating.
 #
 #   core_new   ovos-core @ dev + ovos-padatious>=2.0.1a2
 #              Folds at registration, so it dispatches the canonical topic.
@@ -122,6 +151,23 @@
 #              only this direction exists, for the resolver reason above — the
 #              padatious-new/adapt-old inverse does not co-resolve with either
 #              core pin, so it is not built and not claimed.
+#
+#              venv_core_old_matchers_new ALSO pins ovos-core==2.5.5a2 (an
+#              "old" C-vintage venv, same as venv_core_old above), so it gets
+#              the same ovos-workshop==9.2.3a1 + ovos-bus-client==2.7.0a1
+#              whole-cohort pins for the same reason -- see venv_core_old's
+#              entry above for the full rationale and evidence. Its M-axis
+#              packages (padatious/adapt) stay on their existing `>=` floors
+#              deliberately: M=new on this venv means "track current/latest
+#              matchers", the same floating-latest posture as every C=new
+#              venv, and is not itself the drift this fix closes.
+#
+#              venv_core_new, venv_core_new_matchers_old and
+#              venv_core_skew_padatious_old_adapt_new all pin `$CORE_SPEC`
+#              (ovos-core @ dev) -- the "new" C-vintage cohort, which is
+#              MEANT to float latest everything by design (that is what
+#              tracking dev means), so none of those three get a workshop or
+#              bus-client pin here.
 #              §2.2 calls the skew a registration/dispatch-scenario concern,
 #              which is a statement about what the skew can CHANGE, not about
 #              what these cells RUN: like every other cell they run the whole
@@ -248,7 +294,7 @@ mkvenv_channel() {
 
 wants venv_skill_old && mkvenv venv_skill_old "ovos-workshop==9.3.1a2" "setuptools<81"
 wants venv_skill_new && mkvenv venv_skill_new "ovos-workshop @ git+https://github.com/OpenVoiceOS/ovos-workshop@dev" "setuptools<81"
-wants venv_core_old  && mkvenv venv_core_old  "ovos-core==2.5.5a2" "ovos-padatious==2.0.0a1" ovos-messagebus pytest pytest-timeout "setuptools<81"
+wants venv_core_old  && mkvenv venv_core_old  "ovos-core==2.5.5a2" "ovos-padatious==2.0.0a1" "ovos-workshop==9.2.3a1" "ovos-bus-client==2.7.0a1" ovos-messagebus pytest pytest-timeout "setuptools<81"
 wants venv_core_new  && mkvenv venv_core_new  "$CORE_SPEC" "ovos-padatious>=2.0.1a2" ovos-messagebus pytest pytest-timeout "setuptools<81"
 # T2.5 -- the M (matcher) axis. See the pins block in this file's header for
 # why each of these four is a reachable deployment and not a contrivance.
@@ -257,6 +303,7 @@ wants venv_core_new_matchers_old && mkvenv venv_core_new_matchers_old \
   ovos-messagebus pytest pytest-timeout "setuptools<81"
 wants venv_core_old_matchers_new && mkvenv venv_core_old_matchers_new \
   "ovos-core==2.5.5a2" "ovos-padatious>=2.0.1a2" "ovos-adapt-parser>=1.4.0a1" \
+  "ovos-workshop==9.2.3a1" "ovos-bus-client==2.7.0a1" \
   ovos-messagebus pytest pytest-timeout "setuptools<81"
 wants venv_core_skew_padatious_old_adapt_new && mkvenv venv_core_skew_padatious_old_adapt_new \
   "$CORE_SPEC" "ovos-padatious==2.0.0a1" "ovos-adapt-parser>=1.4.0a1" \
