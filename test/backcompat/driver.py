@@ -117,6 +117,21 @@ def core_canonicalizes() -> bool:
     return hasattr(opm, "_dealias_intent_name")
 
 
+def emitter_side_has_reemit_hook() -> bool:
+    """Whether THIS (driver/core-side) ``MessageBusClient`` carries #271's
+    emitter-side twin symbol.
+
+    ``skill_process.py`` already probes ``hasattr(MessageBusClient,
+    "_send_legacy_intent_twin")`` on the SKILL-side client, but the actual
+    canonical dispatches this suite drives are emitted from the DRIVER's own
+    client (``server.client()`` / ``dispatch``/``dispatch_match``), not the
+    skill subprocess's. The skill-side probe therefore proves nothing about
+    where the twin actually fires; this is the equivalent check on the
+    process that really calls ``emit()`` for those dispatches.
+    """
+    return hasattr(MessageBusClient, "_send_legacy_intent_twin")
+
+
 def dispatch_topic_for(registered_name: str) -> str:
     """The topic this core stack would dispatch for ``registered_name``."""
     if not core_canonicalizes():

@@ -119,7 +119,7 @@ from .driver import (ACTIVATED_TOPIC, AUDIO_OUTPUT_END_TOPIC,
                      SPEAK_WAIT_DONE_TOPIC, SPEAK_WAIT_TRIGGER_TOPIC,
                      BusServer, Capture, SkillProcess, converse_match,
                      core_canonicalizes, core_has_pipeline_match_api,
-                     dispatch, dispatch_match,
+                     dispatch, dispatch_match, emitter_side_has_reemit_hook,
                      dispatch_topic_for, make_converse_service,
                      session_context, wait_for_active_skill,
                      wait_for_response_mode)
@@ -319,7 +319,15 @@ def test_old_container_resolves_a_current_bus_client(stack):
     # converts that into the loud signal to promote the guard.
     print(f"{COMBO}: skill venv = ovos-workshop "
           f"{skill.versions.get('ovos_workshop')}, ovos-bus-client {client}, "
-          f"#271 mirror present={skill.versions.get('has_reemit_hook')}")
+          f"#271 mirror present (skill-side, receive-side probe)="
+          f"{skill.versions.get('has_reemit_hook')}")
+
+    # Emitter-side probe: the twin actually fires from whichever process
+    # calls emit() for the canonical dispatch, which in this suite is the
+    # driver/core side, not the skill subprocess. Additive to the
+    # skill-side probe above, not a replacement for it.
+    print(f"{COMBO}: #271 mirror present (driver-side, emitter-side probe)="
+          f"{emitter_side_has_reemit_hook()}")
 
 
 def test_core_dispatches_the_topic_this_combo_expects(stack):
@@ -630,6 +638,7 @@ def test_get_response_completes_without_hanging_when_unanswered(stack):
     session = {"session_id": f"backcompat-getresp-timeout-{token[:8]}"}
     done = Capture(bus, GET_RESPONSE_DONE_TOPIC, token=token)
     try:
+        start = time.monotonic()
         bus.emit(Message(GET_RESPONSE_TRIGGER_TOPIC, {"token": token},
                          {"session": session}))
         # A generous multiple of the pinned poll window, not the window
@@ -639,6 +648,15 @@ def test_get_response_completes_without_hanging_when_unanswered(stack):
             f"{COMBO}: get_response() never returned with no answer sent — "
             f"looks like a hang rather than a timeout.\nskill process log:\n"
             f"{skill.log}")
+        elapsed = time.monotonic() - start
+        # Lower bound: catches a "get_response was never actually called"
+        # false green (e.g. an instant `answer = None` short-circuit) that
+        # would otherwise sail through the upper-bound hang check above.
+        assert elapsed >= GET_RESPONSE_TIMEOUT * 0.8, (
+            f"{COMBO}: get_response() returned in {elapsed:.2f}s, well "
+            f"under its {GET_RESPONSE_TIMEOUT}s poll window — looks like "
+            f"it never actually ran the bounded no-answer path.\nskill "
+            f"process log:\n{skill.log}")
         assert done.messages[0].data["answer"] is None, (
             f"{COMBO}: get_response() returned "
             f"{done.messages[0].data['answer']!r} with no answer ever sent")
@@ -646,6 +664,30 @@ def test_get_response_completes_without_hanging_when_unanswered(stack):
         done.close()
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "product bug, not a fixture bug: SessionManager.bus is never "
+        "connected inside a standalone skill container of this workshop "
+        "vintage, so SessionManager.wait_while_speaking's own "
+        "'if not cls.bus: return' guard fires immediately and "
+        "speak(wait=True) silently no-ops instead of blocking. Confirmed "
+        "live (cls.bus is None at wait_while_speaking entry) against "
+        "ovos-workshop 9.3.9a1 / ovos-bus-client 2.7.3a1. The only real "
+        "caller of SessionManager.connect_to_bus() is ovos-core's own "
+        "IntentService, in the CORE process (ovos_core/intent_services/"
+        "service.py, 'SessionManager.connect_to_bus(self.bus)' right "
+        "after building the intent dispatcher) — that wires the CORE "
+        "process's own SessionManager, not a separate skill container "
+        "process's. Neither ovos_workshop.skill_launcher.SkillContainer "
+        "(the real standalone-container launcher) nor OVOSSkill.__init__/"
+        "bind/_startup (ovos_workshop/skills/ovos.py) ever calls it for "
+        "the skill's own process. This is a real gap in every standalone "
+        "skill container of this vintage, not something this test's "
+        "fixture can or should paper over — see a follow-up ovos-workshop "
+        "issue/PR. Strict so this flips to a loud XPASS failure the day "
+        "that gap is closed upstream, which is the signal to remove this "
+        "marker."))
 def test_speak_wait_unblocks_on_audio_output_end(stack):
     """``speak(..., wait=True)`` must unblock once audio output ends.
 
@@ -667,7 +709,6 @@ def test_speak_wait_unblocks_on_audio_output_end(stack):
     session = {"session_id": f"backcompat-speakwait-{token[:8]}"}
     done = Capture(bus, SPEAK_WAIT_DONE_TOPIC, token=token)
     try:
-        start = time.monotonic()
         bus.emit(Message(SPEAK_WAIT_TRIGGER_TOPIC, {"token": token},
                          {"session": session}))
         # give speak() time to run, set is_speaking, and register its
@@ -678,16 +719,28 @@ def test_speak_wait_unblocks_on_audio_output_end(stack):
         # reason (skipped the wait entirely) rather than the wait actually
         # unblocking.
         time.sleep(0.5)
+        # Positive control: if speak(wait=True) was never actually called
+        # (or never actually blocked), the "done" marker would already be
+        # here by now, and firing AUDIO_OUTPUT_END_TOPIC afterward would
+        # prove nothing about the wait unblocking. Catch that false green
+        # before triggering the real unblock signal.
+        assert not done.messages, (
+            f"{COMBO}: speak(wait=True) returned before audio output "
+            f"ended — it never waited.\nskill process log:\n{skill.log}")
+        t_end = time.monotonic()
         bus.emit(Message(AUDIO_OUTPUT_END_TOPIC, {}, {"session": session}))
         assert done.wait(), (
             f"{COMBO}: speak(wait=True) never unblocked after "
             f"{AUDIO_OUTPUT_END_TOPIC!r} fired for its session — the old "
             f"skill container would hang forever waiting for audio output "
             f"it will never see end.\nskill process log:\n{skill.log}")
-        elapsed = time.monotonic() - start
+        elapsed = time.monotonic() - t_end
         # SessionManager.wait_while_speaking's own timeout defaults to 15s;
         # unblocking well under that proves the bridge fired the wait open
-        # rather than the call merely timing out on its own.
+        # rather than the call merely timing out on its own. Measured from
+        # t_end (when the unblock signal fired), not from the original
+        # trigger, so the deliberate 0.5s settle sleep above doesn't eat
+        # into this bound.
         assert elapsed < 10, (
             f"{COMBO}: speak(wait=True) took {elapsed:.1f}s to unblock — "
             f"looks like it rode out its own internal timeout instead of "
@@ -723,6 +776,15 @@ def test_kill_switch_disables_the_compat_mirror():
     skill = None
     try:
         bus = server.client(emit_legacy=False)
+        # Positive control: prove emit_legacy actually landed False on the
+        # translator the driver's client will emit through, rather than
+        # relying on OVOS_BUS_EMIT_LEGACY silently being ignored (e.g. by
+        # an env override) and leaving this test green for the wrong
+        # reason.
+        assert bus._translator.emit_legacy is False, (
+            "server.client(emit_legacy=False) did not disable the "
+            "translator's emit_legacy flag — the kill switch is not "
+            "actually wired to this client")
         skill = SkillProcess(SKILL_PYTHON, server.xdg, emit_legacy=False)
         token = uuid.uuid4().hex
         handled = Capture(bus, "backcompat.skill.handled", token=token)
