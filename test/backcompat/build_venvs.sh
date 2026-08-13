@@ -13,7 +13,7 @@
 # only those — this is what lets each CI matrix job build exactly the pair (or
 # triple) its cell needs instead of all eight:
 #
-#   venv_skill_old venv_skill_new venv_core_old venv_core_new
+#   venv_skill_old venv_skill_new venv_core_old venv_core_new venv_audio
 #   venv_skill_stable venv_skill_testing venv_core_stable venv_core_testing
 #
 # An unrecognized name is a hard error (not a silent no-op), since a typo'd
@@ -75,6 +75,16 @@
 #   core_new   ovos-core @ dev + ovos-padatious>=2.0.1a2
 #              Folds at registration, so it dispatches the canonical topic.
 #
+#   venv_audio ovos-bus-client only (current)
+#              Backs test/backcompat/audio_process.py (design §2.6). The
+#              A-axis "vintage" is BEHAVIOURAL, not a package pin -- there is
+#              no real ovos-audio installed here, and no old-vs-new
+#              ovos-bus-client split either (every skill/core venv already
+#              resolves a current client off its own floor, per §1.3). This
+#              venv is the same knob every OVOS_BUS_EMIT_LEGACY test already
+#              uses, just running the third (audio) process instead of the
+#              skill or core one.
+#
 #   venv_skill_stable / venv_skill_testing
 #   venv_core_stable  / venv_core_testing
 #              Not boundary pins — fleet pins. Built by installing straight
@@ -100,7 +110,7 @@ TESTING_CONSTRAINTS_URL="${BACKCOMPAT_TESTING_CONSTRAINTS_URL:-https://raw.githu
 
 PY="${BACKCOMPAT_PYTHON:-python3.11}"
 
-ALL_BOUNDARY_VENVS=(venv_skill_old venv_skill_new venv_core_old venv_core_new)
+ALL_BOUNDARY_VENVS=(venv_skill_old venv_skill_new venv_core_old venv_core_new venv_audio)
 ALL_CHANNEL_VENVS=(venv_skill_stable venv_skill_testing venv_core_stable venv_core_testing)
 ALL_VENVS=("${ALL_BOUNDARY_VENVS[@]}" "${ALL_CHANNEL_VENVS[@]}")
 
@@ -184,6 +194,7 @@ wants venv_skill_old && mkvenv venv_skill_old "ovos-workshop==9.3.1a2" "setuptoo
 wants venv_skill_new && mkvenv venv_skill_new "ovos-workshop @ git+https://github.com/OpenVoiceOS/ovos-workshop@dev" "setuptools<81"
 wants venv_core_old  && mkvenv venv_core_old  "ovos-core==2.5.5a2" "ovos-padatious==2.0.0a1" ovos-messagebus pytest pytest-timeout "setuptools<81"
 wants venv_core_new  && mkvenv venv_core_new  "$CORE_SPEC" "ovos-padatious>=2.0.1a2" ovos-messagebus pytest pytest-timeout "setuptools<81"
+wants venv_audio      && mkvenv venv_audio    ovos-bus-client "setuptools<81"
 
 wants venv_skill_stable  && mkvenv_channel venv_skill_stable  "$STABLE_CONSTRAINTS_URL"  ovos-workshop "setuptools<81"
 wants venv_skill_testing && mkvenv_channel venv_skill_testing "$TESTING_CONSTRAINTS_URL" ovos-workshop "setuptools<81"

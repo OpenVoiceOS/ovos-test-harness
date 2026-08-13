@@ -111,7 +111,9 @@ from ovos_bus_client.message import Message
 
 from .cells import (BOUNDARY_ALIASES, CHANNEL_CELLS, OTHER, REFERENCE,
                     axis_values, resolve_cell)
-from .driver import (ACTIVATED_TOPIC, AUDIO_OUTPUT_END_TOPIC,
+from .driver import (ACTIVATED_TOPIC,
+                     AUDIO_OUTPUT_END_TOPIC, AUDIO_OUTPUT_START_TOPIC,
+                     LEGACY_SPEAK_TOPIC,
                      CANONICAL_TOPIC, CONVERSE_FIRED_TOPIC,
                      CONVERSE_MATCH_TOPIC, CONVERSE_REQUEST_TOPIC,
                      CONVERSE_RESPONSE_TOPIC,
@@ -119,8 +121,11 @@ from .driver import (ACTIVATED_TOPIC, AUDIO_OUTPUT_END_TOPIC,
                      GET_RESPONSE_DONE_TOPIC, GET_RESPONSE_TIMEOUT,
                      GET_RESPONSE_TRIGGER_TOPIC, LEGACY_TOPIC, SKILL_ID,
                      SPEAK_WAIT_DONE_TOPIC, SPEAK_WAIT_TRIGGER_TOPIC,
-                     BusServer, Capture, SkillProcess,
+                     BusServer, Capture, SkillProcess, AudioProcess,
                      adapt_consumes_intent4_keywords,
+                     audio_output_ended_spec_topic,
+                     audio_output_started_spec_topic, speak_spec_topic,
+                     mic_listen_spec_topic,
                      audio_output_end_topic_probe, converse_match,
                      core_canonicalizes, core_has_pipeline_match_api,
                      dispatch, dispatch_match, emitter_side_has_reemit_hook,
@@ -765,30 +770,38 @@ def test_get_response_completes_without_hanging_when_unanswered(stack):
         done.close()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "product bug, not a fixture bug: SessionManager.bus is never "
-        "connected inside a standalone skill container of this workshop "
-        "vintage, so SessionManager.wait_while_speaking's own "
-        "'if not cls.bus: return' guard fires immediately and "
-        "speak(wait=True) silently no-ops instead of blocking. Confirmed "
-        "live (cls.bus is None at wait_while_speaking entry) against "
-        "ovos-workshop 9.3.9a1 / ovos-bus-client 2.7.3a1. The only real "
-        "caller of SessionManager.connect_to_bus() is ovos-core's own "
-        "IntentService, in the CORE process (ovos_core/intent_services/"
-        "service.py, 'SessionManager.connect_to_bus(self.bus)' right "
-        "after building the intent dispatcher) — that wires the CORE "
-        "process's own SessionManager, not a separate skill container "
-        "process's. Neither ovos_workshop.skill_launcher.SkillContainer "
-        "(the real standalone-container launcher) nor OVOSSkill.__init__/"
-        "bind/_startup (ovos_workshop/skills/ovos.py) ever calls it for "
-        "the skill's own process. This is a real gap in every standalone "
-        "skill container of this vintage, not something this test's "
-        "fixture can or should paper over — see a follow-up ovos-workshop "
-        "issue/PR. Strict so this flips to a loud XPASS failure the day "
-        "that gap is closed upstream, which is the signal to remove this "
-        "marker."))
+#: ovos-workshop#526: SessionManager.bus is never connected inside a
+#: standalone skill container of this vintage, so speak(wait=True) silently
+#: no-ops. Module-level so every A-axis speak-wait test that hits this SAME
+#: upstream gap references the ONE string (design instruction: cells
+#: failing for the identical upstream reason share one reason, not a
+#: character-divergent copy) -- see test_speak_wait_bridges_from_spec_only_
+#: audio below, the A=new sibling of the test this decorates.
+_SPEAK_WAIT_526_XFAIL_REASON = (
+    "product bug, not a fixture bug: SessionManager.bus is never "
+    "connected inside a standalone skill container of this workshop "
+    "vintage, so SessionManager.wait_while_speaking's own "
+    "'if not cls.bus: return' guard fires immediately and "
+    "speak(wait=True) silently no-ops instead of blocking. Confirmed "
+    "live (cls.bus is None at wait_while_speaking entry) against "
+    "ovos-workshop 9.3.9a1 / ovos-bus-client 2.7.3a1. The only real "
+    "caller of SessionManager.connect_to_bus() is ovos-core's own "
+    "IntentService, in the CORE process (ovos_core/intent_services/"
+    "service.py, 'SessionManager.connect_to_bus(self.bus)' right "
+    "after building the intent dispatcher) — that wires the CORE "
+    "process's own SessionManager, not a separate skill container "
+    "process's. Neither ovos_workshop.skill_launcher.SkillContainer "
+    "(the real standalone-container launcher) nor OVOSSkill.__init__/"
+    "bind/_startup (ovos_workshop/skills/ovos.py) ever calls it for "
+    "the skill's own process. This is a real gap in every standalone "
+    "skill container of this vintage, not something this test's "
+    "fixture can or should paper over — see a follow-up ovos-workshop "
+    "issue/PR. Strict so this flips to a loud XPASS failure the day "
+    "that gap is closed upstream, which is the signal to remove this "
+    "marker.")
+
+
+@pytest.mark.xfail(strict=True, reason=_SPEAK_WAIT_526_XFAIL_REASON)
 @pytest.mark.axes("S", "A")
 def test_speak_wait_unblocks_on_audio_output_end(stack):
     """``speak(..., wait=True)`` must unblock once audio output ends.
@@ -905,3 +918,441 @@ def test_kill_switch_disables_the_compat_mirror():
         if skill is not None:
             skill.stop()
         server.stop()
+
+
+# ---------------------------------------------------------------------------
+# Audio axis (A): speak-wait against a spec-only (AUDIO-1) audio simulator
+# ---------------------------------------------------------------------------
+#
+# design §2.6 / T2.3. test_speak_wait_unblocks_on_audio_output_end above
+# already covers A=old (the driver plays the legacy
+# ``recognizer_loop:audio_output_end`` part itself, matching the OLD
+# workshop's own listener with no bridge involved at all -- vintages agree,
+# nothing to prove about a translator). These tests cover the A=new half of
+# design §2.4's row 4: a real ``audio_process.py`` subprocess (T2.3) that
+# implements ONLY today's AUDIO-1 ``ovos_audio/playback.py`` contract --
+# spec-only ``SpecMessage.AUDIO_OUTPUT_ENDED`` -- talking to an old-vintage
+# skill container that only ever knew the legacy topic.
+#
+# Two-layer design (keeps the scenario meaningful even while workshop's own
+# #526 gap blocks the skill-side wait):
+#
+# * Layer 1 (test_speak_wait_bridges_from_spec_only_audio) drives the FULL
+#   real path: skill.speak(wait=True) -> SessionManager.wait_while_speaking
+#   -> unblocked by whatever topic actually reaches ITS listener. This is
+#   the end-to-end proof, but it inherits the SAME upstream gap the existing
+#   speak-wait test is xfailed for: ovos-workshop's SessionManager.bus is
+#   never connected inside a standalone container of this vintage (#526),
+#   so wait=True no-ops regardless of what audio does. Marked xfail with
+#   THE SAME reason string as the sibling test above -- cells failing for
+#   the identical upstream reason share one reason string, so they read as
+#   one finding, not two.
+# * Layer 2 (test_spec_only_audio_output_end_reaches_a_legacy_listener_via_
+#   translator_bridge / its inverse control) proves the actual thing this
+#   scenario is about -- that a modern ``MessageBusClient``'s receive-side
+#   ``NamespaceTranslator`` really does deliver the legacy counterpart of a
+#   spec-only emission to a LOCAL listener -- with a second bus client
+#   standing in for "what the skill's own client would receive", entirely
+#   independent of workshop's SessionManager plumbing. This keeps the
+#   translator bridge itself proven and mutation-tested even while #526
+#   makes Layer 1 xfail; it is what stays meaningful, and green, right now.
+#
+# Which process's flag matters: bus-client's own receive path
+# (``MessageBusClient.on_message`` -> ``self._translator.counterpart_topics``,
+# verified against ``ovos-bus-client`` origin/dev,
+# ``ovos_bus_client/client/client.py`` -- the mirror is emitted to LOCAL
+# listeners at message-receive time, keyed off the RECEIVING client's own
+# ``self._translator``, built from THAT client's ``OVOS_BUS_EMIT_LEGACY``/
+# ``OVOS_BUS_MODERNIZE`` env at construction time). So it is the flag on
+# whichever client needs to see the counterpart LOCALLY that matters -- the
+# emitting audio process's own flag is irrelevant to whether a *different*
+# process's listener sees the mirror. Layer 2's shadow client therefore
+# toggles its OWN ``emit_legacy`` to build the inverse control, not the
+# audio process's.
+
+AUDIO_PYTHON = os.environ.get("BACKCOMPAT_AUDIO_PYTHON", "")
+
+#: SAME reason string object as test_speak_wait_unblocks_on_audio_output_end's
+#: xfail above (design instruction: cells failing for the identical upstream
+#: reason -- #526 -- must share ONE reason string, not a character-divergent
+#: copy).
+_SPEAK_WAIT_526_XFAIL_REASON_A_NEW = _SPEAK_WAIT_526_XFAIL_REASON
+
+
+@pytest.fixture(scope="module")
+def audio_stack(stack):
+    """The shared ``stack`` fixture (bus + old-vintage skill container) plus
+    a NEW-vintage (spec-only) audio simulator on the same bus. A separate
+    fixture, not folded into ``stack`` itself, so the S×C scenarios above
+    don't pay for an audio process they never touch.
+    """
+    if not AUDIO_PYTHON:
+        pytest.skip("BACKCOMPAT_AUDIO_PYTHON not set")
+    server, bus, skill, regs = stack
+    audio = AudioProcess(AUDIO_PYTHON, server.xdg, vintage="new")
+    try:
+        yield server, bus, skill, audio
+    finally:
+        audio.stop()
+
+
+@pytest.fixture(scope="module")
+def audio_stack_old(stack):
+    """Same shape as ``audio_stack``, but an OLD-vintage (legacy-topic)
+    audio simulator -- covers the A=old half of the C1 finding (a
+    legacy-vintage cell test asserting ``recognizer_loop:audio_output_start``
+    /``..._end`` ordering), since A=old cells are the design's whole point
+    and this branch of ``audio_process.py`` deserves the same falsifiability
+    as the A=new one, not deletion as YAGNI.
+    """
+    if not AUDIO_PYTHON:
+        pytest.skip("BACKCOMPAT_AUDIO_PYTHON not set")
+    server, bus, skill, regs = stack
+    audio = AudioProcess(AUDIO_PYTHON, server.xdg, vintage="old")
+    try:
+        yield server, bus, skill, audio
+    finally:
+        audio.stop()
+
+
+@pytest.mark.axes("A")
+def test_audio_simulator_emits_legacy_start_then_end_in_order(audio_stack_old):
+    """C1 (BLOCKING, adversarial review): mutation proof that something in
+    the suite actually observes an emission FROM the simulator, for the
+    ``old`` vintage branch (``audio_process._play``). Drives a real legacy
+    ``speak`` message onto the bus -- the topic ``audio_process.py``'s
+    ``old`` vintage subscribes -- and asserts the subprocess itself emits
+    ``AUDIO_OUTPUT_START_TOPIC`` then, only after ``PLAYBACK_DELAY``,
+    ``AUDIO_OUTPUT_END_TOPIC``. Replacing ``_play``'s body with a bare
+    ``return`` must fail this test.
+    """
+    _server, bus, _skill, audio = audio_stack_old
+    session_id = f"backcompat-audiosim-old-{uuid.uuid4().hex[:8]}"
+    session = {"session_id": session_id}
+    # session_id-scoped: _play emits both legacy topics with empty `data`
+    # (matching the real recognizer_loop:audio_output_{start,end} contract,
+    # which carries no correlation id either), so scoping has to go through
+    # `context` rather than a data-borne token.
+    started = Capture(bus, AUDIO_OUTPUT_START_TOPIC, session_id=session_id)
+    ended = Capture(bus, AUDIO_OUTPUT_END_TOPIC, session_id=session_id)
+    try:
+        assert not started.messages and not ended.messages, (
+            "legacy audio-output capture already had traffic before this "
+            "test's own trigger -- the capture isn't scoped correctly")
+        bus.emit(Message(LEGACY_SPEAK_TOPIC, {}, {"session": session}))
+        assert started.wait(10), (
+            f"the old-vintage audio simulator never emitted "
+            f"{AUDIO_OUTPUT_START_TOPIC!r} for a legacy speak "
+            f"message.\naudio process log:\n{audio.log}")
+        # Ordering, not just presence: PLAYBACK_DELAY (0.3s) means a
+        # genuine simulator cannot have emitted 'end' yet immediately
+        # after 'start' arrived -- a mutant that fires both at once (or
+        # end-before-start) would still pass a presence-only check.
+        assert not ended.messages, (
+            f"{AUDIO_OUTPUT_END_TOPIC!r} arrived together with (or before) "
+            f"{AUDIO_OUTPUT_START_TOPIC!r} -- the simulator isn't actually "
+            f"staggering start/end by its own PLAYBACK_DELAY")
+        assert ended.wait(10), (
+            f"the old-vintage audio simulator emitted "
+            f"{AUDIO_OUTPUT_START_TOPIC!r} but never followed with "
+            f"{AUDIO_OUTPUT_END_TOPIC!r}.\naudio process log:\n{audio.log}")
+    finally:
+        started.close()
+        ended.close()
+
+
+@pytest.mark.axes("A")
+def test_audio_simulator_emits_started_then_ended_in_order_for_a_spec_speak(audio_stack):
+    """C1 (BLOCKING, adversarial review): the A=new counterpart of the test
+    above. Mutation proof: replacing ``audio_process._play_spec``'s body
+    with a bare ``return`` left the pre-fix suite byte-identical green,
+    because both Layer-2 bridge tests hand-emit the spec topic themselves
+    from a shadow client, and the probe test only reads the simulator's
+    stdout handshake, never the bus. This test drives a real
+    ``SpecMessage.SPEAK`` onto the bus and asserts the subprocess itself
+    emits ``AUDIO_OUTPUT_STARTED_SPEC_TOPIC`` then, only after
+    ``PLAYBACK_DELAY``, ``AUDIO_OUTPUT_ENDED_SPEC_TOPIC`` -- scoped by
+    ``message.forward(...)`` preserving the trigger's token, so this can't
+    pass on stale traffic from another test.
+    """
+    _server, bus, _skill, audio = audio_stack
+    # Resolved lazily, inside the test body: driver.py's spec-topic
+    # accessors defer the ovos_spec_tools import to here specifically so
+    # V0-channel cells (no ovos-spec-tools installed) can still collect
+    # this module -- see driver.py's module comment above _spec_message.
+    started_topic = audio_output_started_spec_topic()
+    ended_topic = audio_output_ended_spec_topic()
+    token = uuid.uuid4().hex
+    session_id = f"backcompat-audiosim-{token[:8]}"
+    session = {"session_id": session_id}
+    # session_id-scoped, NOT token-scoped: verified live that
+    # Message.forward(topic) -- what both audio_process._play_spec and the
+    # real PlaybackThread.begin_audio/end_audio use -- carries `context`
+    # forward but resets `data` to `{}`, so a `token` placed in the
+    # triggering SPEAK's data never survives onto the simulator's own
+    # STARTED/ENDED emissions (real ovos-audio behaviour, not a simulator
+    # bug). Capture's session_id matching reads message.context instead.
+    started = Capture(bus, started_topic, session_id=session_id)
+    ended = Capture(bus, ended_topic, session_id=session_id)
+    try:
+        assert not started.messages and not ended.messages, (
+            "spec audio-output capture already had traffic before this "
+            "test's own trigger -- the capture isn't scoped correctly")
+        bus.emit(Message(speak_spec_topic(), {"token": token},
+                         {"session": session}))
+        assert started.wait(10), (
+            f"the new-vintage audio simulator never emitted "
+            f"{started_topic!r} for a spec-only speak "
+            f"message.\naudio process log:\n{audio.log}")
+        assert not ended.messages, (
+            f"{ended_topic!r} arrived together with (or "
+            f"before) {started_topic!r} -- the simulator "
+            f"isn't actually staggering start/end by its own PLAYBACK_DELAY")
+        assert ended.wait(10), (
+            f"the new-vintage audio simulator emitted "
+            f"{started_topic!r} but never followed with "
+            f"{ended_topic!r}.\naudio process log:\n"
+            f"{audio.log}")
+    finally:
+        started.close()
+        ended.close()
+
+
+@pytest.mark.axes("A")
+def test_audio_simulator_emits_mic_listen_after_ended_when_expect_response(audio_stack):
+    """C4 (adversarial review): MIC_LISTEN must be gated on ``expect_response``
+    -- the key ``OVOSSkill.speak``/``speak_dialog`` actually send and
+    ``ovos_audio/service.py`` (~L366) actually reads -- not a ``listen`` key
+    no producer ever sends.
+
+    Not an ordering assertion against ``ended`` (deliberately): the real
+    ``end_audio(listen, ...)`` fires ENDED and MIC_LISTEN back-to-back with
+    no delay between them (unlike start->end, which the simulator's
+    PLAYBACK_DELAY genuinely staggers), so a "not yet arrived" check in the
+    gap between the two would be racing the network round trip rather than
+    proving anything -- confirmed flaky live when first written this way.
+    The gate itself (this test) and its inverse (the sibling test below,
+    which proves MIC_LISTEN does NOT fire without expect_response) are
+    what's actually falsifiable here.
+    """
+    _server, bus, _skill, audio = audio_stack
+    ended_topic = audio_output_ended_spec_topic()
+    mic_topic = mic_listen_spec_topic()
+    token = uuid.uuid4().hex
+    session_id = f"backcompat-audiosim-listen-{token[:8]}"
+    session = {"session_id": session_id}
+    # session_id-scoped, same reason as the ordering test above:
+    # Message.forward(topic) resets `data` (drops any token there) but
+    # carries `context` forward -- verified live against the real
+    # Message.forward implementation.
+    ended = Capture(bus, ended_topic, session_id=session_id)
+    mic = Capture(bus, mic_topic, session_id=session_id)
+    try:
+        assert not ended.messages and not mic.messages, (
+            "spec audio capture already had traffic before this test's "
+            "own trigger -- the capture isn't scoped correctly")
+        bus.emit(Message(speak_spec_topic(),
+                         {"token": token, "expect_response": True},
+                         {"session": session}))
+        assert ended.wait(10), (
+            f"the new-vintage audio simulator never emitted "
+            f"{ended_topic!r} for an expect_response "
+            f"speak.\naudio process log:\n{audio.log}")
+        assert mic.wait(10), (
+            f"expect_response=True never produced "
+            f"{mic_topic!r} after audio output ended.\naudio "
+            f"process log:\n{audio.log}")
+    finally:
+        ended.close()
+        mic.close()
+
+
+@pytest.mark.axes("A")
+def test_audio_simulator_does_not_emit_mic_listen_without_expect_response(audio_stack):
+    """Inverse of the gate proof above: without ``expect_response``, MIC_LISTEN
+    must NOT fire at all. Mutation proof for C4's fix: a mutant that reverts
+    the gate back to checking a ``listen`` key (which no producer sends) --
+    or drops the gate entirely -- makes this test XPASS-equivalent (MIC_LISTEN
+    fires unconditionally), so this is what actually pins the gate's
+    condition, not just its positive side.
+    """
+    _server, bus, _skill, audio = audio_stack
+    ended_topic = audio_output_ended_spec_topic()
+    mic_topic = mic_listen_spec_topic()
+    token = uuid.uuid4().hex
+    session_id = f"backcompat-audiosim-nolisten-{token[:8]}"
+    session = {"session_id": session_id}
+    ended = Capture(bus, ended_topic, session_id=session_id)
+    mic = Capture(bus, mic_topic, session_id=session_id)
+    try:
+        assert not ended.messages and not mic.messages, (
+            "spec audio capture already had traffic before this test's "
+            "own trigger -- the capture isn't scoped correctly")
+        bus.emit(Message(speak_spec_topic(), {"token": token},
+                         {"session": session}))
+        assert ended.wait(10), (
+            f"the new-vintage audio simulator never emitted "
+            f"{ended_topic!r} for a plain speak (no "
+            f"expect_response).\naudio process log:\n{audio.log}")
+        assert not mic.wait(3), (
+            f"{mic_topic!r} fired without expect_response -- "
+            f"the C4 gate is not actually gating.\naudio process log:\n"
+            f"{audio.log}")
+    finally:
+        ended.close()
+        mic.close()
+
+
+@pytest.mark.axes("A")
+def test_audio_probe_observes_spec_only_emission(audio_stack):
+    """Positive control for the probe itself (design §2.5's real-symbol-probe
+    discipline): the audio simulator's own ``VERSIONS`` handshake must say
+    it emits the spec topic, not a version string this test would have to
+    assume. This is what ``driver.audio_output_end_topic_probe()`` now
+    reads (T2.3 wiring, replacing the old unconditional ``None``).
+    """
+    _server, _bus, _skill, audio = audio_stack
+    ended_topic = audio_output_ended_spec_topic()
+    assert audio.versions.get("vintage") == "new"
+    probed = audio_output_end_topic_probe(audio)
+    assert probed == ended_topic, (
+        f"audio_output_end_topic_probe() observed {probed!r}, expected the "
+        f"spec topic {ended_topic!r} from a 'new'-vintage "
+        f"audio_process.py")
+
+
+@pytest.mark.xfail(strict=True, reason=_SPEAK_WAIT_526_XFAIL_REASON_A_NEW)
+@pytest.mark.axes("S", "A")
+def test_speak_wait_bridges_from_spec_only_audio(audio_stack):
+    """Layer 1 -- the full real path: ``speak(wait=True)`` against a
+    NEW-vintage (spec-only) audio simulator, for an OLD-vintage skill
+    container that only ever knew the legacy topic. Would only unblock via
+    the bus-client ``NamespaceTranslator`` mirroring the spec-only emission
+    onto the legacy topic locally inside the skill's own client. Currently
+    unreachable regardless of the bridge, because of #526 -- see the module
+    section docstring's two-layer note above; Layer 2 below proves the
+    bridge itself.
+    """
+    _server, bus, skill, audio = audio_stack
+    token = uuid.uuid4().hex
+    session = {"session_id": f"backcompat-speakwait-spec-{token[:8]}"}
+    done = Capture(bus, SPEAK_WAIT_DONE_TOPIC, token=token)
+    try:
+        bus.emit(Message(SPEAK_WAIT_TRIGGER_TOPIC, {"token": token},
+                         {"session": session}))
+        # Same positive-control shape as test_speak_wait_unblocks_on_audio_
+        # output_end (#26's mutation-proof pattern): the audio simulator's
+        # own PLAYBACK_DELAY (0.3s) means a genuinely-waiting speak() cannot
+        # have unblocked yet at 0.5s. If it HAS -- #526's "SessionManager.bus
+        # is never connected" no-op returns immediately, regardless of the
+        # translator bridge -- this is the false green the assertion below
+        # exists to catch, converting it into the expected xfail rather than
+        # a silent, meaningless XPASS.
+        time.sleep(0.5)
+        assert not done.messages, (
+            f"{COMBO}: speak(wait=True) returned before the spec-only "
+            f"audio simulator's own audio-output-ended emission -- it "
+            f"never waited.\nskill process log:\n{skill.log}\naudio "
+            f"process log:\n{audio.log}")
+        assert done.wait(15), (
+            f"{COMBO}: speak(wait=True) never unblocked against a "
+            f"spec-only (A=new) audio simulator.\nskill process log:\n"
+            f"{skill.log}\naudio process log:\n{audio.log}")
+    finally:
+        done.close()
+
+
+@pytest.mark.axes("A")
+def test_spec_only_audio_output_end_reaches_a_legacy_listener_via_translator_bridge(audio_stack):
+    """Layer 2 -- proves the translator bridge itself, decoupled from
+    workshop's #526 gap: a second bus client (standing in for "what the
+    skill's own client would locally receive") subscribes to the LEGACY
+    ``AUDIO_OUTPUT_END_TOPIC`` with ``emit_legacy`` on (the default), a
+    spec-only emission is sent, and the shadow listener must still see the
+    legacy counterpart -- delivered locally by its own receiving client,
+    per ``ovos_bus_client.client.client.MessageBusClient.on_message``'s
+    ``counterpart_topics`` fan-out (section docstring above). Mutation-proof
+    positive half of the pair; the inverse control follows.
+    """
+    server, _bus, _skill, _audio = audio_stack
+    ended_topic = audio_output_ended_spec_topic()
+    shadow = server.client(emit_legacy=True)
+    try:
+        assert shadow._translator.emit_legacy is True, (
+            "shadow client's translator did not come up with emit_legacy "
+            "True -- the positive-control setup itself is wrong")
+        token = uuid.uuid4().hex
+        session = {"session_id": f"backcompat-bridge-{token[:8]}"}
+        legacy_seen = Capture(shadow, AUDIO_OUTPUT_END_TOPIC, token=token)
+        try:
+            # Positive control: nothing on the legacy topic yet, so a wait()
+            # below that returns True can only be the emission this test
+            # sends, never leftover traffic from an earlier test.
+            assert not legacy_seen.messages, (
+                "legacy listener already had traffic before the spec "
+                "emission -- the capture isn't scoped correctly")
+            shadow.emit(Message(ended_topic, {"token": token},
+                                {"session": session}))
+            assert legacy_seen.wait(10), (
+                f"a spec-only {ended_topic!r} emission "
+                f"never reached a local listener on the legacy "
+                f"{AUDIO_OUTPUT_END_TOPIC!r} topic -- the NamespaceTranslator "
+                f"receive-side bridge did not fire")
+        finally:
+            legacy_seen.close()
+    finally:
+        shadow.close()
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "inverse control: with the RECEIVING client's own OVOS_BUS_EMIT_LEGACY "
+    "off, the receive-side NamespaceTranslator bridge in "
+    "MessageBusClient.on_message never produces the legacy counterpart "
+    "locally, so a listener bound only to the legacy topic must NOT see a "
+    "spec-only emission. This is the flag that matters for this direction "
+    "(the RECEIVING side's flag, not the emitter's -- see the section "
+    "docstring's 'which process's flag matters' note above). XPASS here "
+    "would mean the bridge fired anyway with the kill switch off, which is "
+    "a real bug in the translator's flag gating, not a reason to drop this "
+    "marker."))
+@pytest.mark.axes("A")
+def test_spec_only_audio_output_end_does_not_reach_a_legacy_listener_with_bridge_off(audio_stack):
+    """Inverse control for the Layer 2 bridge proof above: same shape, but
+    the shadow (receiving) client has ``emit_legacy=False``, so it must NOT
+    locally deliver the legacy counterpart of a spec-only emission.
+    """
+    server, _bus, _skill, _audio = audio_stack
+    ended_topic = audio_output_ended_spec_topic()
+    shadow = server.client(emit_legacy=False)
+    try:
+        assert shadow._translator.emit_legacy is False, (
+            "shadow client's translator did not come up with emit_legacy "
+            "False -- the negative-control setup itself is wrong")
+        token = uuid.uuid4().hex
+        session = {"session_id": f"backcompat-bridge-off-{token[:8]}"}
+        spec_seen = Capture(shadow, ended_topic, token=token)
+        legacy_seen = Capture(shadow, AUDIO_OUTPUT_END_TOPIC, token=token)
+        try:
+            shadow.emit(Message(ended_topic, {"token": token},
+                                {"session": session}))
+            # C2 (BLOCKING, adversarial review): without this check, a
+            # mutant that renames/breaks the spec topic (so
+            # the spec emission itself never lands) makes legacy_seen.wait()
+            # below time out for the WRONG reason -- an absent emission
+            # reads identically to "the bridge correctly stayed silent".
+            # Asserting the spec side actually arrived first is what proves
+            # the xfail below is measuring the translator's emit_legacy
+            # gate specifically, not a broken emission.
+            assert spec_seen.wait(10), (
+                "spec emission never reached the shadow client -- the "
+                "inverse control's own emit is broken, not just the "
+                "bridge (nothing to test if the emission never landed at "
+                "all)")
+            assert legacy_seen.wait(3), (
+                "expected-failure path: the legacy listener should have "
+                "stayed silent with the bridge off")
+        finally:
+            spec_seen.close()
+            legacy_seen.close()
+    finally:
+        shadow.close()

@@ -12,8 +12,8 @@ reachable by real package resolution (design §2.1):
 * **M** -- matcher plugins (``ovos-padatious`` today; ``ovos-adapt-parser``
   is part of the same axis conceptually but has no venv of its own yet --
   see ``build_venvs.sh``, unchanged by this module)
-* **A** -- audio side (``ovos-audio``'s AUDIO-1 output namespace). No venv
-  exists for this yet either; the simulator lands in T2.3 (design §2.6).
+* **A** -- audio side (``ovos-audio``'s AUDIO-1 output namespace), backed
+  by ``test/backcompat/audio_process.py``'s simulator (T2.3, design §2.6).
 
 A cell id is ``S{old|new}-C{old|new}-M{old|new}-A{old|new}``. Today's four
 boundary combo names (``old-skill/old-core`` etc.) are kept as *aliases*
@@ -35,14 +35,17 @@ AXES = ("S", "C", "M", "A")
 REFERENCE = "new"
 OTHER = "old"
 
-#: Axes with no real-symbol probe wired to a live venv yet, so their
-#: nominal vintage in a cell id is an assumption (hard-coded in
-#: ``BOUNDARY_ALIASES``), never an observation. ``A`` (audio) is the only
-#: member today: ``driver.audio_output_end_topic_probe()`` always returns
-#: ``None`` because no venv pins ``ovos-audio`` (the simulator is T2.3,
-#: design §2.6). ``is_redundant`` refuses to prune on an axis in this set
-#: -- see its docstring. Remove ``"A"`` here the same commit T2.3 wires a
-#: real probe and a real venv for it.
+#: Axes whose nominal vintage in a cell id is an assumption (hard-coded in
+#: ``BOUNDARY_ALIASES``), never a *guaranteed* observation. ``A`` (audio) is
+#: the only member today: ``driver.audio_output_end_topic_probe()`` is wired
+#: to a live ``audio_process.py`` subprocess (T2.3, design §2.6) and returns
+#: a real observed topic whenever that process is actually running -- but
+#: most scenarios never spawn one (design §2.4's pruning table: only the
+#: speak-wait / get_response-timeout scenarios cross axis A), so the probe
+#: is genuinely live only conditionally, not for every cell unconditionally.
+#: ``is_redundant`` refuses to prune on an axis in this set -- see its
+#: docstring. Remove ``"A"`` here only once every cell that carries an A
+#: value also runs a scenario that spawns and probes the audio process.
 UNPROBED_AXES: FrozenSet[str] = frozenset({"A"})
 
 CellId = str
@@ -148,12 +151,13 @@ def is_redundant(axes: Iterable[str], cell: CellId) -> bool:
       asserts a handler runs at all.
     * **an axis with no live probe wired never counts as reference.**
       Axis A (audio) is hard-coded ``"new"`` in every alias today
-      (``BOUNDARY_ALIASES``), but ``audio_output_end_topic_probe()``
-      unconditionally returns ``None`` -- there is no venv, and therefore
-      no real observation, backing that label (the audio simulator lands
-      in T2.3). Treating an unprobed axis as reference would let a
-      pruning decision ride on a value nobody actually checked. See
-      ``UNPROBED_AXES``.
+      (``BOUNDARY_ALIASES``), but ``audio_output_end_topic_probe()`` (T2.3)
+      only produces a real observation while an ``audio_process.py``
+      subprocess is actually running for the current test -- most
+      scenarios never spawn one, so for them the cell id's "new" label is
+      still an assumption, not an observation. Treating an unprobed axis
+      as reference would let a pruning decision ride on a value nobody
+      actually checked for THAT test. See ``UNPROBED_AXES``.
     """
     values = axis_values(cell)
     unknown = set(axes) - set(AXES)
