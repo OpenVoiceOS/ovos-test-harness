@@ -138,7 +138,9 @@ wrong-skill conflicts, 29 no-match coverage gaps** as first triaged; a
 subsequent partial CI confirmation run against the re-curated corpus found
 one of those 29 gaps had since closed upstream (see "Coverage-gap
 correction, CI-confirmed" below), moving the current count to **552
-correct, 6 conflicts, 28 gaps** out of 582 rows exercised.
+correct, 6 conflicts, 28 gaps** out of 582 rows exercised. That count has
+since dropped further to **553 correct, 5 conflicts, 28 gaps**: see the
+"begin downtime" correction below.
 
 An earlier pass of this triage over-counted conflicts: the first routing
 heuristic treated ANY message in a captured window naming a fleet
@@ -150,21 +152,23 @@ and produced two large false clusters (`ovos-skill-parrot` /
 `skill-ovos-randomness` both "losing" to `ovos-skill-number-facts`) that
 disappeared entirely once the claimant check was narrowed to the
 `<skill_id>:<intent_name>` dispatch topic the intent pipeline actually
-emits (see `test_fleet_routing.py::_claimant`). The real number is 6.
+emits (see `test_fleet_routing.py::_claimant`). The real number was 6 at
+that point in the triage's history; it has since dropped to 5 (see below).
 
-### Wrong-skill theft (`conflict`) — 6 rows
+### Wrong-skill theft (`conflict`) — 5 rows (was 6; see correction below)
 
 | expected | utterance | actually claimed by |
 |---|---|---|
 | `ovos-skill-alerts.openvoiceos` | remind me to go to work weekday mornings at 8 | `ovos-skill-date-time.openvoiceos` |
 | `ovos-skill-application-launcher.openvoiceos` | terminate something | `ovos-skill-dictation.openvoiceos` |
 | `ovos-skill-diagnostics.openvoiceos` | is there a gpu in your system | `ovos-skill-date-time.openvoiceos` |
-| `ovos-skill-naptime.openvoiceos` | begin downtime | `ovos-skill-parrot.openvoiceos` |
+| ~~`ovos-skill-naptime.openvoiceos`~~ | ~~begin downtime~~ | ~~`ovos-skill-parrot.openvoiceos`~~ (fixed upstream, see below) |
 | `ovos-skill-naptime.openvoiceos` | wake up | `ovos-skill-alerts.openvoiceos` |
 
-("remind me to go to work..." appears twice in the corpus, hence 5 distinct
-conflicts but 6 failing rows.) No single thief dominates here — each
-conflict is a one-off adapt/padatious overlap:
+("remind me to go to work..." appears twice in the corpus, hence 4 distinct
+conflicts but 5 failing rows, now that "begin downtime" is out of the
+table.) No single thief dominates here — each conflict is a one-off
+adapt/padatious overlap:
 
 - `ovos-skill-date-time` claims both a recurring-reminder phrase that
   belongs to `alerts` ("remind me to go to work weekday mornings at 8") and
@@ -172,11 +176,93 @@ conflict is a one-off adapt/padatious overlap:
   date-time's vocabulary appears to include very broad time/day-of-week
   matching that fires on "weekday mornings" and "system" regardless of the
   rest of the sentence.
-- `ovos-skill-naptime` loses "begin downtime" to `ovos-skill-parrot` and
-  "wake up" to `ovos-skill-alerts` — naptime's own start/stop-sleep
-  vocabulary is narrower than the phrasing the corpus generated for it.
+- `ovos-skill-naptime` loses "wake up" to `ovos-skill-alerts` — naptime's
+  own start/stop-sleep vocabulary is narrower than the phrasing the corpus
+  generated for it. (It also used to lose "begin downtime" to
+  `ovos-skill-parrot`; that row is fixed upstream, see below — it is no
+  longer accurate to say naptime loses that utterance.)
 - `ovos-skill-application-launcher` loses "terminate something" to
   `ovos-skill-dictation`.
+
+**"begin downtime" no longer reproduces.** `ovos-skill-naptime@dev` now ships
+`(begin|start) (downtime|sleep interval)` in `locale/en-US/naptime.intent`, so
+"begin downtime" is a literal trained padatious sample for naptime.
+
+Two pieces of evidence, of different strength:
+
+- A two-skill MiniCroft (naptime + parrot only) on `ovoscope`'s
+  `DEFAULT_TEST_PIPELINE`, driven with this suite's own capture and
+  `<skill_id>:<intent_name>` claimant check: naptime claims it
+  (`ovos-skill-naptime.openvoiceos:naptime`). This is an **approximation**
+  of the real fleet-scale finding — it isolates naptime and parrot from the
+  other ~29 skills, so it cannot rule out some other fleet skill re-stealing
+  the row, and it cannot rule out the shared adapt/padatious container
+  scoring differently once retrained against the full population (the same
+  effect this file's "over-counted conflicts" note above already documents
+  for a different pair of rows).
+- The stronger check, attempted: `test_fleet_routing.py` itself, row-filtered
+  to just this one utterance (`pytest -k "naptime.openvoiceos::begin_downtime"`),
+  against the REAL full fleet population — row filtering narrows which
+  assertions run, not the ~31-skill population `setup_module` still boots.
+  This did **not** complete: the fleet boot hit `get_minicroft()`'s own
+  1800s (30 min) ceiling and raised `TimeoutError` before any row could be
+  asserted, competing on this machine against other concurrent work at the
+  time — not evidence of a hang (see this file's own "CI runtime cost"
+  section above: a 20-40 minute local boot is the documented normal case
+  even uncontended). This attempt is inconclusive, not a negative result;
+  it was not repeated on a quieter machine due to time constraints.
+
+**Net evidence for "begin downtime" as this document stands**: the two-skill
+approximation above only. It is real evidence (naptime's own PR #93 template
+change is a directly on-point mechanism, and the claimant check is the
+suite's own), but it is still an approximation of the fleet-scale claim, not
+a substitute for one. Fleet-scale confirmation is still open — the weekly
+scheduled `skills_fleet` CI job, or a re-run on an otherwise-idle machine,
+would settle it authoritatively; until then this row's `xfail` removal
+below rests on the two-skill result.
+
+The `xfail(strict=True)` entry for the "begin downtime" row is removed here —
+kept, it would `XPASS` and fail the suite. The "wake up" row still
+reproduces: alerts' `CreateAlarmAlt` requires only the `wake` keyword, and
+its `wake.voc` listed the bare forms "wake" / "wake up", so a bare wake
+request with no time attached became an alarm request. The fix for that row
+is a separate PR against `ovos-skill-alerts`
+(OpenVoiceOS/ovos-skill-alerts#145); this row's `xfail` entry stays until
+that PR merges.
+
+### A note on "default pipeline" in this file
+
+Earlier text in this document (and in PR descriptions referencing it) says
+"the default pipeline" loosely. Two different things go by that name and
+they are NOT the same list:
+
+- **`ovoscope.DEFAULT_TEST_PIPELINE`** — a harness/test-only constant:
+  `stop-high, converse, adapt-high, padatious-high, padacioso-high,
+  adapt-medium, padatious-medium, padacioso-medium, common-query, adapt-low,
+  padatious-low, padacioso-low, fallback-high, fallback-medium,
+  fallback-low, stop-medium`. `test_fleet_routing.py` uses this (via
+  `get_minicroft()`'s own default when no pipeline is passed).
+- **The real device default** — `Configuration()["intents"]["pipeline"]` on
+  `ovos-core@dev`, i.e. what an actual `mycroft.conf` boots with:
+  `stop-high, converse, ocp-high, padatious-high, adapt-high, m2v-high,
+  ocp-medium, fallback-high, stop-medium, adapt-medium, fallback-medium,
+  fallback-low`.
+
+`ovoscope.DEFAULT_TEST_PIPELINE` is a **superset with different internal
+ordering**, not an approximation of the real default: it adds the
+padacioso/common-query/low-confidence stages the real default never
+requests at all, and — for the two engines both naptime rows above
+depend on — it runs `adapt-high` *before* `padatious-high`, while the real
+default runs `padatious-high` *before* `adapt-high`. A finding produced only
+by a low-confidence tier (`*-low`) or by `padacioso`/`common-query` in
+`DEFAULT_TEST_PIPELINE` is a harness-only signal: nothing on a real device
+would ever reach that stage for an utterance any higher tier already
+resolved. A finding reproduced at `*-high` or `*-medium` is a real,
+device-relevant bug — those tiers exist, in the same relative order, on
+both pipelines. Where this file says "default pipeline" without
+qualification going forward, it means `ovoscope.DEFAULT_TEST_PIPELINE`
+unless stated otherwise; `ovos-skill-alerts`#145 separately re-confirms its
+fix against the real device default too.
 
 ### Coverage gaps (`coverage-gap`) — 28 rows (see correction note below)
 
