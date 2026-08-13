@@ -450,7 +450,6 @@ def test_the_handler_binding_matches_the_probed_dispatch_topic(stack):
         f"this test's docstring, the #500 hazard it names.")
 
 
-@pytest.mark.xfail(IS_BROKEN_CELL, strict=True, reason=_XFAIL_REASON)
 @pytest.mark.axes("S", "C", "M")
 def test_the_skill_handler_runs(stack):
     """The contract: a canonical dispatch must reach the skill's handler.
@@ -489,7 +488,6 @@ def test_the_skill_handler_runs(stack):
         spoken.close()
 
 
-@pytest.mark.xfail(IS_BROKEN_CELL, strict=True, reason=_XFAIL_REASON)
 @pytest.mark.axes("S", "C", "M")
 def test_the_handler_runs_exactly_once(stack):
     """A skill bound to both spellings must not answer twice.
