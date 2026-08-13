@@ -72,6 +72,12 @@ on:
     - cron: '0 4 * * 0'
   workflow_dispatch:
 
+# Read-only: this workflow makes no GitHub writes (no commit, no PR
+# comment, no issue -- see the summarize job's own docstring), so the
+# default token needs nothing beyond checking out the repo.
+permissions:
+  contents: read
+
 jobs:
   generate-matrix:
     # Single source of the cell list (design §3.2's instruction: do not
@@ -83,6 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       cells: ${{ steps.gen.outputs.cells }}
+      combos: ${{ steps.gen.outputs.combos }}
     steps:
       - name: Select this run's cells by trigger tier
         id: gen
@@ -138,6 +145,19 @@ jobs:
                "core_dir": "venvs/channel", "tier": "channel"},
           ]
 
+          # ALL_CELLS' own "tier" values are a closed whitelist -- the
+          # filter below only ever selects cells whose tier is in the
+          # `tiers` set built per-trigger further down, and every one of
+          # those sets is drawn from {"boundary", "channel"}. A typo'd tier
+          # value on a new cell (e.g. "boundry") would match none of those
+          # sets on ANY trigger, so the cell silently vanishes from every
+          # run with exit 0 and zero signal -- an adversarial-review
+          # finding. Assert the whitelist here, at collection time, so a
+          # bad tier value fails the job loudly instead.
+          assert {c["tier"] for c in ALL_CELLS} <= {"boundary", "channel"}, (
+              f"unknown tier(s) in ALL_CELLS: "
+              f"{ {c['tier'] for c in ALL_CELLS} - {'boundary', 'channel'} }")
+
           event = os.environ["EVENT_NAME"]
           cron = os.environ.get("CRON", "")
 
@@ -161,6 +181,13 @@ jobs:
                 f"{[c['combo'] for c in selected]}")
           with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
               fh.write("cells=" + json.dumps({"include": selected}) + "\n")
+              # The combo names selected for THIS run, independent of
+              # whether the `matrix` job for each one ever produces a
+              # findings artifact -- the `summarize` job diffs this
+              # against what it actually downloaded, so a cell whose venv
+              # build fails before pytest runs (no artifact at all, not
+              # even an exitstatus) doesn't just vanish silently.
+              fh.write("combos=" + json.dumps([c["combo"] for c in selected]) + "\n")
           PYEOF
 
   matrix:
@@ -253,7 +280,7 @@ jobs:
           if-no-files-found: warn
 
   summarize:
-    needs: matrix
+    needs: [generate-matrix, matrix]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -285,13 +312,13 @@ jobs:
       # reporting).
       - name: Render FINDINGS/SPRINT.md
         env:
-          SUMMARY_DATE: ${{ github.event.head_commit.timestamp || github.run_started_at }}
+          SUMMARY_DATE: ${{ github.event.head_commit.timestamp }}
+          EXPECTED_COMBOS: ${{ needs.generate-matrix.outputs.combos }}
         run: |
-          # Fall back to `date -u` if neither GitHub context field above
-          # resolved to anything (e.g. a workflow_dispatch/schedule run has
-          # no head_commit, and run_started_at isn't a real top-level
-          # github context field -- kept as a documented best-effort, with
-          # a real timestamp always available as the guaranteed fallback).
+          # Fall back to `date -u` if SUMMARY_DATE above resolved to
+          # nothing (e.g. a workflow_dispatch/schedule run has no
+          # head_commit) -- a real timestamp is always available as the
+          # guaranteed fallback.
           export SUMMARY_DATE="${SUMMARY_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
           python3 - <<'PYEOF'
           import glob
@@ -299,13 +326,64 @@ jobs:
           import os
           from collections import defaultdict
 
+          # Each findings file is now an object, {"cell", "combo",
+          # "exitstatus", "records"} (see test/backcompat/findings.py's
+          # write_findings) -- exitstatus is what lets a cell that died at
+          # collection (e.g. an import-time assert) be told apart from a
+          # clean run, since both used to write the same bare `[]`.
+          # Old-shape files (a bare list) are still accepted -- treated as
+          # records with unknown exitstatus -- so a mixed-vintage findings
+          # download never crashes this step.
+          #
+          # `cells_red` (exitstatus == 1, real test failures -- the cell
+          # DID complete, pytest just found a genuine regression) and
+          # `did_not_complete` (exitstatus is None/unknown or >= 2, i.e.
+          # the run itself never produced a normal pass/fail result --
+          # collection errors, crashes, timeouts) are reported as two
+          # separate sections: a red cell is signal a maintainer should
+          # act on immediately, a cell that never finished is a
+          # "the matrix ran blind here" gap -- conflating the two under one
+          # heading was itself a reviewed defect (both used `exitstatus not
+          # in (0, None)`, which put ordinary test failures in the same
+          # bucket as collection deaths).
           records = []
+          cells_red = []
+          did_not_complete = []
+          found_combos = set()
           for path in sorted(glob.glob("findings/backcompat-findings-*.json")):
               with open(path) as f:
                   try:
-                      records.extend(json.load(f))
+                      payload = json.load(f)
                   except json.JSONDecodeError as e:
                       print(f"::warning::{path}: not valid JSON ({e}), skipping")
+                      continue
+              if isinstance(payload, list):
+                  # old shape: bare records list, exitstatus/combo unknown.
+                  records.extend(payload)
+                  continue
+              cell = payload.get("cell") or os.path.basename(path)
+              combo = payload.get("combo")
+              if combo:
+                  found_combos.add(combo)
+              exitstatus = payload.get("exitstatus")
+              records.extend(payload.get("records") or [])
+              if exitstatus == 1:
+                  cells_red.append((cell, exitstatus, path))
+              elif exitstatus is None or (isinstance(exitstatus, int) and exitstatus >= 2):
+                  did_not_complete.append((cell, exitstatus, path))
+
+          # FIX (adversarial re-review): a cell whose venv build fails
+          # before pytest ever runs produces NO findings file at all --
+          # `download-artifact` with `pattern:` succeeds on zero matches,
+          # so that cell was previously invisible everywhere, including
+          # this "did not complete" accounting. `generate-matrix`'s own
+          # `combos` output (the combo names it selected for THIS run,
+          # independent of whether the matrix job for each one ever
+          # produced an artifact) is what lets this step notice a combo
+          # nothing was ever uploaded for.
+          expected_combos = set(json.loads(os.environ.get("EXPECTED_COMBOS", "[]")))
+          for combo in sorted(expected_combos - found_combos):
+              did_not_complete.append((combo, "no artifact", "<none uploaded>"))
 
           xpass = [r for r in records if r.get("outcome") == "xpass"]
           xfail = [r for r in records if r.get("outcome") == "xfail"]
@@ -335,6 +413,26 @@ jobs:
           lines = []
           lines.append(f"# back-compat matrix — sprint input (generated {date}, run {run_url})")
           lines.append("")
+          lines.append("## Cells red")
+          lines.append("")
+          if cells_red:
+              lines.append("| cell | exitstatus | findings file |")
+              lines.append("|---|---|---|")
+              for cell, exitstatus, path in sorted(cells_red, key=lambda t: (t[0], str(t[1]))):
+                  lines.append(f"| {cell} | {exitstatus} | {path} |")
+          else:
+              lines.append("None this run -- no cell exited with a genuine test failure.")
+          lines.append("")
+          lines.append("## Cells that did not complete")
+          lines.append("")
+          if did_not_complete:
+              lines.append("| cell | exitstatus | findings file |")
+              lines.append("|---|---|---|")
+              for cell, exitstatus, path in sorted(did_not_complete, key=lambda t: (t[0], str(t[1]))):
+                  lines.append(f"| {cell} | {exitstatus} | {path} |")
+          else:
+              lines.append("None this run -- every selected cell produced a normal pass/fail result.")
+          lines.append("")
           lines.append("## XPASS — a fix shipped, drop the marker")
           lines.append("")
           if xpass:
@@ -353,13 +451,19 @@ jobs:
           if by_boundary:
               lines.append("| boundary | axes | cells red | scenarios | blocked on | owner |")
               lines.append("|---|---|---|---|---|---|")
+              def _scrub(s):
+                  return s.replace("|", "\\|").replace(chr(10), " ")
+
               for boundary, entry in sorted(by_boundary.items()):
+                  scenarios = "; ".join(sorted(entry["scenarios"]))
+                  blocked_on = "; ".join(sorted(entry["blocked_on"])) or "—"
+                  owner = "; ".join(sorted(entry["owner"])) or "—"
                   lines.append(
-                      f"| {boundary} | {','.join(sorted(entry['axes']))} | "
+                      f"| {_scrub(boundary)} | {','.join(sorted(entry['axes']))} | "
                       f"{len(entry['cells'])} | "
-                      f"{'; '.join(sorted(entry['scenarios']))} | "
-                      f"{'; '.join(sorted(entry['blocked_on'])) or '—'} | "
-                      f"{'; '.join(sorted(entry['owner'])) or '—'} |")
+                      f"{_scrub(scenarios)} | "
+                      f"{_scrub(blocked_on)} | "
+                      f"{_scrub(owner)} |")
           else:
               lines.append("No red boundaries this run.")
 

@@ -197,18 +197,48 @@ def record_report(report, axes_by_nodeid: Dict[str, tuple]) -> None:
     })
 
 
-def write_findings(out_dir: str = ".") -> Optional[str]:
+def write_findings(out_dir: str = ".",
+                    exitstatus: Optional[int] = None) -> Optional[str]:
     """Write ``backcompat-findings-<cell>.json`` for this run, from records
     accumulated in ``_RECORDS`` over the session. Returns the path written,
     or ``None`` when there was no combo selected at all (a bare ``pytest
     test/backcompat/`` with no ``BACKCOMPAT_COMBO`` -- nothing cell-scoped
-    to report)."""
+    to report).
+
+    ``exitstatus`` is pytest's own ``pytest_terminal_summary`` exitstatus
+    argument, threaded through from ``conftest.py``'s hook. It is recorded
+    verbatim in the written file so a cell that died at collection (e.g. an
+    import-time ``assert`` in ``test_mixed_version_matrix.py``) produces a
+    file distinguishable from a clean run -- prior to this, this function
+    wrote a bare ``[]`` records list with no run-status field at all, so a
+    cell that exploded before a single test ran looked byte-identical to a
+    cell that passed cleanly with zero xfail/xpass records (both empty
+    lists). The file is now an object, ``{"cell", "combo", "exitstatus",
+    "records"}``, so the ``summarize`` job in
+    ``.github/workflows/backcompat_matrix.yml`` can tell the two apart and
+    render a "cells that did not complete" section. ``combo`` (the raw
+    ``BACKCOMPAT_COMBO`` value, distinct from ``cell`` which is the
+    *resolved* boundary-cell id for boundary combos) is what lets that job
+    detect a cell that produced NO findings file at all -- a venv build
+    failure before pytest ever runs uploads nothing, and
+    ``download-artifact`` with a ``pattern:`` succeeds on zero matches, so
+    that case was previously invisible; ``generate-matrix``'s own
+    ``combos`` output is diffed against every downloaded file's ``combo``
+    to catch it. ``None`` means the caller didn't have an exitstatus to
+    give (kept optional so direct/older callers -- e.g. this module's own
+    tests -- don't have to supply one)."""
     combo = os.environ.get("BACKCOMPAT_COMBO", "")
     if not combo:
         return None
     cell = resolve_cell_label(combo)
     path = os.path.join(out_dir, _findings_filename(cell))
+    payload = {
+        "cell": cell,
+        "combo": combo,
+        "exitstatus": exitstatus,
+        "records": _RECORDS,
+    }
     with open(path, "w") as f:
-        json.dump(_RECORDS, f, indent=2, sort_keys=True)
+        json.dump(payload, f, indent=2, sort_keys=True)
         f.write("\n")
     return path

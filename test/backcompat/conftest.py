@@ -129,7 +129,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         terminalreporter.write_line(_LAST_PRUNE_SUMMARY)
 
     from . import findings
-    path = findings.write_findings()
+    path = findings.write_findings(exitstatus=exitstatus)
     if path is not None:
         terminalreporter.write_line(
             f"[backcompat findings] wrote {path}")
