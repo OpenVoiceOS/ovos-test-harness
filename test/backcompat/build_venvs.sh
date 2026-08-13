@@ -7,13 +7,15 @@
 #
 # Usage:  test/backcompat/build_venvs.sh <target-dir> [venv-name ...]
 #
-# With no venv-name arguments, all eight venvs are built (this is what keeps
-# any existing caller that just passes a target dir working unchanged, e.g.
+# With no venv-name arguments, ALL of them are built (this is what keeps any
+# existing caller that just passes a target dir working unchanged, e.g.
 # `docs/ci.md`'s usage example). Name one or more of the venvs below to build
 # only those — this is what lets each CI matrix job build exactly the pair (or
-# triple) its cell needs instead of all eight:
+# triple) its cell needs instead of the whole set:
 #
 #   venv_skill_old venv_skill_new venv_core_old venv_core_new venv_audio
+#   venv_core_new_matchers_old venv_core_old_matchers_new
+#   venv_core_skew_padatious_old_adapt_new
 #   venv_skill_stable venv_skill_testing venv_core_stable venv_core_testing
 #
 # An unrecognized name is a hard error (not a silent no-op), since a typo'd
@@ -75,6 +77,58 @@
 #   core_new   ovos-core @ dev + ovos-padatious>=2.0.1a2
 #              Folds at registration, so it dispatches the canonical topic.
 #
+#   venv_core_new_matchers_old / venv_core_old_matchers_new  (T2.5, the M axis)
+#              ovos-core @ dev      + ovos-padatious==2.0.0a1
+#              ovos-core==2.5.5a2   + ovos-padatious>=2.0.1a2 + ovos-adapt-parser>=1.4.0a1
+#              The matcher plugins are DEPLOYER-installed: ovos-core's runtime
+#              `dependencies` list names neither package (only its [test] extra
+#              mentions them), so both of these mixes are reachable by real
+#              resolution, not contrivances. Until T2.5 every core venv above
+#              welded its padatious vintage to its ovos-core vintage, which made
+#              the matrix unable to say WHICH of the two packages a red cell was
+#              actually attributable to. These two venvs are what let it say
+#              that. Same pin syntax as core_old/core_new above (an exact `==`
+#              on the old side, a `>=` floor on the new side).
+#
+#              WHY THE OLD SIDE PINS NO ovos-adapt-parser (verified, T2.5):
+#              the adapt half of the M axis is NOT independently reachable in
+#              the old direction. `ovos-adapt-parser==1.3.4a1` (the last release
+#              before the 1.4.0a1 boundary) caps `ovos-spec-tools<1.0.0`, while
+#              ovos-core floors it far above that on BOTH pins this matrix uses
+#              — 2.5.5a2 needs spec-tools>=1.5.0a1, dev needs >=1.6.1a1. uv
+#              refuses both mixes as unsatisfiable, verbatim:
+#
+#                Because ovos-adapt-parser==1.3.4a1 depends on
+#                ovos-spec-tools>=0.16.1a2,<1.0.0 and ovos-core==2.6.3a1 depends
+#                on ovos-spec-tools[langcodes]>=1.6.1a1,<2.0.0, we can conclude
+#                that ovos-adapt-parser==1.3.4a1 and ovos-core==2.6.3a1 are
+#                incompatible.
+#
+#              So old-adapt does not co-resolve with either core vintage this
+#              matrix pins. It is not unreachable in general — it resolves fine
+#              against ovos-core<=2.2.x, which is BELOW this matrix's C-old
+#              boundary (2.5.5a2) and therefore outside the axis space entirely.
+#              Design §2.1's "matchers are deployer-installed, any mix is real"
+#              holds for ovos-padatious against both core pins, and for
+#              ovos-adapt-parser only in the new direction. Rather than invent a
+#              cell no venv here can build, the old side of M is padatious-only
+#              — exactly what venv_core_old already is — and adapt is pinned
+#              only where it actually resolves.
+#
+#   venv_core_skew_padatious_old_adapt_new  (T2.5, design §2.2's skew sub-cells)
+#              ovos-core @ dev + ovos-padatious==2.0.0a1 + ovos-adapt-parser>=1.4.0a1
+#              The two matchers at OPPOSITE vintages, on a current core.
+#              Design §2.2 asks for the skew in both directions (4 sub-cells);
+#              only this direction exists, for the resolver reason above — the
+#              padatious-new/adapt-old inverse does not co-resolve with either
+#              core pin, so it is not built and not claimed.
+#              §2.2 calls the skew a registration/dispatch-scenario concern,
+#              which is a statement about what the skew can CHANGE, not about
+#              what these cells RUN: like every other cell they run the whole
+#              suite (minus whatever axis pruning deselects). Nothing here
+#              filters them down to scenario 1, and adding a -k filter would
+#              cost more than the handful of seconds it would save.
+#
 #   venv_audio ovos-bus-client only (current)
 #              Backs test/backcompat/audio_process.py (design §2.6). The
 #              A-axis "vintage" is BEHAVIOURAL, not a package pin -- there is
@@ -110,7 +164,9 @@ TESTING_CONSTRAINTS_URL="${BACKCOMPAT_TESTING_CONSTRAINTS_URL:-https://raw.githu
 
 PY="${BACKCOMPAT_PYTHON:-python3.11}"
 
-ALL_BOUNDARY_VENVS=(venv_skill_old venv_skill_new venv_core_old venv_core_new venv_audio)
+ALL_BOUNDARY_VENVS=(venv_skill_old venv_skill_new venv_core_old venv_core_new venv_audio
+                    venv_core_new_matchers_old venv_core_old_matchers_new
+                    venv_core_skew_padatious_old_adapt_new)
 ALL_CHANNEL_VENVS=(venv_skill_stable venv_skill_testing venv_core_stable venv_core_testing)
 ALL_VENVS=("${ALL_BOUNDARY_VENVS[@]}" "${ALL_CHANNEL_VENVS[@]}")
 
@@ -194,6 +250,18 @@ wants venv_skill_old && mkvenv venv_skill_old "ovos-workshop==9.3.1a2" "setuptoo
 wants venv_skill_new && mkvenv venv_skill_new "ovos-workshop @ git+https://github.com/OpenVoiceOS/ovos-workshop@dev" "setuptools<81"
 wants venv_core_old  && mkvenv venv_core_old  "ovos-core==2.5.5a2" "ovos-padatious==2.0.0a1" ovos-messagebus pytest pytest-timeout "setuptools<81"
 wants venv_core_new  && mkvenv venv_core_new  "$CORE_SPEC" "ovos-padatious>=2.0.1a2" ovos-messagebus pytest pytest-timeout "setuptools<81"
+# T2.5 -- the M (matcher) axis. See the pins block in this file's header for
+# why each of these four is a reachable deployment and not a contrivance.
+wants venv_core_new_matchers_old && mkvenv venv_core_new_matchers_old \
+  "$CORE_SPEC" "ovos-padatious==2.0.0a1" \
+  ovos-messagebus pytest pytest-timeout "setuptools<81"
+wants venv_core_old_matchers_new && mkvenv venv_core_old_matchers_new \
+  "ovos-core==2.5.5a2" "ovos-padatious>=2.0.1a2" "ovos-adapt-parser>=1.4.0a1" \
+  ovos-messagebus pytest pytest-timeout "setuptools<81"
+wants venv_core_skew_padatious_old_adapt_new && mkvenv venv_core_skew_padatious_old_adapt_new \
+  "$CORE_SPEC" "ovos-padatious==2.0.0a1" "ovos-adapt-parser>=1.4.0a1" \
+  ovos-messagebus pytest pytest-timeout "setuptools<81"
+
 wants venv_audio      && mkvenv venv_audio    ovos-bus-client "setuptools<81"
 
 wants venv_skill_stable  && mkvenv_channel venv_skill_stable  "$STABLE_CONSTRAINTS_URL"  ovos-workshop "setuptools<81"
@@ -212,7 +280,7 @@ for v in "${REQUESTED[@]}"; do
   "$dir/bin/python" - <<'EOF' || true
 from importlib.metadata import version, PackageNotFoundError
 for p in ("ovos-workshop", "ovos-bus-client", "ovos-core", "ovos-padatious",
-          "ovos-spec-tools"):
+          "ovos-adapt-parser", "ovos-spec-tools"):
     try:
         print(f"    {p}=={version(p)}")
     except PackageNotFoundError:

@@ -6,9 +6,15 @@ name: mixed-version back-compat matrix
 # limitation. A skill container frozen months ago talking to a current core is
 # two package sets at once, so it needs two venvs and a real websocket.
 #
-# Four skill/core combinations, one matrix entry each, all sharing the one
+# Skill/core/matcher combinations, one matrix entry each, all sharing the one
 # parameterized script in `test/backcompat/`. Pins and reasoning live in
 # `test/backcompat/build_venvs.sh` and the suite's module docstring.
+#
+# The matcher (M) axis is crossed against the core (C) axis: ovos-core names
+# neither ovos-padatious nor ovos-adapt-parser as a runtime dependency, so a
+# deployer installs whichever vintage they like on either core. That makes
+# old-matcher/new-core and new-matcher/old-core real deployments, and it is
+# what lets a red cell be blamed on the matcher plugin instead of on core.
 #
 # Alongside the boundary-pin cells there are four channel cells
 # (stable-skill/dev-core, dev-skill/stable-core, testing-skill/dev-core,
@@ -126,6 +132,39 @@ jobs:
                "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
               {"combo": "new-skill/new-core", "skill": "venv_skill_new",
                "core": "venv_core_new", "audio": "venv_audio",
+               "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
+              # T2.5 -- the M (matcher) axis. ovos-core declares neither
+              # matcher plugin as a runtime dependency, so the deployer
+              # picks the padatious/adapt vintage independently of the core
+              # vintage; these six cells are what make the matrix able to
+              # attribute a red cell to the matcher package rather than to
+              # ovos-core. Same "boundary" tier as the four aliases above
+              # (design §2.4's S×C×M cube) -- see cells.py's
+              # BOUNDARY_ALIASES for the matching cell ids.
+              {"combo": "old-skill/new-core-old-matchers", "skill": "venv_skill_old",
+               "core": "venv_core_new_matchers_old", "audio": "venv_audio",
+               "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
+              {"combo": "new-skill/new-core-old-matchers", "skill": "venv_skill_new",
+               "core": "venv_core_new_matchers_old", "audio": "venv_audio",
+               "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
+              {"combo": "old-skill/old-core-new-matchers", "skill": "venv_skill_old",
+               "core": "venv_core_old_matchers_new", "audio": "venv_audio",
+               "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
+              {"combo": "new-skill/old-core-new-matchers", "skill": "venv_skill_new",
+               "core": "venv_core_old_matchers_new", "audio": "venv_audio",
+               "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
+              # skew sub-cells: ovos-padatious old, ovos-adapt-parser new,
+              # on a current core. Design §2.2 scopes the skew's EFFECT to
+              # the registration/dispatch scenario; these jobs still run
+              # the whole suite like every other cell. The inverse skew
+              # (padatious new, adapt old) is absent because it does not
+              # co-resolve with either core pin -- see build_venvs.sh's
+              # header for uv's verbatim refusal.
+              {"combo": "old-skill/new-core-padatious-old-adapt-new", "skill": "venv_skill_old",
+               "core": "venv_core_skew_padatious_old_adapt_new", "audio": "venv_audio",
+               "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
+              {"combo": "new-skill/new-core-padatious-old-adapt-new", "skill": "venv_skill_new",
+               "core": "venv_core_skew_padatious_old_adapt_new", "audio": "venv_audio",
                "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
               # channel cells: one side pinned by a live OVOS distro
               # constraints file (fetched fresh in build_venvs.sh), the

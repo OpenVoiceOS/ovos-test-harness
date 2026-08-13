@@ -8,19 +8,93 @@ the venv-dependent test module in the first place.
 """
 import pytest
 
-from .cells import (AXES, BOUNDARY_ALIASES, CHANNEL_CELLS, assert_vintage,
+from .cells import (AXES, BOUNDARY_ALIASES, CHANNEL_CELLS, MATCHER_SKEW,
+                    OTHER, REFERENCE, adapt_vintage, assert_vintage,
                     axis_values, cell_id, is_redundant, probed_vintage_matches,
                     resolve_cell)
 
 
+#: The exact worked example in design §2.5 -- the four combo names that
+#: existed before the M axis got its own cells. These are the compat surface
+#: (``BACKCOMPAT_COMBO`` values, CI matrix entries), so their mapping is
+#: pinned exactly; T2.5 adds cells ALONGSIDE them and must not move them.
+_DESIGN_2_5_ALIASES = {
+    "old-skill/old-core": "Sold-Cold-Mold-Anew",
+    "old-skill/new-core": "Sold-Cnew-Mnew-Anew",
+    "new-skill/old-core": "Snew-Cold-Mold-Anew",
+    "new-skill/new-core": "Snew-Cnew-Mnew-Anew",
+}
+
+
 def test_alias_table_matches_design_section_2_5():
-    """The exact worked example in design §2.5."""
-    assert BOUNDARY_ALIASES == {
-        "old-skill/old-core": "Sold-Cold-Mold-Anew",
-        "old-skill/new-core": "Sold-Cnew-Mnew-Anew",
-        "new-skill/old-core": "Snew-Cold-Mold-Anew",
-        "new-skill/new-core": "Snew-Cnew-Mnew-Anew",
-    }
+    """The four original aliases keep their exact §2.5 mapping.
+
+    A subset check, not an equality one, since T2.5 added M-axis cells to
+    the same table -- but the four names below are the ones CI and every
+    existing caller pass, so each must still resolve to the exact cell it
+    always did. An added cell is fine; a MOVED alias is a compat break.
+    """
+    for combo, cell in _DESIGN_2_5_ALIASES.items():
+        assert BOUNDARY_ALIASES[combo] == cell
+
+
+def test_the_m_axis_cells_actually_cross_m_against_c():
+    """T2.5: the point of the ``*-matchers`` cells is that M != C in them.
+
+    Without this, someone could add a cell named ``-old-matchers`` that
+    quietly pinned M to the same vintage as C, and the M axis would be back
+    to being unfalsifiable while looking covered.
+    """
+    crossed = {c for c in BOUNDARY_ALIASES if c.endswith(("-old-matchers",
+                                                          "-new-matchers"))}
+    assert len(crossed) == 4, (
+        f"expected the four M-crossed cells (design §2.4's S×C×M cube minus "
+        f"the four original aliases), got {sorted(crossed)}")
+    for combo in crossed:
+        values = axis_values(BOUNDARY_ALIASES[combo])
+        assert values["M"] != values["C"], (
+            f"{combo!r} resolves to {BOUNDARY_ALIASES[combo]!r}, where M "
+            f"equals C -- it does not cross the matcher axis at all")
+
+
+def test_skew_sub_cells_declare_an_adapt_vintage_and_share_a_cell_id():
+    """T2.5 / design §2.2: skew sub-cells are NOT a fifth axis.
+
+    Each one carries the PADATIOUS vintage in its cell id (so it prunes
+    identically to the non-skewed cell it shares that id with) and records
+    the adapt half separately. Only the adapt-new direction is reachable --
+    ``ovos-adapt-parser==1.3.4a1`` caps ``ovos-spec-tools`` below every core
+    pin -- so an OTHER value appearing here would mean somebody added a cell
+    no venv can build.
+    """
+    assert MATCHER_SKEW, "the skew sub-cells vanished"
+    for combo, adapt in MATCHER_SKEW.items():
+        assert adapt == REFERENCE, (
+            f"{combo!r} claims adapt={adapt!r}; the old adapt vintage does "
+            f"not resolve against any core pin build_venvs.sh uses")
+        assert adapt_vintage(combo) == adapt
+        cell = BOUNDARY_ALIASES[combo]
+        assert axis_values(cell)["M"] == OTHER, (
+            f"{combo!r} skews padatious OLD against adapt NEW, so its cell "
+            f"id's M (the padatious half) must be {OTHER!r}, got {cell!r}")
+        # shares its id with a non-skew cell: that is what "sub-cell" means
+        assert [c for c in BOUNDARY_ALIASES
+                if BOUNDARY_ALIASES[c] == cell and c != combo], (
+            f"{combo!r} is the only combo resolving to {cell!r}; a skew "
+            f"sub-cell is supposed to shadow a real cell, not invent one")
+
+
+def test_combos_that_pin_no_adapt_report_no_adapt_vintage():
+    """``adapt_vintage`` must not invent a vintage for a venv that installs
+    no ``ovos-adapt-parser`` -- the four original aliases and the
+    ``*-old-matchers`` cells (whose old adapt pin is unreachable) all pin
+    none, and a test that asserted a vintage there would be asserting
+    against a package that is not in the venv."""
+    for combo in list(_DESIGN_2_5_ALIASES) + [
+            c for c in BOUNDARY_ALIASES if c.endswith("-old-matchers")]:
+        assert adapt_vintage(combo) is None, combo
+    for combo in CHANNEL_CELLS:
+        assert adapt_vintage(combo) is None, combo
 
 
 def test_channel_combos_are_not_4_tuple_cells():

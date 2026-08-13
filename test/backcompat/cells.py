@@ -9,9 +9,25 @@ reachable by real package resolution (design §2.1):
 * **C** -- core stack (``ovos-core`` + in-core converse/fallback/stop
   pipelines + resolved bus-client -- these cannot drift independently of
   ``ovos-core``, design §1.2, so they are not separate axes)
-* **M** -- matcher plugins (``ovos-padatious`` today; ``ovos-adapt-parser``
-  is part of the same axis conceptually but has no venv of its own yet --
-  see ``build_venvs.sh``, unchanged by this module)
+* **M** -- matcher plugins (``ovos-padatious`` + ``ovos-adapt-parser``).
+  Deployer-installed: ``ovos-core``'s runtime ``dependencies`` list contains
+  neither package (design §2.1), so old-matcher/new-core AND
+  new-matcher/old-core are both real, resolvable deployments -- for
+  ``ovos-padatious``. T2.5 gives the axis its own venvs
+  (``venv_core_new_matchers_old``, ``venv_core_old_matchers_new``) and its
+  own cells, so M is no longer welded to C. The ``ovos-adapt-parser`` half
+  is reachable in the NEW direction only: its old vintage caps
+  ``ovos-spec-tools`` below where both core pins floor it, so it does not
+  co-resolve with either core vintage this matrix pins (see
+  ``BOUNDARY_ALIASES``' skew note).
+
+  ``M=new`` means "``ovos-padatious`` new, and ``ovos-adapt-parser`` new
+  **where the venv pins it at all**". It is NOT a guarantee that a modern
+  adapt is installed: ``venv_core_new`` -- the M=new side of the four
+  original aliases -- installs no ``ovos-adapt-parser`` whatsoever. Only
+  ``cells.adapt_vintage`` speaks for the adapt half. Anything that later
+  extends ``is_redundant`` must read M as the padatious vintage plus a
+  MAYBE on adapt, never as an adapt guarantee.
 * **A** -- audio side (``ovos-audio``'s AUDIO-1 output namespace), backed
   by ``test/backcompat/audio_process.py``'s simulator (T2.3, design §2.6).
 
@@ -101,7 +117,91 @@ BOUNDARY_ALIASES: Dict[str, CellId] = {
     "old-skill/new-core": cell_id("old", "new", "new", "new"),
     "new-skill/old-core": cell_id("new", "old", "old", "new"),
     "new-skill/new-core": cell_id("new", "new", "new", "new"),
+
+    # T2.5 -- the M axis goes live (design §2.2's "IN" rows for the matcher
+    # axis, §2.4's "S×C×M (scenario 1): 8 cells"). The four aliases above
+    # all have M welded to C, because today's core_old/core_new venvs each
+    # pin their contemporary padatious. These four cross M against C, which
+    # is a REAL deployment in both directions: ovos-core declares neither
+    # matcher as a runtime dependency, so a deployer installs whichever
+    # vintage they like on either core.
+    #
+    # Together with the four aliases above these are exactly the 8 cells of
+    # the S×C×M cube (design §2.4).
+    "old-skill/new-core-old-matchers": cell_id("old", "new", "old", "new"),
+    "new-skill/new-core-old-matchers": cell_id("new", "new", "old", "new"),
+    # The `*-Cold-Mnew-*` pair design §2.2 calls out as "canonical dispatch
+    # from an *old* core; currently untested". Never run before T2.5.
+    "old-skill/old-core-new-matchers": cell_id("old", "old", "new", "new"),
+    "new-skill/old-core-new-matchers": cell_id("new", "old", "new", "new"),
+
+    # T2.5 -- the padatious/adapt SKEW sub-cells (design §2.2's
+    # "padatious-new / adapt-old skew (and inverse) ... IN, but
+    # registration/dispatch scenario only (4 sub-cells, not a full axis)").
+    # That "scenario only" is about what the skew can CHANGE, not about what
+    # these cells run: they run the full suite like every other cell, minus
+    # whatever axis pruning deselects.
+    #
+    # TWO sub-cells, not four: the adapt-old direction does not co-resolve
+    # with either core vintage this matrix pins. `ovos-adapt-parser==1.3.4a1`
+    # caps `ovos-spec-tools<1.0.0`, and both core pins floor it far above
+    # that, so uv rejects the mix as unsatisfiable against 2.5.5a2 AND
+    # against dev (the verbatim resolver output is quoted in build_venvs.sh's
+    # header). It resolves only against ovos-core<=2.2.x, below this matrix's
+    # C-old boundary and so outside the axis space. Design §2.1's "matchers
+    # are deployer-installed, so any mix is real" is therefore true of
+    # ovos-padatious against both core pins, and of ovos-adapt-parser only in
+    # the new direction. A mix no venv here can build is not a cell; it is
+    # not built, not claimed, and not listed.
+    #
+    # Deliberately NOT a fifth axis, and deliberately sharing a 4-tuple id
+    # with the cells above: M is ONE axis in the cell-id space, and the thing
+    # that actually decides the dispatch spelling scenario 1 is about is the
+    # PADATIOUS half (``driver.core_canonicalizes`` probes
+    # ``ovos_padatious.opm._dealias_intent_name``). So a skew combo's cell id
+    # carries the padatious vintage in M, and the adapt half is recorded
+    # separately in ``MATCHER_SKEW`` below. Two combos resolving to the same
+    # cell id is fine and intended -- ``resolve_cell`` is only ever used to
+    # decide axis pruning, and a skew sub-cell prunes identically to the
+    # non-skewed cell it shares an id with.
+    "old-skill/new-core-padatious-old-adapt-new":
+        cell_id("old", "new", "old", "new"),
+    "new-skill/new-core-padatious-old-adapt-new":
+        cell_id("new", "new", "old", "new"),
 }
+
+#: design §2.2 -- the ``ovos-adapt-parser`` vintage of each SKEW sub-cell,
+#: i.e. the combos where adapt is deliberately pinned to the OPPOSITE vintage
+#: from ``ovos-padatious``. Only the padatious-old/adapt-new direction is
+#: present; its inverse does not resolve (see the note above).
+#:
+#: Values are the ``ovos-adapt-parser`` vintage. ``REFERENCE`` is
+#: ``>=1.4.0a1``; ``OTHER`` (``==1.3.4a1``) never appears, because it does not
+#: co-resolve with either core pin this matrix uses.
+MATCHER_SKEW: Dict[str, str] = {
+    "old-skill/new-core-padatious-old-adapt-new": REFERENCE,
+    "new-skill/new-core-padatious-old-adapt-new": REFERENCE,
+}
+
+
+def adapt_vintage(combo: str) -> Optional[str]:
+    """The ``ovos-adapt-parser`` vintage ``combo``'s venv pins, or ``None``
+    when it pins none at all.
+
+    Skewed combos take it from ``MATCHER_SKEW``. The ``*-new-matchers``
+    cells pin adapt to the same vintage as padatious, which is what "the M
+    axis" means when it is not skewed. Everything else installs no adapt at
+    all and returns ``None``: the four original aliases and the channel
+    cells never pinned it, and the ``*-old-matchers`` cells cannot -- adapt
+    at its old vintage does not co-resolve with either core pin (see
+    ``BOUNDARY_ALIASES``' skew note and ``build_venvs.sh``'s header), so
+    those venvs are padatious-only, exactly like ``venv_core_old``.
+    """
+    if combo in MATCHER_SKEW:
+        return MATCHER_SKEW[combo]
+    if combo.endswith("-new-matchers"):
+        return REFERENCE
+    return None
 
 #: The four channel cells are a separate tier (design §2.5): built from a
 #: live OVOS distro constraints file, not individual axis pins, so they are
