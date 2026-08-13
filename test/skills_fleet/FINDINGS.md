@@ -159,8 +159,8 @@ emits (see `test_fleet_routing.py::_claimant`). The real number is 6.
 | `ovos-skill-alerts.openvoiceos` | remind me to go to work weekday mornings at 8 | `ovos-skill-date-time.openvoiceos` |
 | `ovos-skill-application-launcher.openvoiceos` | terminate something | `ovos-skill-dictation.openvoiceos` |
 | `ovos-skill-diagnostics.openvoiceos` | is there a gpu in your system | `ovos-skill-date-time.openvoiceos` |
-| `ovos-skill-naptime.openvoiceos` | begin downtime | `ovos-skill-parrot.openvoiceos` |
-| `ovos-skill-naptime.openvoiceos` | wake up | `ovos-skill-alerts.openvoiceos` |
+| ~~`ovos-skill-naptime.openvoiceos`~~ | ~~begin downtime~~ | ~~`ovos-skill-parrot.openvoiceos`~~ (artifact, see below) |
+| ~~`ovos-skill-naptime.openvoiceos`~~ | ~~wake up~~ | ~~`ovos-skill-alerts.openvoiceos`~~ (artifact, see below) |
 
 ("remind me to go to work..." appears twice in the corpus, hence 5 distinct
 conflicts but 6 failing rows.) No single thief dominates here — each
@@ -177,6 +177,39 @@ conflict is a one-off adapt/padatious overlap:
   vocabulary is narrower than the phrasing the corpus generated for it.
 - `ovos-skill-application-launcher` loses "terminate something" to
   `ovos-skill-dictation`.
+
+**Both naptime rows turn out to be fleet-run artifacts, not real two-skill
+overlaps** — the same pattern already seen with the `terminate something` /
+`is there a gpu in your system` conflicts above (this triage's own earlier
+correction note explains why: a shared adapt/padatious container retrained
+against the FULL ~31-skill population can score differently than the same
+two skills alone).
+
+- **"begin downtime"**: `ovos-skill-naptime@dev` now ships
+  `(begin|start) (downtime|sleep interval)` in `locale/en-US/naptime.intent`
+  (naptime PR #93), so "begin downtime" is a literal trained padatious
+  sample for naptime.
+- **"wake up"**: naptime's `WakeUp` intent (`IntentBuilder("WakeUp")
+  .require("wakeup").require("sleeping_state")`) matches the bare phrase via
+  its `wakeup.voc` (which lists "wake up" / "wake" directly); alerts'
+  `CreateAlarmAlt` (`locale/en-US/vocab/wake.voc`) also requires only the
+  bare `wake` keyword, so this looked like a real overlap on paper.
+
+Re-run against fresh, isolated two-skill MiniCrofts on the real
+`ovoscope.DEFAULT_TEST_PIPELINE` (verified from `ovoscope/__init__.py`:
+`stop-high, converse, adapt-high, padatious-high, padacioso-high,
+adapt-medium, padatious-medium, padacioso-medium, common-query, adapt-low,
+padatious-low, padacioso-low, fallback-high, fallback-medium, fallback-low,
+stop-medium` — note `adapt-high` runs *before* `padatious-high`, unlike some
+informally-quoted orderings), with both skill-load orders and repeated runs:
+naptime cleanly claims both utterances every time
+(`ovos-skill-naptime.openvoiceos:naptime` at `padatious-high` for "begin
+downtime"; `ovos-skill-naptime.openvoiceos:WakeUp` at `adapt-high`,
+confidence 1.0, for "wake up" — alerts never appears in the captured bus
+messages at all for that turn). Neither row reproduces in isolation, so
+no skill code change is warranted for either; both
+`xfail(strict=True)` entries are removed here — kept, they would `XPASS`
+and fail the suite.
 
 ### Coverage gaps (`coverage-gap`) — 28 rows (see correction note below)
 

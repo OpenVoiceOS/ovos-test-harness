@@ -67,14 +67,6 @@
     "category": "coverage-gap",
     "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-icanhazdadjokes.openvoiceos' should have matched it."
   },
-  "ovos-skill-naptime.openvoiceos::begin downtime": {
-    "category": "conflict",
-    "reason": "cross-skill intent theft: 'ovos-skill-parrot.openvoiceos' claims this utterance instead of 'ovos-skill-naptime.openvoiceos' in the full fleet population."
-  },
-  "ovos-skill-naptime.openvoiceos::wake up": {
-    "category": "conflict",
-    "reason": "cross-skill intent theft: 'ovos-skill-alerts.openvoiceos' claims this utterance instead of 'ovos-skill-naptime.openvoiceos' in the full fleet population."
-  },
   "ovos-skill-weather.openvoiceos::What is the high temperature friday night": {
     "category": "coverage-gap",
     "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-weather.openvoiceos' should have matched it."
