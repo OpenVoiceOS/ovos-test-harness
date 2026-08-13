@@ -109,8 +109,8 @@ import pytest
 
 from ovos_bus_client.message import Message
 
-from .cells import (BOUNDARY_ALIASES, CHANNEL_CELLS, OTHER, REFERENCE,
-                    axis_values, resolve_cell)
+from .cells import (BOUNDARY_ALIASES, CHANNEL_CELLS, MATCHER_SKEW, OTHER,
+                    REFERENCE, adapt_vintage, axis_values, resolve_cell)
 from .driver import (ACTIVATED_TOPIC,
                      AUDIO_OUTPUT_END_TOPIC, AUDIO_OUTPUT_START_TOPIC,
                      LEGACY_SPEAK_TOPIC,
@@ -160,6 +160,33 @@ COMBOS = {
     "old-skill/new-core":     (True, True, False),
     "new-skill/old-core":     (False, False, True),
     "new-skill/new-core":     (False, True, True),
+    # T2.5 -- the M axis crossed against C. Every column below is what the
+    # real-symbol probes ACTUALLY returned when these venvs were first
+    # built and run (design §2.5's probe discipline; the values were read
+    # off `core_canonicalizes()` and `skill.bound_topics` per venv, not
+    # copied out of the design doc):
+    #
+    #   venv_core_new_matchers_old  ovos-core 2.6.3a1 + padatious 2.0.0a1
+    #                               -> core_canonicalizes() False
+    #   venv_core_old_matchers_new  ovos-core 2.5.5a2 + padatious 2.0.1a2
+    #                               -> core_canonicalizes() True
+    #
+    # i.e. the fold really does live in the matcher package and not in
+    # ovos-core -- an old core WILL dispatch canonically if the deployer
+    # installed a current padatious, and a current core will NOT if they
+    # did not. That is the whole reason M is its own axis.
+    "old-skill/new-core-old-matchers":  (True, False, True),
+    "new-skill/new-core-old-matchers":  (False, False, True),
+    # Cold-Mnew: design §2.2's "canonical dispatch from an *old* core;
+    # currently untested". The old-skill half reproduces the #271 gap with
+    # ovos-core held at the OLD pin, which pins the blame on padatious.
+    "old-skill/old-core-new-matchers":  (True, True, False),
+    "new-skill/old-core-new-matchers":  (False, True, True),
+    # skew sub-cells: adapt new, padatious old, on a current core. The
+    # dispatch spelling must still follow padatious -- see
+    # test_matcher_skew_leaves_the_dispatch_spelling_to_padatious.
+    "old-skill/new-core-padatious-old-adapt-new": (True, False, True),
+    "new-skill/new-core-padatious-old-adapt-new": (False, False, True),
     # channel cells: skill or core side installed per a live distro
     # constraints file, the other side at dev. See build_venvs.sh.
     "stable-skill/dev-core":  (True, True, False),
@@ -218,10 +245,24 @@ pytestmark = pytest.mark.skipif(
     reason="mixed-version matrix needs BACKCOMPAT_COMBO and "
            "BACKCOMPAT_SKILL_PYTHON; see test/backcompat/build_venvs.sh")
 
-#: True in every cell the compat train has to repair — the boundary-pin
-#: original plus its channel-pinned reflections. Evaluated at import time so
-#: the xfail below can be static and strict.
-IS_BROKEN_CELL = COMBO == "old-skill/new-core" or COMBO in _BROKEN_CHANNEL_COMBOS
+#: True in every cell the compat train has to repair. DERIVED from COMBOS'
+#: own columns rather than a hand-kept name list (T2.5): the gap is
+#: definitionally "the skill bound the suffixed topic only AND the matcher
+#: side canonicalizes, so the dispatch never reaches a bound handler", which
+#: is exactly the (want_suffixed_only, want_canon, fires) shape below.
+#:
+#: This reproduces the previous hard-coded list exactly -- old-skill/new-core
+#: and the two broken channel combos are precisely the entries with that
+#: shape -- and it is what lets T2.5's new M-crossed cells classify
+#: themselves. A hand-kept list would have silently left the new
+#: `old-skill/old-core-new-matchers` cell unmarked, i.e. reported a KNOWN gap
+#: as a fresh failure.
+#:
+#: ``.get`` rather than ``[]``: this module is imported (and this line
+#: evaluated) even with no BACKCOMPAT_COMBO set, where the pytestmark skipif
+#: above is what actually stops the run. The default is the "nothing broken"
+#: shape so an unset combo never claims a gap.
+IS_BROKEN_CELL = COMBOS.get(COMBO, (False, False, True)) == (True, True, False)
 
 _XFAIL_REASON = (
     "old skill container (ovos-workshop==9.3.1a2, suffixed binding only) does "
@@ -317,16 +358,44 @@ def test_pins_are_the_intended_vintage(stack):
         f"{COMBO}: expected the core venv to canonicalize at registration="
         f"{want_canon}, got {core_canonicalizes()}")
 
-    # M/adapt axis (design §2.5): recorded, not asserted. No venv this
-    # suite builds pins ovos-adapt-parser (only ovos-padatious -- see
-    # build_venvs.sh), so there is nothing to assert a boundary against
-    # yet; this just proves the real-symbol probe runs cleanly and shows
-    # what it sees, same discipline as the padatious/workshop probes above.
+    # M/adapt axis (design §2.5). T2.5 promoted this from "recorded" to
+    # "asserted wherever a venv actually pins ovos-adapt-parser", which is
+    # now the *-new-matchers cells and the skew sub-cells (see
+    # cells.adapt_vintage). Combos that pin no adapt at all still only
+    # record it -- but they assert the probe returns None, so a probe that
+    # silently started answering True/False on a venv with no adapt
+    # installed is a loud failure rather than an invisible one.
     adapt_probe = adapt_consumes_intent4_keywords()
+    want_adapt = adapt_vintage(COMBO)
     print(f"{COMBO}: M/adapt probe "
-          f"(INTENT_REGISTER_KEYWORD consumer)={adapt_probe} (None means "
-          f"ovos-adapt-parser or ovos-spec-tools' SpecMessage."
-          f"INTENT_REGISTER_KEYWORD is not present in this venv)")
+          f"(INTENT_REGISTER_KEYWORD consumer)={adapt_probe}, cell pins "
+          f"adapt={want_adapt}")
+    if want_adapt is None:
+        assert adapt_probe is None, (
+            f"{COMBO}: this cell's venv pins no ovos-adapt-parser, but the "
+            f"INTENT_REGISTER_KEYWORD probe returned {adapt_probe!r} "
+            f"instead of None -- either adapt arrived as a transitive "
+            f"dependency (which would make this cell's M axis a half-truth) "
+            f"or the probe stopped distinguishing 'absent' from 'old'")
+    else:
+        # Only the REFERENCE (>=1.4.0a1) adapt vintage is reachable at all
+        # -- 1.3.4a1 caps ovos-spec-tools below every core pin, so no venv
+        # can install it (see cells.py / build_venvs.sh). Asserting the
+        # vintage here rather than just the probe's truthiness keeps this
+        # honest if that ever changes.
+        assert want_adapt == REFERENCE, (
+            f"{COMBO}: cells.adapt_vintage says {want_adapt!r}, but no "
+            f"old-vintage ovos-adapt-parser resolves against any core pin "
+            f"this suite builds -- build_venvs.sh cannot have produced this "
+            f"venv")
+        assert adapt_probe is True, (
+            f"{COMBO}: this cell pins ovos-adapt-parser>=1.4.0a1, whose "
+            f"keyword engine is supposed to consume SpecMessage."
+            f"INTENT_REGISTER_KEYWORD, but the real-symbol probe returned "
+            f"{adapt_probe!r}. None means adapt (or ovos-spec-tools' "
+            f"INTENT_REGISTER_KEYWORD) is missing from this venv entirely; "
+            f"False means the INTENT-4 boundary moved and the pin no longer "
+            f"straddles it")
 
     # A/audio axis (design §2.6): the simulator lands in T2.3, not here.
     # The probe is wired but always returns None today; asserting that
@@ -448,6 +517,127 @@ def test_the_handler_binding_matches_the_probed_dispatch_topic(stack):
         f"suffixed binding) or the padatious fold changed, the COMBOS "
         f"entry for {COMBO!r} is stale and must be updated to match -- see "
         f"this test's docstring, the #500 hazard it names.")
+
+
+# ---------------------------------------------------------------------------
+# Matcher axis (M): scenario 1 (registration/dispatch), design §2.4 row 1
+# ---------------------------------------------------------------------------
+#
+# T2.5. These live in this file rather than a new one on purpose: they are
+# scenario-1 tests, they need the SAME module-scoped `stack` fixture (one bus,
+# one skill subprocess) the other scenario-1 tests already share, and a second
+# file would either duplicate that fixture -- doubling the subprocess cost of
+# every cell -- or import it across modules for no gain. The M axis is a new
+# column in an existing scenario, not a new scenario.
+
+
+def _cell_or_skip() -> str:
+    """This cell's 4-tuple id, or skip if the combo has none.
+
+    Channel combos deliberately live outside the 4-tuple space (design §2.5):
+    they pin a whole stack from a live distro constraints file, so there is no
+    per-axis vintage to check a probe against. Skipping with that reason is
+    honest; asserting an axis they do not have would not be.
+    """
+    cell = resolve_cell(COMBO)
+    if cell is None:
+        pytest.skip(
+            f"{COMBO}: channel-tier combo, not part of the 4-tuple axis "
+            f"space (design §2.5) -- no M vintage to check a probe against")
+    return cell
+
+
+@pytest.mark.axes("S", "C", "M")
+def test_dispatch_spelling_tracks_the_matcher_axis_not_the_core_axis(stack):
+    """The dispatch spelling is decided by the MATCHER vintage (M), not by
+    the ovos-core vintage (C).
+
+    This is the assertion the whole M axis exists to make, and until T2.5 no
+    cell could make it: every core venv welded its padatious pin to its
+    ovos-core pin, so M and C were always equal and "the fold lives in
+    padatious" was an unfalsifiable claim in a docstring. The four
+    ``*-matchers`` cells break that weld, and on them M != C, so a mutant
+    that sourced the spelling from ovos-core instead of from the matcher
+    plugin fails here while still passing on all four original aliases.
+
+    Both halves are probe-derived, never read off the design doc:
+    ``core_canonicalizes()`` reads ``ovos_padatious.opm._dealias_intent_name``
+    out of the live venv, and ``dispatch_topic_for`` derives the topic from
+    the name the skill subprocess REALLY registered on the wire.
+
+    Observed when the M venvs were first built (recorded so a future drift
+    reads as drift): ovos-core 2.6.3a1 + ovos-padatious 2.0.0a1 does NOT
+    canonicalize, ovos-core 2.5.5a2 + ovos-padatious 2.0.1a2 DOES.
+    """
+    cell = _cell_or_skip()
+    _server, _bus, _skill, regs = stack
+    values = axis_values(cell)
+    m_is_new = values["M"] == REFERENCE
+
+    assert core_canonicalizes() is m_is_new, (
+        f"{COMBO} (cell {cell}): the registration-time fold is a property of "
+        f"the MATCHER package, so it must follow this cell's M axis "
+        f"({values['M']}), but core_canonicalizes() returned "
+        f"{core_canonicalizes()}. C is {values['C']} here -- if the probe "
+        f"followed C instead, the fold does not live where this matrix says "
+        f"it does and the M axis is mislabelled.")
+
+    topic = dispatch_topic_for(_registered_name(regs))
+    want = CANONICAL_TOPIC if m_is_new else LEGACY_TOPIC
+    assert topic == want, (
+        f"{COMBO} (cell {cell}): M={values['M']} so the dispatch topic must "
+        f"be {want!r}, got {topic!r}")
+
+    if values["C"] != values["M"]:
+        # The falsifying case. Spelled out separately so the failure message
+        # names the mutation it caught rather than leaving a reader to work
+        # out why an M!=C cell matters.
+        c_would_want = CANONICAL_TOPIC if values["C"] == REFERENCE else LEGACY_TOPIC
+        assert topic != c_would_want, (
+            f"{COMBO} (cell {cell}): M={values['M']} but C={values['C']}, "
+            f"and the dispatch topic came out as {topic!r} -- exactly what "
+            f"the CORE vintage would predict, not what the MATCHER vintage "
+            f"predicts. Either ovos-core stopped forwarding "
+            f"match.match_type verbatim, or the fold moved out of "
+            f"ovos-padatious into ovos-core. Both would make M and C the "
+            f"same axis again.")
+
+
+@pytest.mark.axes("S", "C", "M")
+def test_matcher_skew_leaves_the_dispatch_spelling_to_padatious(stack):
+    """design §2.2's skew sub-cell contract: with the two matcher plugins at
+    OPPOSITE vintages, registration/dispatch spelling follows ovos-padatious
+    and is untouched by ovos-adapt-parser.
+
+    Only the padatious-old/adapt-new direction exists -- the inverse does not
+    resolve against any core pin this suite builds (see ``cells.py``'s skew
+    note for uv's verbatim refusal), so it is not built and not claimed.
+
+    What this pins that the test above does not: the two probes are
+    independent. A mutant that made ``core_canonicalizes()`` answer from the
+    ADAPT package (or from "any modern matcher is installed") would read True
+    here -- adapt is at its new vintage -- while padatious is old and the
+    wire really is suffixed, so this fails.
+    """
+    if COMBO not in MATCHER_SKEW:
+        pytest.skip(f"{COMBO} is not a matcher-skew sub-cell "
+                    f"(design §2.2); nothing skewed to observe")
+    _server, _bus, _skill, regs = stack
+
+    assert adapt_consumes_intent4_keywords() is True, (
+        f"{COMBO}: a skew sub-cell must have the NEW ovos-adapt-parser "
+        f"installed for the skew to exist at all")
+    assert core_canonicalizes() is False, (
+        f"{COMBO}: a skew sub-cell pins ovos-padatious==2.0.0a1, which "
+        f"predates the registration-time fold, so core_canonicalizes() must "
+        f"be False. It returned True -- the skew is not actually skewed, or "
+        f"the probe is reading the wrong package.")
+    topic = dispatch_topic_for(_registered_name(regs))
+    assert topic == LEGACY_TOPIC, (
+        f"{COMBO}: with a NEW adapt and an OLD padatious the dispatch must "
+        f"still be the suffixed {LEGACY_TOPIC!r}, got {topic!r} -- the adapt "
+        f"vintage is changing the padatious dispatch spelling, which design "
+        f"§2.2 says it cannot")
 
 
 @pytest.mark.axes("S", "C", "M")
