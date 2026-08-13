@@ -292,7 +292,14 @@ mkvenv_channel() {
   echo "    $("$dir/bin/python" -c 'import sys; print(sys.version.split()[0])')"
 }
 
-wants venv_skill_old && mkvenv venv_skill_old "ovos-workshop==9.3.1a2" "setuptools<81"
+# venv_skill_old: same whole-cohort rule as venv_core_old below — the skill
+# container's bus client must be contemporary with its pinned workshop, or a
+# fresh alpha (ovos-bus-client 2.8.0a1, 2026-08-13) resolves in and changes
+# behavior the S-axis is supposed to hold constant (CI run 31747500315:
+# test_get_response_receives_the_answer_utterance red on old-skill/old-core).
+# ovos-bus-client==2.7.1a1 is the latest release at or before workshop
+# 9.3.1a2's own release (2026-07-24T16:31Z vs 2026-07-24T00:24Z).
+wants venv_skill_old && mkvenv venv_skill_old "ovos-workshop==9.3.1a2" "ovos-bus-client==2.7.1a1" "setuptools<81"
 wants venv_skill_new && mkvenv venv_skill_new "ovos-workshop @ git+https://github.com/OpenVoiceOS/ovos-workshop@dev" "setuptools<81"
 wants venv_core_old  && mkvenv venv_core_old  "ovos-core==2.5.5a2" "ovos-padatious==2.0.0a1" "ovos-workshop==9.2.3a1" "ovos-bus-client==2.7.0a1" ovos-messagebus pytest pytest-timeout "setuptools<81"
 wants venv_core_new  && mkvenv venv_core_new  "$CORE_SPEC" "ovos-padatious>=2.0.1a2" ovos-messagebus pytest pytest-timeout "setuptools<81"
