@@ -64,8 +64,27 @@ GET_RESPONSE_TRIGGER_TOPIC = f"{SKILL_ID}:get_response.trigger"
 #: ...)``), unchanged across every venv this suite builds.
 GET_RESPONSE_ANSWER_TOPIC = f"{SKILL_ID}.converse.get_response"
 GET_RESPONSE_DONE_TOPIC = "backcompat.skill.get_response.done"
+#: The two real bus events that bracket a single get_response round trip on
+#: the skill side (``OVOSSkill.get_response`` emits both directly, via
+#: ``message.forward(...)`` -- see ovos_workshop/skills/ovos.py). Watching
+#: these as actual event evidence, instead of only sampling
+#: ``SessionManager.sessions`` on a timer, is what lets the receiving test
+#: tell "the round trip never happened" apart from "it happened, but the
+#: sampling window closed before a poll landed inside it".
+GET_RESPONSE_ENABLE_TOPIC = "skill.converse.get_response.enable"
+GET_RESPONSE_DISABLE_TOPIC = "skill.converse.get_response.disable"
 SPEAK_WAIT_TRIGGER_TOPIC = f"{SKILL_ID}:speak_wait.trigger"
 SPEAK_WAIT_DONE_TOPIC = "backcompat.skill.speak_wait.done"
+#: Emitted by the skill subprocess right before it calls ``self.speak(...,
+#: wait=True)`` (see ``skill_process.py``'s ``handle_speak_wait_trigger``).
+#: The positive control below (proving speak(wait=True) has not already
+#: returned) needs to anchor its settle window to the real moment the call
+#: began, not to a fixed sleep measured from the trigger dispatch: under a
+#: starved/pinned runner the worker thread itself can take longer than a
+#: fixed sleep just to get SCHEDULED, which would let the positive control
+#: pass for the wrong reason (nothing had happened yet, rather than the call
+#: genuinely blocking) — see test_speak_wait_unblocks_on_audio_output_end.
+SPEAK_WAIT_STARTED_TOPIC = "backcompat.skill.speak_wait.started"
 #: What ``SessionManager.wait_while_speaking`` listens for in both venvs
 #: (``ovos_bus_client.session``, identical topic in the old and new skill
 #: venvs since both resolve a current bus-client off the workshop floor —
@@ -159,7 +178,16 @@ DISPATCH_TIMEOUT = 10
 #: get_response's own poll window (see ``make_shared_config``), and the
 #: no-answer test's timeout budget derives from it. Short but not adversarial
 #: — long enough that a slow CI runner's 0.1s poll loop still lands inside it.
-GET_RESPONSE_TIMEOUT = 2
+#: Raised from 2s to 6s (see test_get_response_receives_the_answer_utterance's
+#: event-based re-arm logic): a starved runner could get the skill's real
+#: enable->disable round trip processed back-to-back, in one scheduling burst
+#: of the driver process's bus handler thread, entirely between two of the
+#: test's 50ms polls of SessionManager.sessions -- a real round trip the
+#: sampled poll still never catches mid-flight. A wider window does not fix
+#: that (it is a scheduling race, not a slowness budget), but it does make it
+#: rarer, and the retry path below uses the enable/disable events themselves
+#: as the actual evidence for that remaining race.
+GET_RESPONSE_TIMEOUT = 6
 
 
 def free_port() -> int:

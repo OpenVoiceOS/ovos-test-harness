@@ -118,9 +118,11 @@ from .driver import (ACTIVATED_TOPIC,
                      CONVERSE_MATCH_TOPIC, CONVERSE_REQUEST_TOPIC,
                      CONVERSE_RESPONSE_TOPIC,
                      CONVERSE_TRIGGER_TOPIC, GET_RESPONSE_ANSWER_TOPIC,
-                     GET_RESPONSE_DONE_TOPIC, GET_RESPONSE_TIMEOUT,
+                     GET_RESPONSE_DISABLE_TOPIC, GET_RESPONSE_DONE_TOPIC,
+                     GET_RESPONSE_ENABLE_TOPIC, GET_RESPONSE_TIMEOUT,
                      GET_RESPONSE_TRIGGER_TOPIC, LEGACY_TOPIC, SKILL_ID,
-                     SPEAK_WAIT_DONE_TOPIC, SPEAK_WAIT_TRIGGER_TOPIC,
+                     SPEAK_WAIT_DONE_TOPIC, SPEAK_WAIT_STARTED_TOPIC,
+                     SPEAK_WAIT_TRIGGER_TOPIC,
                      BusServer, Capture, SkillProcess, AudioProcess,
                      adapt_consumes_intent4_keywords,
                      audio_output_ended_spec_topic,
@@ -974,6 +976,19 @@ def test_get_response_receives_the_answer_utterance(stack, converse_service):
     activates it as a side effect. This harness has no intent-dispatch
     pipeline standing that context up, so the skill is activated explicitly
     first, the same way the converse test above does.
+
+    ``wait_for_response_mode`` proves the round trip by sampling
+    ``SessionManager.sessions`` from this test's own thread every 50ms. On a
+    starved runner that sampling can miss the whole thing: the skill's real
+    ``skill.converse.get_response.enable`` / ``.disable`` pair can both get
+    processed by the driver process's bus-handler thread in one scheduling
+    burst, entirely between two polls, even though the round trip genuinely
+    happened. A sampled miss is therefore ambiguous between "never happened"
+    and "happened, window missed" — so this also watches the real enable/
+    disable events directly. If the poll misses but the events prove the
+    round trip landed and the response-mode window has since closed, that is
+    not a failure — it is "proven once, sampled late" — so the trigger is
+    re-armed and retried rather than failed on a scheduler artifact.
     """
     _server, bus, skill, _regs = stack
     _require_converse_api(skill)
@@ -981,6 +996,8 @@ def test_get_response_receives_the_answer_utterance(stack, converse_service):
     session_id = f"backcompat-getresp-{token[:8]}"
     activated = Capture(bus, ACTIVATED_TOPIC, token=token)
     done = Capture(bus, GET_RESPONSE_DONE_TOPIC, token=token)
+    enabled = Capture(bus, GET_RESPONSE_ENABLE_TOPIC, session_id=session_id)
+    disabled = Capture(bus, GET_RESPONSE_DISABLE_TOPIC, session_id=session_id)
     try:
         bus.emit(Message(CONVERSE_TRIGGER_TOPIC, {"token": token},
                          session_context(session_id)))
@@ -990,22 +1007,46 @@ def test_get_response_receives_the_answer_utterance(stack, converse_service):
             f"{COMBO}: skill confirmed activation but never showed up on "
             f"the live session's active-skill list")
 
-        bus.emit(Message(GET_RESPONSE_TRIGGER_TOPIC, {"token": token},
-                         session_context(session_id)))
-        # get_response's real "skill.converse.get_response.enable" round
-        # trip is async over the wire; wait for the actual evidence — the
-        # live session's response-mode holder — rather than guessing a
-        # delay long enough.
-        assert wait_for_response_mode(session_id, SKILL_ID), (
-            f"{COMBO}: get_response() never showed up as the live "
-            f"session's response-mode holder\nskill process log:\n{skill.log}")
+        # Up to two attempts: the first is the normal path. The second only
+        # runs if the first attempt's live sampling missed a round trip the
+        # enable/disable events prove already happened — see the docstring.
+        match = None
+        for attempt in range(2):
+            bus.emit(Message(GET_RESPONSE_TRIGGER_TOPIC, {"token": token},
+                             session_context(session_id)))
+            # get_response's real "skill.converse.get_response.enable" round
+            # trip is async over the wire; wait for the actual evidence — the
+            # live session's response-mode holder — rather than guessing a
+            # delay long enough.
+            if wait_for_response_mode(session_id, SKILL_ID):
+                # Seen live: do the converse match immediately, before the
+                # skill's own get_response poll window can close underneath
+                # it and disable response-mode again.
+                match = converse_match(converse_service, ["tacos please"],
+                                       "en-us", session_id)
+                break
 
-        match = converse_match(converse_service, ["tacos please"], "en-us",
-                               session_id)
+            if enabled.wait(timeout=0) and disabled.wait(timeout=0):
+                # Never sampled it live, but the real events prove the round
+                # trip happened and the window has since expired -- not "it
+                # never happened", just "happened, sampled late". Re-arm by
+                # triggering get_response again (the skill's previous call
+                # already returned, since disable fired) and retry once.
+                enabled.messages.clear()
+                disabled.messages.clear()
+                done.messages.clear()
+                continue
+
+            # Neither seen live nor proven by the events: a genuine miss,
+            # not a sampling artifact. Stop retrying and fail below.
+            break
+
         assert match is not None, (
-            f"{COMBO}: ConverseService.match() found no skill in "
-            f"response-mode — get_response's enable call never reached "
-            f"real core-side session state.\nskill process log:\n{skill.log}")
+            f"{COMBO}: get_response() never showed up as the live "
+            f"session's response-mode holder, and the "
+            f"{GET_RESPONSE_ENABLE_TOPIC!r}/{GET_RESPONSE_DISABLE_TOPIC!r} "
+            f"events never proved a round trip either\nskill process "
+            f"log:\n{skill.log}")
         assert match.match_type == GET_RESPONSE_ANSWER_TOPIC, (
             f"{COMBO}: real ConverseService.match() picked "
             f"{match.match_type!r}, not the expected "
@@ -1022,6 +1063,8 @@ def test_get_response_receives_the_answer_utterance(stack, converse_service):
     finally:
         activated.close()
         done.close()
+        enabled.close()
+        disabled.close()
 
 
 @pytest.mark.axes("S", "C", "A")
@@ -1123,17 +1166,33 @@ def test_speak_wait_unblocks_on_audio_output_end(stack):
     _server, bus, skill, _regs = stack
     token = uuid.uuid4().hex
     session = {"session_id": f"backcompat-speakwait-{token[:8]}"}
+    started = Capture(bus, SPEAK_WAIT_STARTED_TOPIC, token=token)
     done = Capture(bus, SPEAK_WAIT_DONE_TOPIC, token=token)
     try:
         bus.emit(Message(SPEAK_WAIT_TRIGGER_TOPIC, {"token": token},
                          {"session": session}))
-        # give speak() time to run, set is_speaking, and register its
-        # audio_output_end listener before the driver plays audio-service
-        # and ends the "output" — wait_while_speaking bails out immediately
-        # if it does not see is_speaking already set (see session.py), so
-        # firing too early would make this a false pass for the wrong
-        # reason (skipped the wait entirely) rather than the wait actually
-        # unblocking.
+        # Wait for the real evidence that the worker thread actually
+        # reached self.speak(...) — not a fixed sleep from trigger
+        # dispatch. A fixed sleep races the thread's own scheduling: under
+        # a starved/CPU-pinned runner the thread can take longer than the
+        # sleep just to get picked up, which would make the positive
+        # control below pass for the wrong reason ("nothing happened yet"
+        # rather than "the call genuinely blocked") — this is what let the
+        # test XPASS under pinning even though the underlying #526 no-op
+        # bug was still present. See SPEAK_WAIT_STARTED_TOPIC.
+        assert started.wait(), (
+            f"{COMBO}: the skill's speak_wait worker thread never reached "
+            f"self.speak() at all\nskill process log:\n{skill.log}")
+        # give speak() a moment to actually enter wait_while_speaking and
+        # register its audio_output_end listener before the driver plays
+        # audio-service and ends the "output" — wait_while_speaking bails
+        # out immediately if it does not see is_speaking already set (see
+        # session.py), so firing too early would make this a false pass
+        # for the wrong reason (skipped the wait entirely) rather than the
+        # wait actually unblocking. Anchored to the real "started" event
+        # above rather than to trigger dispatch, this only has to cover
+        # speak()'s own internal setup, not also the worker thread's own
+        # scheduling delay.
         time.sleep(0.5)
         # Positive control: if speak(wait=True) was never actually called
         # (or never actually blocked), the "done" marker would already be
@@ -1162,6 +1221,7 @@ def test_speak_wait_unblocks_on_audio_output_end(stack):
             f"looks like it rode out its own internal timeout instead of "
             f"reacting to {AUDIO_OUTPUT_END_TOPIC!r}")
     finally:
+        started.close()
         done.close()
 
 
@@ -1537,10 +1597,21 @@ def test_speak_wait_bridges_from_spec_only_audio(audio_stack):
     _server, bus, skill, audio = audio_stack
     token = uuid.uuid4().hex
     session = {"session_id": f"backcompat-speakwait-spec-{token[:8]}"}
+    started = Capture(bus, SPEAK_WAIT_STARTED_TOPIC, token=token)
     done = Capture(bus, SPEAK_WAIT_DONE_TOPIC, token=token)
     try:
         bus.emit(Message(SPEAK_WAIT_TRIGGER_TOPIC, {"token": token},
                          {"session": session}))
+        # Same anchoring fix as test_speak_wait_unblocks_on_audio_output_end:
+        # wait for the real evidence the worker thread reached self.speak()
+        # before starting the positive-control settle window, instead of
+        # measuring a fixed sleep from trigger dispatch -- a starved/pinned
+        # runner can delay the thread's own scheduling past a fixed sleep,
+        # which let this XPASS(strict) for the wrong reason even with #526
+        # still unfixed.
+        assert started.wait(), (
+            f"{COMBO}: the skill's speak_wait worker thread never reached "
+            f"self.speak() at all\nskill process log:\n{skill.log}")
         # Same positive-control shape as test_speak_wait_unblocks_on_audio_
         # output_end (#26's mutation-proof pattern): the audio simulator's
         # own PLAYBACK_DELAY (0.3s) means a genuinely-waiting speak() cannot
@@ -1560,6 +1631,7 @@ def test_speak_wait_bridges_from_spec_only_audio(audio_stack):
             f"spec-only (A=new) audio simulator.\nskill process log:\n"
             f"{skill.log}\naudio process log:\n{audio.log}")
     finally:
+        started.close()
         done.close()
 
 

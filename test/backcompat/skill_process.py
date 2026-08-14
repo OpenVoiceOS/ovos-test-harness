@@ -166,6 +166,14 @@ class BackCompatSkill(_SkillBase):
             # this synchronously from the dispatch thread would deadlock,
             # since the same thread would need to be free to receive the
             # message it is waiting for.
+            # Emitted right before the real call so the driver-side test
+            # can anchor its "did it actually block" settle window to the
+            # moment speak() genuinely started, instead of a fixed sleep
+            # from trigger dispatch — this worker thread getting scheduled
+            # at all is not bounded under a starved/pinned runner.
+            self.bus.emit(Message(
+                "backcompat.skill.speak_wait.started",
+                {"skill_id": SKILL_ID, "token": token}))
             self.speak("ordering tacos", wait=True)
             self.bus.emit(Message(
                 "backcompat.skill.speak_wait.done",
