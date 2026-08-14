@@ -37,9 +37,7 @@
 
 [tests]
 test/conformance/test_persona1_conformance.py::TestSec8Handler::test_handler_terminates_once
-test/conformance/test_stop1_conformance.py::TestSec5GlobalStop::test_global_stop_broadcast_topic
 test/conformance/test_stop1_conformance.py::TestSec42PingPong::test_ping_broadcast_topic
-test/conformance/test_stop1_conformance.py::TestSec43PerSkillStop::test_no_active_skill_goes_global
 
 [xpass]
 test/conformance/test_converse1_conformance.py::TestSec4ConverseRoundTrip::test_followup_consumed_by_active_owner

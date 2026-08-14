@@ -16,9 +16,8 @@ evidence, not bridge echo.
 Coverage map (clause -> status against current ovos-core@dev, dual-emit OFF):
 - §5.1 the utterance-turn end-marker ``ovos.utterance.handled`` fires
   natively (no legacy counterpart exists to bridge it) ........... green
-- §5.3 global stop broadcasts natively on ``ovos.stop`` .......... xfail (same #777 gap as the dual-emit-ON suite; native code doesn't emit it, so disabling the bridge can only keep it missing, not restore it)
+- §5.3 global stop broadcasts natively on ``ovos.stop`` .......... green (STOP-1 wiring landed, ovos-core#802; native emit confirmed with the bridge fully disabled)
 """
-import pytest
 from ovos_utils.log import LOG
 
 from ._conformance import STOP_HIGH, capture, reset_namespace, types, \
@@ -60,16 +59,6 @@ def test_utterance_handled_fires_natively_with_bridge_disabled():
     assert types(recs).count("ovos.utterance.handled") == 1
 
 
-@pytest.mark.xfail(strict=True,
-                   reason="STOP-1 §5.3 MUST: global stop MUST broadcast "
-                          "'ovos.stop' natively; ovos-core @dev has no native "
-                          "emit for it at all (only the legacy 'mycroft.stop', "
-                          "see test_stop1_conformance.py's dual-emit-ON xfail of "
-                          "the same clause) — disabling the bridge cannot turn a "
-                          "missing native emit into a present one, so this stays "
-                          "missing under BOTH modes. Confirms the dual-emit-ON "
-                          "xfail is a real gap, not a mode artifact. Tracked by "
-                          "ovos-core#802.")
 def test_global_stop_broadcast_topic_native_only():
     """§5.3, dual-emit OFF: with the bridge disabled, ``ovos.stop`` can only
     appear if ovos-core emits it natively. It does not."""

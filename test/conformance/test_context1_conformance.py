@@ -49,8 +49,8 @@ Coverage map (clause -> status against the installed stack):
 - §4.1 intent_context rides an ordinary Message .................. green (carrier)
 - §5.3 ovos.session.sync sets an entry ........................... xfail (no sync merge handler)
 - §5.3 ovos.session.sync null deletes an entry ................... xfail (no sync merge handler)
-- §4   turns_remaining decremented after a round ................. xfail (no decay tick)
-- §4   a dead entry is pruned before the match round ............. xfail (no prune tick)
+- §4   turns_remaining decremented after a round ................. green (decay tick landed, ovos-core#802)
+- §4   a dead entry is pruned before the match round ............. green (decay tick landed, ovos-core#802)
 - §6   requires_context blocks without a live entry .............. green (e2e)
 - §6   requires_context permits with a live entry ................ green (e2e)
 - §6.1 excludes_context blocks when the entry is live ............ green (e2e)
@@ -329,11 +329,6 @@ class TestSec4Decay(TestCase):
     """§4: decay runs once per utterance dispatch — prune dead entries before
     the match round, decrement every live ``turns_remaining`` after it."""
 
-    @pytest.mark.xfail(strict=True,
-                       reason="CONTEXT-1 §4 MUST prune dead entries before the "
-                              "match round and decrement turns_remaining after "
-                              f"it; {_LEGACY_NOTE} (no per-utterance "
-                              "intent_context prune/decrement tick).")
     def test_turns_remaining_decremented_after_round(self):
         """§4: "After the match round … decrement every live entry's
         ``turns_remaining`` by 1." An entry synced with ``turns_remaining: 2``
@@ -354,9 +349,6 @@ class TestSec4Decay(TestCase):
                 break
         self.assertEqual(ic.get("person", {}).get("turns_remaining"), 1)
 
-    @pytest.mark.xfail(strict=True,
-                       reason="CONTEXT-1 §4 MUST prune a dead (turns_remaining "
-                              f"== 0) entry before the first matcher; {_LEGACY_NOTE}.")
     def test_dead_entry_pruned_before_match(self):
         """§4: "remove the entry if it is no longer live" — a
         ``turns_remaining: 0`` entry is dead on arrival and pruned before any

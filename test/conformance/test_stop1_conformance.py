@@ -13,22 +13,25 @@ During the transition both the legacy and the spec topic names are emitted.
 
 Coverage map (clause -> status against current ovos-core@dev):
 - §5.1 empty ``active_handlers`` triggers a global stop ......... green (terminates)
-- §5.3 global stop broadcasts on ``ovos.stop`` .................. xfail (emits legacy 'mycroft.stop' only; #777 closed, never merged)
+- §5.3 global stop broadcasts on ``ovos.stop`` .................. green (STOP-1 wiring landed, ovos-core#802)
 - §4.2 stoppability query broadcast ``ovos.stop.ping`` .......... xfail (emits '<skill_id>.stop.ping' per-skill; #777 closed, never merged)
 - §4.2 a stoppable skill answers ``ovos.stop.pong`` ............. xfail (dispatches <skill_id>.stop directly, no pong)
-- §4.3 per-skill stop dispatched on ``<skill_id>:stop`` ......... xfail (emits <skill_id>.stop instead)
-- §4   stop with an active skill vs none chooses skill/global ... xfail (<skill_id>.stop instead of <skill_id>:stop)
-- §4.1/§5.1 no active skill escalates to global ``ovos.stop`` ... xfail (global stop itself only reaches legacy 'mycroft.stop', see §5.3 above)
-- §3.1 global-stop self-dispatch ``<id>:global_stop`` ........... xfail (emits 'stop:global' instead)
+- §4.3 per-skill stop dispatched on ``<skill_id>:stop`` ......... green (STOP-1 wiring landed, ovos-core#802)
+- §4   stop with an active skill vs none chooses skill/global ... green (STOP-1 wiring landed, ovos-core#802)
+- §4.1/§5.1 no active skill escalates to global ``ovos.stop`` ... green (STOP-1 wiring landed, ovos-core#802)
+- §3.1 global-stop self-dispatch ``<id>:global_stop`` ........... green (STOP-1 wiring landed, ovos-core#802)
 - §2   a registration naming ``stop`` is malformed (reserved) ... xfail
 
 2026-08-10 harness-credibility repoint: this pin previously installed
 ovos-core from ``feat/stop-1-conformance``, the branch of CLOSED PR #777 —
 every verdict above, green or xfail, described code that never shipped.
-Repointing to ``ovos-core@dev`` flips the three ``ovos.stop`` / ``ovos.stop.ping``
-assertions above from green to xfail: real ovos-core@dev has none of #777's
-STOP-1 wiring. ovos-core#802 is the live PR that lands it; these three
-xfails should un-flip together when #802 merges.
+Repointing to ``ovos-core@dev`` flipped the three ``ovos.stop`` / ``ovos.stop.ping``
+assertions above from green to xfail: real ovos-core@dev at the time had none
+of #777's STOP-1 wiring. ovos-core#802 landed that wiring in the 3.0.x alphas
+(2026-08-14): the ``ovos.stop`` broadcast, ``:global_stop`` self-dispatch, and
+``<skill_id>:stop`` per-skill dispatch clauses above are green again. The
+``ovos.stop.ping`` / ``ovos.stop.pong`` broadcast-discovery pair is still
+unimplemented and stays xfail.
 """
 import time
 from unittest import TestCase
@@ -94,26 +97,11 @@ class TestSec5GlobalStop(TestCase):
         recs = capture(_MC, utterance("stop", "stop-global-eof", [STOP_HIGH]), 4.0, eof_types=None)
         self.assertEqual(types(recs).count("ovos.utterance.handled"), 1)
 
-    @pytest.mark.xfail(strict=True,
-                       reason="STOP-1 §5.3 MUST: global stop MUST broadcast "
-                              "'ovos.stop'; ovos-core @dev only emits the legacy "
-                              "'mycroft.stop' — the native 'ovos.stop' emit from "
-                              "closed PR #777 (feat/stop-1-conformance) never "
-                              "merged. Verdict flipped from green to xfail by the "
-                              "2026-08-10 harness-credibility repoint, which "
-                              "moved this suite off #777's dead branch onto "
-                              "ovos-core@dev; tracked by ovos-core#802.")
     def test_global_stop_broadcast_topic(self):
         """The global-stop handler MUST emit ``ovos.stop`` (§5.3)."""
         recs = capture(_MC, utterance("stop", "stop-global-bcast", [STOP_HIGH]), 4.0)
         self.assertIn("ovos.stop", types(recs))
 
-    @pytest.mark.xfail(strict=True,
-                       reason="STOP-1 §3.1/§5.2 MUST: global stop self-dispatch "
-                              "is '<stop_plugin_id>:global_stop'; ovos-core @dev "
-                              "dispatches 'stop:global' instead (reversed "
-                              "component order and separator; stack drift since "
-                              "2026-07-16)")
     def test_global_stop_dispatch_topic(self):
         """Global stop is dispatched on ``<stop_plugin_id>:global_stop`` (§3.1, §5.2)."""
         recs = capture(_MC, utterance("stop", "stop-global-disp", [STOP_HIGH]), 4.0)
@@ -182,21 +170,11 @@ class TestSec43PerSkillStop(TestCase):
     broadcast). With at least one active skill, a generic ``stop`` is per-skill,
     not global."""
 
-    @pytest.mark.xfail(strict=True,
-                       reason="STOP-1 §4.3 MUST: per-skill stop dispatch is "
-                              "'<skill_id>:stop'; ovos-core @dev emits "
-                              "'<skill_id>.stop' instead of the spec-mandated "
-                              "'<skill_id>:stop' (stack drift since 2026-07-16)")
     def test_per_skill_stop_topic(self):
         """With an active skill, ``stop`` dispatches ``<skill_id>:stop`` (§4.3)."""
         recs = capture(_MC, _stop_with_active("stop-perskill", "fake.skill"), 4.0)
         self.assertIn("fake.skill:stop", types(recs))
 
-    @pytest.mark.xfail(strict=True,
-                       reason="STOP-1 §4.3 MUST: per-skill stop dispatch is "
-                              "'<skill_id>:stop'; ovos-core @dev emits "
-                              "'<skill_id>.stop' instead of the spec-mandated "
-                              "'<skill_id>:stop' (stack drift since 2026-07-16)")
     def test_active_skill_does_not_global_stop(self):
         """A generic ``stop`` with an active skill targets that skill — the
         universal ``ovos.stop`` broadcast is NOT emitted (§4 step ordering)."""
@@ -205,17 +183,6 @@ class TestSec43PerSkillStop(TestCase):
         self.assertIn("fake.skill:stop", seq)  # positive control
         assert_absent(recs, "ovos.stop", positive_control="fake.skill:stop")
 
-    @pytest.mark.xfail(strict=True,
-                       reason="STOP-1 §4.1 step 1 / §5.1 / §5.3 MUST: escalating "
-                              "to global stop MUST still broadcast 'ovos.stop'; "
-                              "the escalation itself works (no per-skill stop "
-                              "fires), but the resulting global stop only reaches "
-                              "the legacy 'mycroft.stop' topic — same gap as "
-                              "TestSec5GlobalStop.test_global_stop_broadcast_topic "
-                              "(§5.3, closed PR #777 never merged). Verdict "
-                              "flipped from green to xfail by the 2026-08-10 "
-                              "harness-credibility repoint off #777's dead "
-                              "branch onto ovos-core@dev; tracked by ovos-core#802.")
     def test_no_active_skill_goes_global(self):
         """A generic ``stop`` with no active skill escalates to the global stop
         broadcast ``ovos.stop`` (§4.1 step 1 / §5.1)."""
