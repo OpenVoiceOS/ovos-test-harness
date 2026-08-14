@@ -39,19 +39,23 @@ This is why the matrix has a **core stack** axis (`ovos-core` + its in-core
 pipelines + whatever bus-client version its floor resolves), not one axis
 per pipeline.
 
-## §1.3 — bus-client floors are lower bounds, never ceilings
+## §1.3 — floors are lower bounds; matrix venvs pin whole cohorts
 
 Every `ovos-bus-client` dependency in the fleet (`ovos-workshop`,
 `ovos-audio`, the matcher plugins) is declared as a floor
-(`ovos_bus_client>=X`), never capped. A boundary-pin container therefore
-always resolves a *current* `ovos-bus-client` when it's rebuilt — there is
-no real deployment where an old skill container also carries an old bus
-client, short of a distro constraints file forcing one. That's exactly what
-the 4 channel cells are for (§2.5): they're the only place an old client is
-reachable at all. This is also why `venv_skill_old` in `build_venvs.sh`
-deliberately leaves `ovos-bus-client` unpinned rather than freezing it —
-pinning it away would hide the real deployment shape the matrix exists to
-observe.
+(`ovos_bus_client>=X`), never capped. A real deployment that rebuilds an old
+skill container therefore resolves a *current* bus client; only a distro
+constraints file produces an old one. The 4 channel cells (§2.5) cover that
+case.
+
+The matrix's boundary venvs do NOT rely on that float. A floating dependency
+inside a boundary venv can silently flip the axis the venv exists to hold
+still (a floated `ovos-bus-client` 2.8 brings the intent-topic bridge into a
+"vintage" skill venv, changing its dispatch spelling). So each boundary venv
+pins its whole cohort by date anchor: every package pinned to its latest
+release at or before the anchor package's release date. The anchor is
+`ovos-core` for the C-axis venvs and `ovos-workshop` for `venv_skill_old`.
+When a pin needs to move, re-derive it from the anchor date — never float it.
 
 ## §2.1 — the four axes and why the naive cartesian is out
 
