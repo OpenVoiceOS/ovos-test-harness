@@ -264,13 +264,30 @@ jobs:
           # naming venvs, so a new cell (or a renamed one) is picked up here
           # automatically. Each job only ever has its own one or two venvs
           # present, since build_venvs.sh is now called with explicit names.
+          #
+          # These venvs are built with `uv venv` (build_venvs.sh), which does
+          # NOT seed pip -- `python -m pip freeze` has no pip module to run
+          # and `|| true` silently swallowed that, shipping an empty artifact
+          # every run. `uv pip freeze` reads the venv's installed packages
+          # without needing pip present in it; fail loudly instead of
+          # swallowing so an empty freeze is a red job, not a silent no-op.
+          # Written directly to the file (not piped through `tee` from
+          # inside the loop) so a failure inside the loop -- which runs in a
+          # subshell when piped -- actually reaches this shell's exit status.
+          : > venv-freeze.txt
+          rc=0
           for v in "$RUNNER_TEMP"/venvs/*/ "$RUNNER_TEMP"/venvs/channel/*/; do
             [ -d "$v" ] || continue
             name="$(basename "$v")"
             [ "$name" = "channel" ] && continue
-            echo "== $name"
-            "$v/bin/python" -m pip freeze 2>/dev/null || true
-          done | tee venv-freeze.txt
+            echo "== $name" >> venv-freeze.txt
+            uv pip freeze --python "$v/bin/python" >> venv-freeze.txt || rc=1
+          done
+          cat venv-freeze.txt
+          if [ "$rc" -ne 0 ] || [ ! -s venv-freeze.txt ]; then
+            echo "::error::venv-freeze.txt is empty or a freeze failed -- resolved versions were not recorded" >&2
+            exit 1
+          fi
 
       - name: Upload the resolved versions
         if: always()
