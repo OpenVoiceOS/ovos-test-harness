@@ -1,8 +1,10 @@
 """4-tuple cell identity for the boundary tier of the mixed-version matrix.
 
-Design: ``backcompat-matrix-design.md`` Part 2, §2.1-§2.5 (verified against
-``origin/dev`` 2026-08-12; not vendored in this checkout -- ask for the
-source doc if you need the full archaeology). Four axes, each independently
+Design: `docs/matrix-design.md <../../docs/matrix-design.md>`_ Part 2,
+§2.1-§2.5. One-line summary: a container is resolved as a unit (skill /
+core / matchers / audio), each of those four axes is independently
+reachable by real package resolution, and a scenario is only crossed
+against an axis that can change its outcome. Four axes, each independently
 reachable by real package resolution (design §2.1):
 
 * **S** -- skill container (``ovos-workshop`` + its resolved bus-client)

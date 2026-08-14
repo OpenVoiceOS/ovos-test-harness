@@ -145,12 +145,12 @@ fetch live distro constraints, so an unrelated PR (or an unrelated nightly
 tick) should not go red because the fleet's own pins moved.
 
 This tiering covers the *cell* dimension only. It does not yet also select
-scenarios by which file a PR touched — the design this feeds off of
-(`backcompat-matrix-design.md` §3.2) describes a fuller 16-boundary-cell /
-matcher-skew / transport-variant matrix with per-scenario file splitting;
-today's suite is still one file (`test_mixed_version_matrix.py`) covering
-every scenario, and standing up the rest of that matrix needs new buildable
-cells in `build_venvs.sh` that are out of scope here. Per-cell axis pruning
+scenarios by which file a PR touched — [`matrix-design.md`](matrix-design.md)
+§3.2 describes a fuller 16-boundary-cell / matcher-skew / transport-variant
+matrix with per-scenario file splitting; today's suite is still one file
+(`test_mixed_version_matrix.py`) covering every scenario, and standing up
+the rest of that matrix needs new buildable cells in `build_venvs.sh` that
+are out of scope here. Per-cell axis pruning
 (`test/backcompat/conftest.py`'s `pytest_collection_modifyitems`, see its
 module docstring) is what keeps each cell's actual run down to its
 non-redundant scenarios today.
@@ -301,6 +301,8 @@ the URL has moved on.
   combination.
 - [known-gaps.md](known-gaps.md) — the `xfail` clauses you should expect to
   see.
+- [matrix-design.md](matrix-design.md) — the axis model, pruning rules, and
+  how to add a cell to the mixed-version matrix.
 
 ---
 [← Coverage](coverage.md) · [Home](../README.md) · [Known gaps →](known-gaps.md)

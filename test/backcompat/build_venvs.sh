@@ -50,6 +50,12 @@
 # the "new core" side is pinned to a ref the way requirements.txt pins the rest
 # of the stack.
 #
+# Design references below (design §X.Y) are to docs/matrix-design.md, which is
+# the canonical source for the axis model and pruning rules these pins exist
+# to serve. One-line summary: four independently-reachable axes (skill
+# container, core stack, matcher plugins, audio side), each pin below marking
+# a real behaviour boundary on one of them.
+#
 # Pins, and why each one is where it is:
 #
 #   skill_old  ovos-workshop==9.3.1a2

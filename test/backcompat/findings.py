@@ -1,4 +1,5 @@
-"""Findings feed for the mixed-version back-compat matrix (design §4.2).
+"""Findings feed for the mixed-version back-compat matrix (design --
+``docs/matrix-design.md`` §4.2).
 
 Collects one record per ``xfail``/``xpass`` test observed in a pytest run of
 ``test/backcompat/`` and writes ``backcompat-findings-<cell>.json`` so a CI
@@ -6,7 +7,7 @@ workflow can aggregate red boundaries across cells without re-running
 anything (see ``.github/workflows/backcompat_matrix.yml``'s ``summarize``
 job).
 
-Field provenance, per the design doc:
+Field provenance, per ``docs/matrix-design.md`` §4.2:
 
 * ``cell`` / ``scenario`` come from the test's own context: ``cell`` from
   ``BACKCOMPAT_COMBO`` (resolved through ``cells.resolve_cell`` when it is a

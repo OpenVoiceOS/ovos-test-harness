@@ -1,6 +1,6 @@
 """Standalone audio-output simulator for the mixed-version back-compat matrix.
 
-Design: ``backcompat-matrix-design.md`` §2.6. Standing up a real
+Design: `docs/matrix-design.md <../../docs/matrix-design.md>`_ §2.6. Standing up a real
 ``ovos-audio`` needs a TTS plugin and a sound device; this process instead
 implements ONLY the AUDIO-1 §5 output lifecycle contract, at a pinned
 vintage chosen by ``BACKCOMPAT_AUDIO_VINTAGE``. It runs in its own venv

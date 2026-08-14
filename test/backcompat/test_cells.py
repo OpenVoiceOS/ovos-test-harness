@@ -5,6 +5,8 @@
 so these collect and run in any plain ``pytest test/backcompat/`` — that's
 the point of factoring the 4-tuple/pruning/probe-comparison logic out of
 the venv-dependent test module in the first place.
+
+Design references below (``design §X.Y``) are to ``docs/matrix-design.md``.
 """
 import pytest
 

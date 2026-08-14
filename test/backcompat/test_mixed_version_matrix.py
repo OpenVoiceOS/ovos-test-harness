@@ -100,6 +100,8 @@ entries::
     <core-venv>/bin/pytest test/backcompat/
 
 ``test/backcompat/build_venvs.sh`` builds the four venvs with the pins above.
+
+Design references below (``design §X.Y``) are to ``docs/matrix-design.md``.
 """
 import os
 import time
