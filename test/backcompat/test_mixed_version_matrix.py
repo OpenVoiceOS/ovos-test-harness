@@ -120,9 +120,11 @@ from .driver import (ACTIVATED_TOPIC,
                      CONVERSE_MATCH_TOPIC, CONVERSE_REQUEST_TOPIC,
                      CONVERSE_RESPONSE_TOPIC,
                      CONVERSE_TRIGGER_TOPIC, GET_RESPONSE_ANSWER_TOPIC,
-                     GET_RESPONSE_DONE_TOPIC, GET_RESPONSE_TIMEOUT,
+                     GET_RESPONSE_DISABLE_TOPIC, GET_RESPONSE_DONE_TOPIC,
+                     GET_RESPONSE_ENABLE_TOPIC, GET_RESPONSE_TIMEOUT,
                      GET_RESPONSE_TRIGGER_TOPIC, LEGACY_TOPIC, SKILL_ID,
-                     SPEAK_WAIT_DONE_TOPIC, SPEAK_WAIT_TRIGGER_TOPIC,
+                     SPEAK_WAIT_DONE_TOPIC, SPEAK_WAIT_STARTED_TOPIC,
+                     SPEAK_WAIT_TRIGGER_TOPIC,
                      BusServer, Capture, SkillProcess, AudioProcess,
                      adapt_consumes_intent4_keywords,
                      audio_output_ended_spec_topic,
@@ -310,6 +312,64 @@ def _registered_name(registrations) -> str:
     return names[0]
 
 
+def _skill_binds_canonical_only(skill) -> bool:
+    """True iff THIS combo's real skill venv already binds the canonical
+    topic only -- feature-detected from the live ``bound_topics`` snapshot
+    ``SkillProcess`` reports, never a version compare.
+
+    ``ovos-workshop#500`` (released 9.3.12a1, 2026-08-13) is what makes this
+    true: it drops the suffixed ``<skill_id>:<file>.intent`` registration
+    AND binding entirely, so a post-#500 skill registers and binds
+    ``<skill_id>:<file>`` only. Every vintage before it -- including the
+    "new skill" boundary pin back when it tracked pre-#500 dev -- registers
+    and binds the suffixed name (possibly alongside the canonical one, per
+    #497), never canonical-only. Feature-detecting the live snapshot instead
+    of comparing a version string keeps this true regardless of which exact
+    workshop release a venv resolves.
+    """
+    return skill.bound_topics == [CANONICAL_TOPIC]
+
+
+def _expected_dispatch_topic(skill) -> str:
+    """The wire spelling this combo's real probes say the core will
+    dispatch, post-``ovos-workshop#500``.
+
+    THE LAW (post-#500; see module docstring's "What moved" section, which
+    this supersedes for spelling purposes): the dispatch spelling is
+    canonical unless BOTH probes say otherwise --
+
+        canonical if _skill_binds_canonical_only(skill) OR core_canonicalizes()
+        else suffixed
+
+    Before #500 this reduced to "spelling tracks M alone", because every
+    workshop vintage registered the suffixed name on the wire regardless of
+    its own vintage -- ``_skill_binds_canonical_only`` was always False, so
+    the OR left only the M-side term standing, and that partial truth is
+    what ``test_dispatch_spelling_tracks_the_matcher_axis_not_the_core_axis``
+    (module history) asserted. #500 changed what a NEW skill puts on the
+    wire at registration -- a post-#500 skill registers canonical directly,
+    so the core dispatches canonical even against an OLD (non-dealiasing)
+    matcher, because there is nothing left to dealias. That is what flipped
+    ``new-skill/old-core``, ``new-skill/new-core-old-matchers``, and
+    ``new-skill/new-core-padatious-old-adapt-new`` red under the old
+    single-axis (M-only) model: their skill sides now register canonical
+    directly while their matcher side is old, and the old M-only law
+    predicted suffixed.
+
+    Both probes are real-symbol, never version compares:
+    ``_skill_binds_canonical_only`` reads the live subprocess's actual
+    ``bound_topics`` snapshot (S-side), ``core_canonicalizes()`` reads
+    ``ovos_padatious.opm._dealias_intent_name``'s presence in the installed
+    matcher package (M-side). Suffixed survives only in the one cell where
+    NEITHER probe fires -- an old (pre-#500) skill against an old
+    (non-dealiasing) matcher, i.e. ``old-skill/old-core`` and its
+    ``*-new-matchers``/skew siblings that keep S old.
+    """
+    if _skill_binds_canonical_only(skill) or core_canonicalizes():
+        return CANONICAL_TOPIC
+    return LEGACY_TOPIC
+
+
 @pytest.fixture(scope="module")
 def converse_service(stack):
     """The real, per-combo ``ConverseService`` from ``driver.
@@ -475,10 +535,18 @@ def test_core_dispatches_the_topic_this_combo_expects(stack):
 
     Proves the dispatch really went out and with which spelling, so a silent
     handler in the broken cell can only mean the handler never heard it.
+
+    The expected spelling is ``_expected_dispatch_topic``'s two-probe law
+    (post-``ovos-workshop#500``), not ``core_canonicalizes()`` alone: a
+    post-#500 skill registers the canonical name directly, so the core
+    dispatches canonical even against an old, non-dealiasing matcher --
+    single-axis M-only reasoning under-predicts suffixed on exactly the
+    cells #500 flipped (``new-skill/old-core`` and its ``*-old-matchers``/
+    skew siblings).
     """
-    _server, bus, _skill, regs = stack
+    _server, bus, skill, regs = stack
     topic = dispatch_topic_for(_registered_name(regs))
-    want = CANONICAL_TOPIC if core_canonicalizes() else LEGACY_TOPIC
+    want = _expected_dispatch_topic(skill)
     assert topic == want
 
     seen = Capture(bus, topic)
@@ -496,17 +564,25 @@ def test_the_handler_binding_matches_the_probed_dispatch_topic(stack):
     skill actually bound (``skill.bound_topics``, probed from the live
     subprocess).
 
-    This is the T2.2 item 5 truth-fix: the ``new-skill/old-core`` COMBOS
-    entry says ``fires=True`` today, correct as of #500 being unmerged
-    (ovos-workshop still binds both spellings). The day
-    ovos-workshop#500 lands and removes the suffixed binding, this
-    assertion flips to catching that automatically -- ``dispatch_topic_for``
-    for an old core still returns the suffixed name (padatious hasn't
-    changed), ``skill.bound_topics`` on a post-#500 skill no longer
-    contains it, so ``reaches`` goes False here without anyone touching
-    this test. If that happens, the fix is to update the stale COMBOS
-    entry (and IS_BROKEN_CELL / the xfail reason above it) to match --
-    this test failing IS the signal to do that, not a bug to silence.
+    This is the T2.2 item 5 truth-fix, UPDATED post-``ovos-workshop#500``
+    (landed 2026-08-13, PyPI alpha 9.3.12a1): the original prediction here
+    was that #500 landing would flip ``reaches`` to False on
+    ``new-skill/old-core``, because it assumed ``dispatch_topic_for`` for an
+    old core would keep returning the suffixed name while the post-#500
+    skill's ``bound_topics`` dropped it. That did NOT happen --
+    ``dispatch_topic_for`` derives its topic from the name the skill
+    subprocess REALLY registered on the wire (``_registered_name``), and a
+    post-#500 skill registers canonical directly, so an old, non-dealiasing
+    core dispatches canonical too (nothing left to dealias) and the
+    canonical-only ``bound_topics`` still contains it. ``reaches`` stayed
+    True and COMBOS' ``fires=True`` for this cell is still correct -- what
+    #500 actually broke was the SPELLING single-axis tests assumed
+    (``test_core_dispatches_the_topic_this_combo_expects`` and
+    ``test_dispatch_spelling_tracks_registration_and_matcher_not_core``),
+    not this test's reachability claim. Kept as a still-live truth-fix
+    pattern: if a future change ever does desync ``dispatch_topic_for``
+    from ``skill.bound_topics``, this is still the assertion that catches
+    it and COMBOS' ``fires``/``IS_BROKEN_CELL`` would be what needs updating.
     """
     _server, _bus, skill, regs = stack
     topic = dispatch_topic_for(_registered_name(regs))
@@ -550,31 +626,48 @@ def _cell_or_skip() -> str:
 
 
 @pytest.mark.axes("S", "C", "M")
-def test_dispatch_spelling_tracks_the_matcher_axis_not_the_core_axis(stack):
-    """The dispatch spelling is decided by the MATCHER vintage (M), not by
-    the ovos-core vintage (C).
+def test_dispatch_spelling_tracks_registration_and_matcher_not_core(stack):
+    """The dispatch spelling is decided by the SKILL's registered name (S,
+    via ``_skill_binds_canonical_only``'s live probe) and the MATCHER
+    vintage (M), never by the ovos-core vintage (C) alone.
 
-    This is the assertion the whole M axis exists to make, and until T2.5 no
-    cell could make it: every core venv welded its padatious pin to its
-    ovos-core pin, so M and C were always equal and "the fold lives in
-    padatious" was an unfalsifiable claim in a docstring. The four
-    ``*-matchers`` cells break that weld, and on them M != C, so a mutant
-    that sourced the spelling from ovos-core instead of from the matcher
-    plugin fails here while still passing on all four original aliases.
+    POST-#500 LAW (supersedes this test's original single-axis claim; see
+    ``_expected_dispatch_topic``'s docstring for the full derivation):
+    canonical if the skill registers canonical OR the matcher dealiases,
+    suffixed only when BOTH are old. Before ``ovos-workshop#500`` (released
+    9.3.12a1, 2026-08-13) this test asserted "spelling tracks M alone" --
+    true only as a special case, because every pre-#500 workshop vintage put
+    the suffixed name on the wire at registration regardless of its own S
+    vintage, so the S-side term in the OR was always False and M was the
+    only axis left standing. #500 broke that premise: a post-#500 skill
+    registers canonical directly, so the wire is canonical even against an
+    OLD, non-dealiasing matcher -- exactly the case the old M-only assertion
+    got wrong on ``new-skill/old-core`` and its ``*-old-matchers``/skew
+    siblings (dev CI run 31746623405: all three went red the day #500's
+    PyPI alphas resolved into a boundary venv).
 
-    Both halves are probe-derived, never read off the design doc:
+    This is still the assertion the M axis exists to make -- until T2.5 no
+    cell could show M independently of C, because every core venv welded
+    its padatious pin to its ovos-core pin. The four ``*-matchers`` cells
+    break that weld (M != C on them), so a mutant that sourced the spelling
+    from ovos-core instead of from the matcher plugin still fails here.
+
+    All probes are real-symbol, never read off the design doc:
     ``core_canonicalizes()`` reads ``ovos_padatious.opm._dealias_intent_name``
-    out of the live venv, and ``dispatch_topic_for`` derives the topic from
-    the name the skill subprocess REALLY registered on the wire.
+    out of the live matcher venv, ``_skill_binds_canonical_only`` reads the
+    live skill subprocess's actual ``bound_topics`` snapshot, and
+    ``dispatch_topic_for`` derives the topic from the name the skill
+    subprocess REALLY registered on the wire.
 
     Observed when the M venvs were first built (recorded so a future drift
     reads as drift): ovos-core 2.6.3a1 + ovos-padatious 2.0.0a1 does NOT
     canonicalize, ovos-core 2.5.5a2 + ovos-padatious 2.0.1a2 DOES.
     """
     cell = _cell_or_skip()
-    _server, _bus, _skill, regs = stack
+    _server, _bus, skill, regs = stack
     values = axis_values(cell)
     m_is_new = values["M"] == REFERENCE
+    s_registers_canonical = _skill_binds_canonical_only(skill)
 
     assert core_canonicalizes() is m_is_new, (
         f"{COMBO} (cell {cell}): the registration-time fold is a property of "
@@ -585,13 +678,17 @@ def test_dispatch_spelling_tracks_the_matcher_axis_not_the_core_axis(stack):
         f"it does and the M axis is mislabelled.")
 
     topic = dispatch_topic_for(_registered_name(regs))
-    want = CANONICAL_TOPIC if m_is_new else LEGACY_TOPIC
+    want = CANONICAL_TOPIC if (s_registers_canonical or m_is_new) else LEGACY_TOPIC
     assert topic == want, (
-        f"{COMBO} (cell {cell}): M={values['M']} so the dispatch topic must "
-        f"be {want!r}, got {topic!r}")
+        f"{COMBO} (cell {cell}): S registers canonical={s_registers_canonical}, "
+        f"M={values['M']} (canonicalizes={m_is_new}) so the dispatch topic "
+        f"must be {want!r} (canonical unless BOTH are old), got {topic!r}")
 
-    if values["C"] != values["M"]:
-        # The falsifying case. Spelled out separately so the failure message
+    if values["C"] != values["M"] and not s_registers_canonical:
+        # The falsifying case for the M-vs-C claim, restricted to cells
+        # where S does not already force canonical on its own (S=old, so the
+        # OR's S-side term is False and only the M-vs-C comparison is being
+        # exercised here) -- spelled out separately so the failure message
         # names the mutation it caught rather than leaving a reader to work
         # out why an M!=C cell matters.
         c_would_want = CANONICAL_TOPIC if values["C"] == REFERENCE else LEGACY_TOPIC
@@ -620,11 +717,24 @@ def test_matcher_skew_leaves_the_dispatch_spelling_to_padatious(stack):
     ADAPT package (or from "any modern matcher is installed") would read True
     here -- adapt is at its new vintage -- while padatious is old and the
     wire really is suffixed, so this fails.
+
+    POST-#500: "the dispatch must still be suffixed" is only true on the
+    ``old-skill`` half of this skew pair. This test runs against BOTH
+    directions in ``MATCHER_SKEW`` (``old-skill/...`` and
+    ``new-skill/...-padatious-old-adapt-new``), and a post-#500 new skill
+    registers canonical directly regardless of adapt or padatious vintage --
+    ``new-skill/new-core-padatious-old-adapt-new`` is one of the three cells
+    dev CI run 31746623405 flipped red. The expected spelling here is
+    therefore ``_expected_dispatch_topic``'s two-probe law (S OR M), same as
+    every other cell in this module -- adapt still proven inert on top of
+    that, via the unconditional ``core_canonicalizes() is False`` assertion
+    below (adapt cannot be why M reads True, because M reads False here on
+    both skew directions).
     """
     if COMBO not in MATCHER_SKEW:
         pytest.skip(f"{COMBO} is not a matcher-skew sub-cell "
                     f"(design §2.2); nothing skewed to observe")
-    _server, _bus, _skill, regs = stack
+    _server, _bus, skill, regs = stack
 
     assert adapt_consumes_intent4_keywords() is True, (
         f"{COMBO}: a skew sub-cell must have the NEW ovos-adapt-parser "
@@ -635,9 +745,14 @@ def test_matcher_skew_leaves_the_dispatch_spelling_to_padatious(stack):
         f"be False. It returned True -- the skew is not actually skewed, or "
         f"the probe is reading the wrong package.")
     topic = dispatch_topic_for(_registered_name(regs))
-    assert topic == LEGACY_TOPIC, (
-        f"{COMBO}: with a NEW adapt and an OLD padatious the dispatch must "
-        f"still be the suffixed {LEGACY_TOPIC!r}, got {topic!r} -- the adapt "
+    want = _expected_dispatch_topic(skill)
+    assert topic == want, (
+        f"{COMBO}: with a NEW adapt and an OLD padatious, M contributes "
+        f"nothing (core_canonicalizes() is False, asserted above); the "
+        f"dispatch topic must be {want!r} -- suffixed for the old-skill "
+        f"direction, canonical for the post-#500 new-skill direction (its "
+        f"own registration already forces canonical) -- got {topic!r}. If "
+        f"this diverges from {want!r} for a reason other than S, the adapt "
         f"vintage is changing the padatious dispatch spelling, which design "
         f"§2.2 says it cannot")
 
@@ -863,6 +978,19 @@ def test_get_response_receives_the_answer_utterance(stack, converse_service):
     activates it as a side effect. This harness has no intent-dispatch
     pipeline standing that context up, so the skill is activated explicitly
     first, the same way the converse test above does.
+
+    ``wait_for_response_mode`` proves the round trip by sampling
+    ``SessionManager.sessions`` from this test's own thread every 50ms. On a
+    starved runner that sampling can miss the whole thing: the skill's real
+    ``skill.converse.get_response.enable`` / ``.disable`` pair can both get
+    processed by the driver process's bus-handler thread in one scheduling
+    burst, entirely between two polls, even though the round trip genuinely
+    happened. A sampled miss is therefore ambiguous between "never happened"
+    and "happened, window missed" — so this also watches the real enable/
+    disable events directly. If the poll misses but the events prove the
+    round trip landed and the response-mode window has since closed, that is
+    not a failure — it is "proven once, sampled late" — so the trigger is
+    re-armed and retried rather than failed on a scheduler artifact.
     """
     _server, bus, skill, _regs = stack
     _require_converse_api(skill)
@@ -870,6 +998,8 @@ def test_get_response_receives_the_answer_utterance(stack, converse_service):
     session_id = f"backcompat-getresp-{token[:8]}"
     activated = Capture(bus, ACTIVATED_TOPIC, token=token)
     done = Capture(bus, GET_RESPONSE_DONE_TOPIC, token=token)
+    enabled = Capture(bus, GET_RESPONSE_ENABLE_TOPIC, session_id=session_id)
+    disabled = Capture(bus, GET_RESPONSE_DISABLE_TOPIC, session_id=session_id)
     try:
         bus.emit(Message(CONVERSE_TRIGGER_TOPIC, {"token": token},
                          session_context(session_id)))
@@ -879,22 +1009,46 @@ def test_get_response_receives_the_answer_utterance(stack, converse_service):
             f"{COMBO}: skill confirmed activation but never showed up on "
             f"the live session's active-skill list")
 
-        bus.emit(Message(GET_RESPONSE_TRIGGER_TOPIC, {"token": token},
-                         session_context(session_id)))
-        # get_response's real "skill.converse.get_response.enable" round
-        # trip is async over the wire; wait for the actual evidence — the
-        # live session's response-mode holder — rather than guessing a
-        # delay long enough.
-        assert wait_for_response_mode(session_id, SKILL_ID), (
-            f"{COMBO}: get_response() never showed up as the live "
-            f"session's response-mode holder\nskill process log:\n{skill.log}")
+        # Up to two attempts: the first is the normal path. The second only
+        # runs if the first attempt's live sampling missed a round trip the
+        # enable/disable events prove already happened — see the docstring.
+        match = None
+        for attempt in range(2):
+            bus.emit(Message(GET_RESPONSE_TRIGGER_TOPIC, {"token": token},
+                             session_context(session_id)))
+            # get_response's real "skill.converse.get_response.enable" round
+            # trip is async over the wire; wait for the actual evidence — the
+            # live session's response-mode holder — rather than guessing a
+            # delay long enough.
+            if wait_for_response_mode(session_id, SKILL_ID):
+                # Seen live: do the converse match immediately, before the
+                # skill's own get_response poll window can close underneath
+                # it and disable response-mode again.
+                match = converse_match(converse_service, ["tacos please"],
+                                       "en-us", session_id)
+                break
 
-        match = converse_match(converse_service, ["tacos please"], "en-us",
-                               session_id)
+            if enabled.wait(timeout=0) and disabled.wait(timeout=0):
+                # Never sampled it live, but the real events prove the round
+                # trip happened and the window has since expired -- not "it
+                # never happened", just "happened, sampled late". Re-arm by
+                # triggering get_response again (the skill's previous call
+                # already returned, since disable fired) and retry once.
+                enabled.messages.clear()
+                disabled.messages.clear()
+                done.messages.clear()
+                continue
+
+            # Neither seen live nor proven by the events: a genuine miss,
+            # not a sampling artifact. Stop retrying and fail below.
+            break
+
         assert match is not None, (
-            f"{COMBO}: ConverseService.match() found no skill in "
-            f"response-mode — get_response's enable call never reached "
-            f"real core-side session state.\nskill process log:\n{skill.log}")
+            f"{COMBO}: get_response() never showed up as the live "
+            f"session's response-mode holder, and the "
+            f"{GET_RESPONSE_ENABLE_TOPIC!r}/{GET_RESPONSE_DISABLE_TOPIC!r} "
+            f"events never proved a round trip either\nskill process "
+            f"log:\n{skill.log}")
         assert match.match_type == GET_RESPONSE_ANSWER_TOPIC, (
             f"{COMBO}: real ConverseService.match() picked "
             f"{match.match_type!r}, not the expected "
@@ -911,6 +1065,8 @@ def test_get_response_receives_the_answer_utterance(stack, converse_service):
     finally:
         activated.close()
         done.close()
+        enabled.close()
+        disabled.close()
 
 
 @pytest.mark.axes("S", "C", "A")
@@ -1012,17 +1168,33 @@ def test_speak_wait_unblocks_on_audio_output_end(stack):
     _server, bus, skill, _regs = stack
     token = uuid.uuid4().hex
     session = {"session_id": f"backcompat-speakwait-{token[:8]}"}
+    started = Capture(bus, SPEAK_WAIT_STARTED_TOPIC, token=token)
     done = Capture(bus, SPEAK_WAIT_DONE_TOPIC, token=token)
     try:
         bus.emit(Message(SPEAK_WAIT_TRIGGER_TOPIC, {"token": token},
                          {"session": session}))
-        # give speak() time to run, set is_speaking, and register its
-        # audio_output_end listener before the driver plays audio-service
-        # and ends the "output" — wait_while_speaking bails out immediately
-        # if it does not see is_speaking already set (see session.py), so
-        # firing too early would make this a false pass for the wrong
-        # reason (skipped the wait entirely) rather than the wait actually
-        # unblocking.
+        # Wait for the real evidence that the worker thread actually
+        # reached self.speak(...) — not a fixed sleep from trigger
+        # dispatch. A fixed sleep races the thread's own scheduling: under
+        # a starved/CPU-pinned runner the thread can take longer than the
+        # sleep just to get picked up, which would make the positive
+        # control below pass for the wrong reason ("nothing happened yet"
+        # rather than "the call genuinely blocked") — this is what let the
+        # test XPASS under pinning even though the underlying #526 no-op
+        # bug was still present. See SPEAK_WAIT_STARTED_TOPIC.
+        assert started.wait(), (
+            f"{COMBO}: the skill's speak_wait worker thread never reached "
+            f"self.speak() at all\nskill process log:\n{skill.log}")
+        # give speak() a moment to actually enter wait_while_speaking and
+        # register its audio_output_end listener before the driver plays
+        # audio-service and ends the "output" — wait_while_speaking bails
+        # out immediately if it does not see is_speaking already set (see
+        # session.py), so firing too early would make this a false pass
+        # for the wrong reason (skipped the wait entirely) rather than the
+        # wait actually unblocking. Anchored to the real "started" event
+        # above rather than to trigger dispatch, this only has to cover
+        # speak()'s own internal setup, not also the worker thread's own
+        # scheduling delay.
         time.sleep(0.5)
         # Positive control: if speak(wait=True) was never actually called
         # (or never actually blocked), the "done" marker would already be
@@ -1051,6 +1223,7 @@ def test_speak_wait_unblocks_on_audio_output_end(stack):
             f"looks like it rode out its own internal timeout instead of "
             f"reacting to {AUDIO_OUTPUT_END_TOPIC!r}")
     finally:
+        started.close()
         done.close()
 
 
@@ -1426,10 +1599,21 @@ def test_speak_wait_bridges_from_spec_only_audio(audio_stack):
     _server, bus, skill, audio = audio_stack
     token = uuid.uuid4().hex
     session = {"session_id": f"backcompat-speakwait-spec-{token[:8]}"}
+    started = Capture(bus, SPEAK_WAIT_STARTED_TOPIC, token=token)
     done = Capture(bus, SPEAK_WAIT_DONE_TOPIC, token=token)
     try:
         bus.emit(Message(SPEAK_WAIT_TRIGGER_TOPIC, {"token": token},
                          {"session": session}))
+        # Same anchoring fix as test_speak_wait_unblocks_on_audio_output_end:
+        # wait for the real evidence the worker thread reached self.speak()
+        # before starting the positive-control settle window, instead of
+        # measuring a fixed sleep from trigger dispatch -- a starved/pinned
+        # runner can delay the thread's own scheduling past a fixed sleep,
+        # which let this XPASS(strict) for the wrong reason even with #526
+        # still unfixed.
+        assert started.wait(), (
+            f"{COMBO}: the skill's speak_wait worker thread never reached "
+            f"self.speak() at all\nskill process log:\n{skill.log}")
         # Same positive-control shape as test_speak_wait_unblocks_on_audio_
         # output_end (#26's mutation-proof pattern): the audio simulator's
         # own PLAYBACK_DELAY (0.3s) means a genuinely-waiting speak() cannot
@@ -1449,6 +1633,7 @@ def test_speak_wait_bridges_from_spec_only_audio(audio_stack):
             f"spec-only (A=new) audio simulator.\nskill process log:\n"
             f"{skill.log}\naudio process log:\n{audio.log}")
     finally:
+        started.close()
         done.close()
 
 
