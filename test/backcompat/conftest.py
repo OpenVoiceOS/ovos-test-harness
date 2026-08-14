@@ -1,4 +1,5 @@
-"""Axis-marker pruning for the mixed-version matrix (design §2.4/§3.1).
+"""Axis-marker pruning for the mixed-version matrix (design --
+``docs/matrix-design.md`` §2.4/§3.1).
 
 A cell run is one venv pair (an eventual triple, once the audio simulator
 lands in T2.3). Most of the eight scenarios only depend on some of the four

@@ -8,6 +8,8 @@ observable at once.
 
 Nothing in this module mocks the bus. A real ``ovos-messagebus`` is started on
 a free port and both sides connect to it.
+
+Design references below (``design §X.Y``) are to ``docs/matrix-design.md``.
 """
 import json
 import os
