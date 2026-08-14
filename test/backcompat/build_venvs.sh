@@ -15,7 +15,7 @@
 #
 #   venv_skill_old venv_skill_new venv_core_old venv_core_new venv_audio
 #   venv_core_new_matchers_old venv_core_old_matchers_new
-#   venv_core_skew_padatious_old_adapt_new
+#   venv_core_skew_padatious_old_adapt_new venv_wire_twin_old
 #   venv_skill_stable venv_skill_testing venv_core_stable venv_core_testing
 #
 # An unrecognized name is a hard error (not a silent no-op), since a typo'd
@@ -181,6 +181,23 @@
 #              filters them down to scenario 1, and adding a -k filter would
 #              cost more than the handful of seconds it would save.
 #
+#   venv_wire_twin_old  ovos-bus-client==1.5.0
+#              Backs test/backcompat/wire_twin_listener.py, and the
+#              ovos-bus-client#286 wire-twin gap: the last PyPI release that
+#              predates ovos_spec_tools.messages.NamespaceTranslator entirely
+#              (verified live -- no NamespaceTranslator/MIGRATION_MAP/
+#              ovos_spec_tools reference anywhere in its installed
+#              client/client.py; the next release, 1.5.0 -> 2.0.0a1, is
+#              already spec-tools-era). Every OTHER "old" client this suite
+#              spins up (venv_skill_old's floated ovos-bus-client, venv_
+#              audio's A=old behavioural simulator) resolves a CURRENT
+#              client per §1.3 -- none of them can reproduce a client that
+#              has no translator to bridge with at all, which is the actual
+#              shape of a genuinely frozen satellite (bus-client 1.5.0, no
+#              NamespaceTranslator) the #286 fix targets. This is a bare
+#              listener venv, not a skill or core cohort: no ovos-workshop,
+#              no ovos-core, nothing else pinned alongside it.
+#
 #   venv_audio ovos-bus-client only (current)
 #              Backs test/backcompat/audio_process.py (design §2.6). The
 #              A-axis "vintage" is BEHAVIOURAL, not a package pin -- there is
@@ -218,7 +235,7 @@ PY="${BACKCOMPAT_PYTHON:-python3.11}"
 
 ALL_BOUNDARY_VENVS=(venv_skill_old venv_skill_new venv_core_old venv_core_new venv_audio
                     venv_core_new_matchers_old venv_core_old_matchers_new
-                    venv_core_skew_padatious_old_adapt_new)
+                    venv_core_skew_padatious_old_adapt_new venv_wire_twin_old)
 ALL_CHANNEL_VENVS=(venv_skill_stable venv_skill_testing venv_core_stable venv_core_testing)
 ALL_VENVS=("${ALL_BOUNDARY_VENVS[@]}" "${ALL_CHANNEL_VENVS[@]}")
 
@@ -323,6 +340,11 @@ wants venv_core_skew_padatious_old_adapt_new && mkvenv venv_core_skew_padatious_
   ovos-messagebus pytest pytest-timeout "setuptools<81"
 
 wants venv_audio      && mkvenv venv_audio    ovos-bus-client "setuptools<81"
+
+# venv_wire_twin_old: a genuinely pre-spec-tools client (no NamespaceTranslator
+# at all), the frozen-satellite shape ovos-bus-client#286's send-side wire
+# twin exists to reach. See the pins block above for the version archaeology.
+wants venv_wire_twin_old && mkvenv venv_wire_twin_old "ovos-bus-client==1.5.0" "setuptools<81"
 
 wants venv_skill_stable  && mkvenv_channel venv_skill_stable  "$STABLE_CONSTRAINTS_URL"  ovos-workshop "setuptools<81"
 wants venv_skill_testing && mkvenv_channel venv_skill_testing "$TESTING_CONSTRAINTS_URL" ovos-workshop "setuptools<81"
