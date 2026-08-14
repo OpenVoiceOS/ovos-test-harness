@@ -785,6 +785,101 @@ class Capture:
         self.bus.remove(self.topic, self._handle)
 
 
+WIRE_TWIN_SCRIPT = os.path.join(HERE, "wire_twin_listener.py")
+#: Boot budget for the wire-twin listener. Cheaper than the skill boot (no
+#: workshop resource loading, no core) but, like every other boot timeout in
+#: this module, generous rather than tight -- a slow CI runner must never
+#: read as "the wire twin is broken".
+WIRE_TWIN_BOOT_TIMEOUT = 60
+
+
+class WireTwinListener:
+    """The ovos-bus-client#286 gap's OLD-vintage listener, as a third kind
+    of child process (mirrors ``AudioProcess``'s handshake shape: a
+    ``VERSIONS`` line, then ``READY``). Runs ``wire_twin_listener.py`` under
+    whichever python ``build_venvs.sh``'s ``venv_wire_twin_old`` resolved --
+    a genuinely pre-spec-tools ``ovos-bus-client==1.5.0``, not a current
+    client with the namespace-bridge flags turned off (see that script's
+    module docstring for why the distinction matters).
+    """
+
+    def __init__(self, python: str, xdg: str):
+        env = dict(os.environ, XDG_CONFIG_HOME=xdg, PYTHONUNBUFFERED="1")
+        self.lines = []
+        self.versions = {}
+        self.proc = subprocess.Popen(
+            [python, WIRE_TWIN_SCRIPT],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, env=env)
+        self._wait_ready()
+        # A background reader keeps draining stdout after READY, so
+        # wait_for_token can poll self.lines instead of calling a blocking
+        # readline() with no timeout of its own (a listener that never
+        # receives anything must still let the caller's deadline fire).
+        import threading as _threading
+        self._reader_thread = _threading.Thread(
+            target=self._drain_stdout, daemon=True)
+        self._reader_thread.start()
+
+    def _drain_stdout(self):
+        while True:
+            line = self.proc.stdout.readline()
+            if not line:
+                return
+            self.lines.append(line.rstrip())
+
+    def _wait_ready(self):
+        deadline = time.time() + WIRE_TWIN_BOOT_TIMEOUT
+        while time.time() < deadline:
+            line = self.proc.stdout.readline()
+            if not line:
+                if self.proc.poll() is not None:
+                    raise RuntimeError(
+                        "wire-twin listener died before registering:\n"
+                        + self.log)
+                continue
+            self.lines.append(line.rstrip())
+            if line.startswith("VERSIONS "):
+                self.versions = json.loads(line[len("VERSIONS "):])
+            if line.startswith("READY"):
+                return
+        raise RuntimeError(
+            f"wire-twin listener never reported ready:\n{self.log}")
+
+    def received_tokens(self) -> list:
+        """Tokens of every ``speak`` message this process has reported
+        receiving so far, parsed live from its stdout log -- not a count
+        cached at handshake time, since messages keep arriving after
+        ``READY``."""
+        tokens = []
+        for line in self.lines:
+            if line.startswith("RECEIVED "):
+                tokens.append(json.loads(line[len("RECEIVED "):]).get("token"))
+        return tokens
+
+    def wait_for_token(self, token: str, timeout: float = DISPATCH_TIMEOUT) -> bool:
+        """Poll this process's own stdout log (drained live by the
+        background reader thread) until ``token`` shows up in a
+        ``RECEIVED`` line, or ``timeout`` elapses."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if token in self.received_tokens():
+                return True
+            time.sleep(0.02)
+        return token in self.received_tokens()
+
+    @property
+    def log(self) -> str:
+        return "\n".join(self.lines)
+
+    def stop(self):
+        self.proc.terminate()
+        try:
+            self.proc.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+
+
 def dispatch(bus: MessageBusClient, topic: str, **data) -> str:
     """Emit an intent dispatch the way ``IntentService._dispatch_match`` does.
 
