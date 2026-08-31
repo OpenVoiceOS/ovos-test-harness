@@ -173,3 +173,50 @@ def test_every_xfailing_test_is_named_in_its_coverage_section(path):
                 f"{path.name}: {name} is xfail but does not appear by name "
                 f"in docs/coverage.md's {spec_id} section — the row for its "
                 f"clause cannot be an unqualified 'green'.")
+
+
+CHANNEL_GAPS = pathlib.Path(__file__).parent / "channel_gaps"
+REPO_ROOT = pathlib.Path(__file__).parent.parent
+
+
+def _channel_gap_node_ids(path):
+    """Every non-comment, non-section-header line in a channel-gaps tracker.
+
+    Lines under ``[modules]`` are bare module paths; lines under ``[tests]``
+    and ``[xpass]`` are full pytest node ids (``module.py::Class::test``).
+    Either way the leading ``module.py`` segment (before the first ``::``,
+    if any) is what has to still exist on disk — resolving the rest of the
+    node id (class/test name) needs the full conformance stack imported,
+    which this meta-test does not have, so module-file existence is as far
+    as it checks.
+    """
+    ids = []
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or line.startswith("["):
+            continue
+        ids.append(line)
+    return ids
+
+
+@pytest.mark.parametrize("path", sorted(CHANNEL_GAPS.glob("*.txt")),
+                          ids=lambda p: p.name)
+def test_channel_gap_node_ids_reference_existing_modules(path):
+    """A known-gap tracker must not list a node id from a deleted module.
+
+    ``test_user_id1_conformance.py`` was deleted (a rejected spec proposal,
+    #47) but stayed listed in ``stable.txt``/``testing.txt`` afterward,
+    which made the channel-compat job hard-fail at collection ("no tests
+    ran") instead of ever reaching the real conformance run. This only
+    checks the module file still exists, not that the specific class/test
+    the node id names is still inside it — that needs the full conformance
+    import stack this meta-test does not build.
+    """
+    missing = set()
+    for node_id in _channel_gap_node_ids(path):
+        module = node_id.split("::", 1)[0]
+        if not (REPO_ROOT / module).is_file():
+            missing.add(module)
+    assert not missing, (
+        f"{path.name} lists node ids under a module that no longer exists: "
+        f"{sorted(missing)}")
