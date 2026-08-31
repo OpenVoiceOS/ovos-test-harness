@@ -41,15 +41,15 @@ jobs:
           # pinned requirements.txt. Use the pip actions/setup-python ships.
           pip install -r requirements.txt
           pip install pytest-timeout
-          # ovos-media (the OVOS-OCP-1 Virtual Media Player) pins
-          # ovos-bus-client~=1.3, which conflicts with the bus-client>=2.4.0a1
-          # the rest of the stack requires; install it WITHOUT deps so it cannot
-          # downgrade the pinned stack. It runs fine against bus-client 2.x.
-          pip install --no-deps ovos-media
-          # --no-deps also skips ovos-media's harmless leaf deps; install the
-          # ones ovos_media.player actually imports so OCP-1 really runs
-          # (the install-floor test fails the build if this import breaks).
-          pip install ovos-gui-api-client dbus_next json-database
+          # ovos-media (the OVOS-OCP-1 Virtual Media Player) is installed
+          # here rather than from requirements.txt so its floor sits next to
+          # the note explaining it. WITH its dependencies: it needs dbus_next,
+          # json-database and ovos-plugin-manager to import at all, and a
+          # --no-deps install left ovos_media unimportable, which the OCP
+          # suites then silently skipped over. The >=2.0.1a1 floor is the
+          # release whose bus edge (ovos_media/bus/api.py) the
+          # test/backcompat/test_ocp_common_play.py wire cells drive.
+          pip install "ovos-media>=2.0.1a1"
 
       - name: Record the installed stack
         run: pip freeze > stack-freeze.txt
@@ -66,6 +66,10 @@ jobs:
           # the full stack is installed here, so a suite that collects zero
           # tests is an install failure, not a local convenience skip
           OVOS_CONFORMANCE_EXPECT_FULL: "1"
+          # this is the job that installs ovos-media, so it is the job that
+          # runs test/backcompat/test_ocp_common_play.py. With the var set
+          # those cells never skip: a broken ovos-media install fails them.
+          OCP_WIRE_CELLS: "1"
         run: >-
           pytest test/ -v --tb=short -rxX
           --ignore=test/skills_fleet
