@@ -137,9 +137,6 @@ test/conformance/test_transform1_conformance.py::TestSec13SelfIdentification::te
 test/conformance/test_transform1_conformance.py::TestSec4Ordering::test_ascending_priority_order
 test/conformance/test_transform1_conformance.py::TestSec7ErrorHandling::test_shape_violation_treated_like_a_raise
 test/conformance/test_transform1_conformance.py::TestSec8Cancellation::test_cancel_by_stamped_by_orchestrator
-test/conformance/test_user_id1_conformance.py::TestSec7GuestFallback::test_anonymous_utterance_completes_the_round
-test/conformance/test_user_id1_conformance.py::TestSec7GuestFallback::test_anonymous_utterance_terminates_once
-test/conformance/test_user_id1_conformance.py::TestSec9Consumers::test_identified_utterance_completes_the_round
 
 [xpass]
 test/conformance/test_persona1_conformance.py::TestSec4NoPersonaMode::test_unsupported_persona_id_declines

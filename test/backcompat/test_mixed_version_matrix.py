@@ -757,6 +757,7 @@ def test_matcher_skew_leaves_the_dispatch_spelling_to_padatious(stack):
         f"§2.2 says it cannot")
 
 
+@pytest.mark.xfail(condition=IS_BROKEN_CELL, strict=True, reason=_XFAIL_REASON)
 @pytest.mark.axes("S", "C", "M")
 def test_the_skill_handler_runs(stack):
     """The contract: a canonical dispatch must reach the skill's handler.
@@ -795,6 +796,7 @@ def test_the_skill_handler_runs(stack):
         spoken.close()
 
 
+@pytest.mark.xfail(condition=IS_BROKEN_CELL, strict=True, reason=_XFAIL_REASON)
 @pytest.mark.axes("S", "C", "M")
 def test_the_handler_runs_exactly_once(stack):
     """A skill bound to both spellings must not answer twice.
