@@ -85,6 +85,55 @@ consumer.
 > nebulento / markov / linha-fina / padatious / m2v (INTENT-4 adoption
 > merged to `@dev`), and the legacy back-compat test for all eight plugins.
 
+## OVOS-INTENT-3
+
+The identity triple (§3), the keyword constraint payload (§4.2), the template
+definition (§5), and the matching-semantics end-to-end clauses (§4.2, §4.3,
+§6.2, §7) are green against `ovos-spec-tools` and the live adapt/padacioso
+pipelines. Three gaps remain, all in the definition/validation layer that
+`ovos-spec-tools`'s `IntentBuilder`/`Intent` leaves unvalidated, plus one
+engine-capability gap.
+
+### §4.2: a keyword intent MUST declare a required/one-of constraint
+
+- **Spec mandates:** "A keyword intent MUST declare at least one required or
+  one-of constraint: an intent with only optional and excluded constraints …
+  is malformed."
+
+- **Current impl:** `ovos-spec-tools` `IntentBuilder`/`Intent` is a
+  dependency-light data model with no validation and builds such a
+  definition without error.
+
+- **Test:** `TestSec4KeywordDefinition.test_only_optional_and_excluded_is_malformed`
+
+- **`reason`:** `"INTENT-3 §4.2 MUST: 'A keyword intent MUST declare at least one required or one-of constraint: an intent with only optional and excluded constraints … is malformed'; ovos-spec-tools IntentBuilder/Intent is a dependency-light data model with no validation and builds such a definition without error"`
+
+### §4.2: a vocabulary MUST appear under at most one role
+
+- **Spec mandates:** "A vocabulary MUST appear under at most one role within
+  a single intent … [listing it twice] is contradictory and malformed."
+
+- **Current impl:** `ovos-spec-tools` `IntentBuilder`/`Intent` performs no
+  cross-role validation and accepts a vocabulary listed under two roles.
+
+- **Test:** `TestSec4KeywordDefinition.test_vocabulary_under_two_roles_is_malformed`
+
+- **`reason`:** `"INTENT-3 §4.2 MUST: 'A vocabulary MUST appear under at most one role within a single intent … [listing it twice] is contradictory and malformed'; ovos-spec-tools IntentBuilder/Intent performs no cross-role validation and accepts a vocabulary under two roles"`
+
+### §5.1: template intent generalization is engine-specific
+
+- **Spec view:** "a capable engine generalizes beyond [the templates] and
+  recognizes unseen phrasings" — framed as expected/SHOULD, not a MUST
+  (§1.1 leaves matching unconstrained).
+
+- **Current impl:** the padacioso driver this suite uses is a literal
+  matcher and does not generalize to an unseen phrasing; a neural engine
+  (padatious) would pass this.
+
+- **Test:** `TestE2ETemplateGeneralizes.test_unseen_phrasing_still_matches`
+
+- **`reason`:** `"INTENT-3 §5.1: 'a capable engine generalizes beyond [the templates] and recognizes unseen phrasings'. Generalization is an engine capability the spec frames as expected/SHOULD, not a MUST (§1.1 leaves matching unconstrained); the padacioso driver this harness uses is a literal matcher and does not generalize to 'could you play something relaxing'. A neural engine (padatious) would pass this."`
+
 ## OVOS-CONTEXT-1
 
 The carrier clauses (§2 entry/`session.intent_context` field, §3 key
@@ -308,6 +357,19 @@ rather than gaps.
 - **Test:** `TestSec5SessionScoping.test_now_playing_is_scoped_per_session`
 
 - **`reason`:** `"OVOS-OCP-1 §5 MUST keep each session's now-playing / queue / transport state isolated (a pause for session A MUST NOT affect session B); the ovos-media OCPMediaPlayer holds a single global NowPlaying and one PlayerState and does not read context.session to select a per-session player, so two concurrent sessions collide on one player"`
+
+### §4.3: pause with no media MUST be a no-op
+
+- **Spec mandates:** "issuing pause with nothing playing is a no-op, not an
+  error."
+
+- **Current impl:** the `ovos-media` `OCPMediaPlayer` transitions to PAUSED
+  on a bare pause request with no now-playing media, instead of doing
+  nothing.
+
+- **Test:** `TestSec43ControlRequests.test_pause_is_noop_with_no_media`
+
+- **`reason`:** `"OVOS-OCP-1 §4.3 MUST: 'issuing pause with nothing playing is a no-op, not an error'; the ovos-media player transitions to PAUSED on a bare pause request with no now-playing media."`
 
 ## OVOS-PERSONA-1
 
