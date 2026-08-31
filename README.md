@@ -101,7 +101,7 @@ core still emits the legacy Y). **xpassed** means a gap has closed, and its
 ## Coverage matrix
 
 This is the authoritative spec-to-suite traceability record. The architecture
-`dev` branch carries 21 specs, and every one has a conformance suite.
+`dev` branch carries 20 specs, and every one has a conformance suite.
 SESSION-1 and SESSION-2 share one suite, and INTENT-4 has two: an
 orchestrator suite and a per-plugin registration-compliance suite. Full
 per-clause detail is in [docs/coverage.md](docs/coverage.md).
@@ -128,7 +128,6 @@ per-clause detail is in [docs/coverage.md](docs/coverage.md).
 | OVOS Common Playback (OCP) | OVOS-OCP-1 | `test_ocp1_conformance.py` | **implemented** |
 | Persona Pipeline Plugin | OVOS-PERSONA-1 | `test_persona1_conformance.py` | **implemented** |
 | Transformer Plugins | OVOS-TRANSFORM-1 | `test_transform1_conformance.py` | **implemented** |
-| User Identity Resolution | OVOS-USER-ID-1 | `test_user_id1_conformance.py` | **implemented** |
 
 ## Testing branch combinations
 
