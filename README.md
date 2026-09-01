@@ -104,7 +104,9 @@ This is the authoritative spec-to-suite traceability record. The architecture
 `dev` branch carries 20 specs, and every one has a conformance suite.
 SESSION-1 and SESSION-2 share one suite, and INTENT-4 has two: an
 orchestrator suite and a per-plugin registration-compliance suite. Full
-per-clause detail is in [docs/coverage.md](docs/coverage.md).
+per-clause detail is in [docs/coverage.md](docs/coverage.md). Which OVOS
+repos actually adopt each spec's wire surface is a separate question,
+answered in [docs/adoption.md](docs/adoption.md).
 
 | Architecture spec | Spec ID | Harness suite | Status |
 |-------------------|---------|---------------|--------|
@@ -283,5 +285,6 @@ runs today**, and `integration.yml` says **where dev is going**. Full detail in
 | [docs/testing-combos.md](docs/testing-combos.md) | The PR-driven cross-repo branch-combination workflow. |
 | [docs/writing-conformance-tests.md](docs/writing-conformance-tests.md) | Conventions: one spec section per class, quoted-clause docstrings, the `_conformance.py` helpers, and the `xfail` discipline. |
 | [docs/coverage.md](docs/coverage.md) | The full spec-to-suite traceability matrix and per-class clause coverage. |
+| [docs/adoption.md](docs/adoption.md) | Which OVOS repos emit or consume each spec's canonical topics, machine-checked against source. |
 | [docs/ci.md](docs/ci.md) | The `integration.yml`, `backcompat_matrix.yml`, and `channel_compat.yml` workflows, running locally, and interpreting results. |
 | [docs/known-gaps.md](docs/known-gaps.md) | The conformance gaps the suite currently documents as `xfail`. |
