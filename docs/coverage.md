@@ -519,6 +519,8 @@ red cell green.
   spec-vs-impl detail.
 - [writing-conformance-tests.md](writing-conformance-tests.md) — how a
   clause becomes a row in this table.
+- [adoption.md](adoption.md) — which OVOS repos actually adopt each spec's
+  wire surface, not just which suite proves it.
 
 ---
 [← Writing conformance tests](writing-conformance-tests.md) · [Home](../README.md) · [CI →](ci.md)
