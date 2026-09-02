@@ -14,6 +14,8 @@ from .cells import (AXES, BOUNDARY_ALIASES, CHANNEL_CELLS, MATCHER_SKEW,
                     OTHER, REFERENCE, adapt_vintage, assert_vintage,
                     axis_values, cell_id, is_redundant, probed_vintage_matches,
                     resolve_cell)
+from .test_mixed_version_matrix import (CANONICAL_NAME, INTENT_FILE,
+                                        _live_registry_bare_name)
 
 
 #: The exact worked example in design §2.5 -- the four combo names that
@@ -338,3 +340,53 @@ def test_expected_dispatch_topic_mutation_proof_m_probe_lying(monkeypatch):
         "the M term from the OR (spelling tracks S alone) would wrongly "
         "predict suffixed here and this assertion catches it")
 
+# T2.8: the enable/disable-intent #500 probe, in isolation
+# ---------------------------------------------------------------------------
+#
+# ovos-workshop#500 has since merged upstream (head eb68a6e) AND published
+# PyPI alphas carrying it (9.3.11a2, 9.3.12a1) -- both directions of
+# ``test_disable_then_enable_intent_round_trips_the_canonical_spelling``
+# (test_mixed_version_matrix.py) now run end-to-end against real venvs (see
+# that test's own docstring). These two tests are kept anyway as a fast,
+# no-bus/no-venv/no-subprocess regression guard on the DECISION LOGIC
+# itself (which bare name flips the dynamic xfail marker on/off): they
+# drive ``_live_registry_bare_name`` directly against the exact shape
+# ``report_intent_state`` reports for each side of the #500 boundary, so a
+# future change to that function's logic fails here in milliseconds
+# instead of only surfacing through a 20+ second real-venv run.
+
+def test_disable_enable_probe_reports_fix_absent_pre_500():
+    """Pre-#500 shape: registry keyed on the bare FILE-derived name (verified
+    directly against a real ovos-workshop==9.3.1a2 venv -- see
+    test_mixed_version_matrix.py's T2.8 section comment) -- the probe must
+    say the fix is absent.
+    """
+    state = {"registered": [INTENT_FILE], "detached": []}
+    assert _live_registry_bare_name(state, "probe-pre-500") == INTENT_FILE
+
+
+def test_disable_enable_probe_flips_xfail_to_pass_once_the_registry_key_is_canonical():
+    """Post-#500 shape: registry keyed on the CANONICAL bare name (verified
+    directly against a freshly rebuilt ovos-workshop==9.3.12a1 venv -- see
+    test_mixed_version_matrix.py's T2.8 section comment). The probe must
+    report the fix present, which is exactly the branch that makes
+    ``test_disable_then_enable_intent_round_trips_the_canonical_spelling``
+    skip adding its dynamic xfail marker and require a real PASS instead.
+    """
+    state = {"registered": [CANONICAL_NAME], "detached": []}
+    assert _live_registry_bare_name(state, "probe-post-500") == CANONICAL_NAME
+
+
+def test_disable_enable_probe_rejects_a_registry_with_neither_or_both_keys():
+    """Adversarial: the probe's own precondition (exactly one of the two
+    bare names is ever the live registry key) must fail loudly, not guess,
+    if a future workshop vintage breaks that assumption -- e.g. registers
+    under some third name, or (a genuinely broken venv) somehow carries
+    both. A silent fallback here would misreport #500's presence instead of
+    surfacing that the probe itself no longer models reality.
+    """
+    with pytest.raises(AssertionError):
+        _live_registry_bare_name({"registered": [], "detached": []}, "x")
+    with pytest.raises(AssertionError):
+        _live_registry_bare_name(
+            {"registered": [INTENT_FILE, CANONICAL_NAME], "detached": []}, "x")

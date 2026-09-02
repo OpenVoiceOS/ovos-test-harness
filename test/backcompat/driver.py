@@ -530,8 +530,10 @@ class BusServer:
             time.sleep(0.25)
         raise RuntimeError(f"messagebus never accepted on port {self.port}")
 
-    def client(self, emit_legacy: Optional[bool] = None) -> MessageBusClient:
-        """A driver-side bus client, optionally overriding #271's rule 1.
+    def client(self, emit_legacy: Optional[bool] = None,
+              modernize: Optional[bool] = None) -> MessageBusClient:
+        """A driver-side bus client, optionally overriding #271's rule 1
+        and/or rule 2.
 
         bus-client#271 rule 1 (the legacy ``.intent``-suffixed twin) fires
         inside ``MessageBusClient.emit()``, in whichever process calls
@@ -542,10 +544,32 @@ class BusServer:
         for one client means setting the env var in THIS process just before
         building that client. Restored immediately after, so it does not
         leak into any client built after this one returns.
+
+        ``modernize`` is the RULE 2 counterpart (T2.8): receive-side
+        canonicalization, gated by ``OVOS_BUS_MODERNIZE`` /
+        ``self._translator.modernize`` and applied inside
+        ``MessageBusClient.on_message`` -> ``_modernize_intent_topic`` for
+        whichever client RECEIVES a suffixed intent frame without the RULE 1
+        twin marker. It is the RECEIVING client's own flag that matters here
+        (same "which process's flag matters" principle the A-axis section
+        above documents for the audio bridge) — a shadow client built with
+        ``modernize=False`` and a canonical-only ``bus.on(...)`` listener is
+        how T2.8's RULE 2 kill-switch cell (Cell B) proves the switch is
+        load-bearing: ``SkillProcess`` has no ``modernize`` knob to thread
+        through, so there is no way to build a real canonical-only skill
+        container with RULE 2 turned off, even though ovos-workshop#500 (the
+        release that makes a skill canonical-only) has since merged and
+        published PyPI alphas (9.3.11a2/9.3.12a1) — Cell A in
+        ``test_mixed_version_matrix.py``'s RULE 2 section runs against a
+        real ``SkillProcess`` built from one of those, and its own docstring
+        explains why Cell B still cannot.
         """
-        prev = os.environ.get("OVOS_BUS_EMIT_LEGACY")
+        prev_legacy = os.environ.get("OVOS_BUS_EMIT_LEGACY")
+        prev_modernize = os.environ.get("OVOS_BUS_MODERNIZE")
         if emit_legacy is not None:
             os.environ["OVOS_BUS_EMIT_LEGACY"] = str(emit_legacy).lower()
+        if modernize is not None:
+            os.environ["OVOS_BUS_MODERNIZE"] = str(modernize).lower()
         try:
             bus = MessageBusClient(host="127.0.0.1", port=self.port, route="/core")
             bus.run_in_thread()
@@ -554,10 +578,15 @@ class BusServer:
             return bus
         finally:
             if emit_legacy is not None:
-                if prev is None:
+                if prev_legacy is None:
                     os.environ.pop("OVOS_BUS_EMIT_LEGACY", None)
                 else:
-                    os.environ["OVOS_BUS_EMIT_LEGACY"] = prev
+                    os.environ["OVOS_BUS_EMIT_LEGACY"] = prev_legacy
+            if modernize is not None:
+                if prev_modernize is None:
+                    os.environ.pop("OVOS_BUS_MODERNIZE", None)
+                else:
+                    os.environ["OVOS_BUS_MODERNIZE"] = prev_modernize
 
     def stop(self):
         self.proc.terminate()
@@ -878,6 +907,77 @@ class WireTwinListener:
             self.proc.wait(timeout=15)
         except subprocess.TimeoutExpired:
             self.proc.kill()
+#: T2.8 Cell C -- the topic pair ``skill_process.py``'s
+#: ``_report_intent_state`` binds. A dedicated round trip rather than
+#: reusing ``mycroft.skill.disable_intent``/``enable_intent`` themselves:
+#: this lets the driver read the skill's ``IntentServiceInterface``
+#: bookkeeping (``registered_intents``/``detached_intents``) in a message
+#: that is guaranteed to be processed AFTER whichever disable/enable call
+#: preceded it (the skill's bus reader dispatches one message at a time, in
+#: arrival order), instead of racing a second listener bound to the same
+#: topic against workshop's own built-in handler -- listener registration
+#: order across two different ``add_event`` calls for the identical topic is
+#: not a contract this suite should lean on.
+REPORT_INTENT_STATE_TRIGGER_TOPIC = "backcompat.report_intent_state.trigger"
+REPORT_INTENT_STATE_DONE_TOPIC = "backcompat.report_intent_state.done"
+
+
+def report_intent_state(bus: MessageBusClient, timeout: float = DISPATCH_TIMEOUT) -> dict:
+    """Round-trip the skill's live intent-registry bookkeeping.
+
+    Returns the ``{"bound_topics": [...], "registered": [...], "detached":
+    [...]}`` dict the skill subprocess reports, straight from its own
+    ``IntentServiceInterface.registered_intents`` / ``.detached_intents`` --
+    real per-vintage state, never inferred from a dispatch side effect.
+    """
+    cap = Capture(bus, REPORT_INTENT_STATE_DONE_TOPIC)
+    try:
+        bus.emit(Message(REPORT_INTENT_STATE_TRIGGER_TOPIC, {}))
+        assert cap.wait(timeout), (
+            "backcompat.report_intent_state.trigger got no "
+            "backcompat.report_intent_state.done reply -- the skill process "
+            "may have died or the reporting hook is missing")
+        return cap.messages[-1].data
+    finally:
+        cap.close()
+
+
+def wait_for_intent_state(bus: MessageBusClient, bare_name: str,
+                          want_registered: bool,
+                          timeout: float = DISPATCH_TIMEOUT) -> dict:
+    """Poll ``report_intent_state`` until ``bare_name`` lands in
+    ``registered`` (``want_registered=True``) or ``detached``
+    (``want_registered=False``), returning the state dict the moment it
+    does.
+
+    ``OVOSSkill``'s event dispatch does not run ``handle_disable_intent`` /
+    ``handle_enable_intent`` synchronously on the bus reader thread that
+    received the triggering message (confirmed empirically: a
+    ``report_intent_state`` round trip sent immediately after
+    ``mycroft.skill.disable_intent`` reliably observes the PRE-disable
+    state, and only a second round trip after a short wait observes the
+    real one) -- so a single immediate round trip races the skill's own
+    handler and is not a reliable read. Same polling discipline as
+    ``wait_for_active_skill``/``wait_for_response_mode`` above: real
+    evidence of the transition, not a fixed guessed sleep.
+
+    Returns the last state observed once it matches, or once ``timeout``
+    elapses (in which case the caller's own assertion on the returned dict
+    is what reports the failure, with the real final state attached).
+    """
+    deadline = time.monotonic() + timeout
+    state = report_intent_state(bus)
+    while True:
+        is_registered = bare_name in state["registered"]
+        is_detached = bare_name in state["detached"]
+        if want_registered and is_registered:
+            return state
+        if not want_registered and is_detached:
+            return state
+        if time.monotonic() >= deadline:
+            return state
+        time.sleep(0.1)
+        state = report_intent_state(bus)
 
 
 def dispatch(bus: MessageBusClient, topic: str, **data) -> str:
