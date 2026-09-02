@@ -139,4 +139,3 @@ test/conformance/test_transform1_conformance.py::TestSec7ErrorHandling::test_sha
 test/conformance/test_transform1_conformance.py::TestSec8Cancellation::test_cancel_by_stamped_by_orchestrator
 
 [xpass]
-test/conformance/test_persona1_conformance.py::TestSec4NoPersonaMode::test_unsupported_persona_id_declines
