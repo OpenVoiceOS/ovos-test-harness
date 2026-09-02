@@ -28,24 +28,33 @@ name: mixed-version back-compat matrix
 # with an XPASS. That is the intended signal: drop the marker and the cell
 # becomes a permanent guard.
 #
-# T2.7 trigger split (design §3.2), implemented against the cells that exist
-# TODAY -- 4 boundary + 4 channel, not the aspirational full 16-boundary /
-# matcher-skew / transport-variant matrix, which needs new buildable cells
-# (independent M/A axis crossings) that T2.3+ / a later PR must add to
-# `build_venvs.sh` and `cells.py` first (out of this change's scope):
+# T2.7 trigger split (design §3.2). Cell inventory as of this change: 10
+# boundary cells (4 original S/C aliases + 6 matcher/skew cells added by
+# #33/#34) + 4 channel cells = 14 total -- NOT the design doc's aspirational
+# 16-boundary/20-cell S×C×M×A cube (there is no independently-buildable audio
+# axis yet; see build_venvs.sh). The design's own trigger table (§3.2) is
+# written against that 16/20-cell world ("PR-time: 6 boundary cells", "nightly:
+# all 16 boundary cells", "weekly: 16 boundary + 4 channel + ..."); this
+# divergence is expected and reported in the PR body -- the fix here scales
+# the *shape* of the design's split (a fast PR lane, a fuller nightly lane, an
+# everything weekly lane) onto today's 10+4 inventory, picking the highest-
+# value subset for the fast lane rather than the literal cell names the
+# design names (which don't exist yet):
 #
-#   | trigger                 | cells run                    |
-#   |--------------------------|------------------------------|
-#   | pull_request              | 4 boundary cells             |
-#   | schedule 03:00 (nightly)  | 4 boundary cells (same set — |
-#   |                            | there is no larger boundary  |
-#   |                            | tier yet to grow into)       |
-#   | schedule 04:00 Sun (weekly)| 4 boundary + 4 channel       |
-#   | push: dev / workflow_dispatch | 4 boundary + 4 channel (unchanged from before this split) |
+#   | trigger                      | tier(s)              | cells run |
+#   |-------------------------------|-----------------------|-----------|
+#   | pull_request                  | pr-fast                | 6 (the 4 S/C aliases + the 2 highest-value matcher cells: old-skill/old-core-new-matchers and new-skill/new-core-old-matchers -- picked because they're the cheapest cells that still catch a matcher-axis regression on both skill vintages) |
+#   | schedule 03:00 (nightly)      | boundary               | 10 (all boundary cells, incl. the 4 matcher-skew cells the PR-fast lane skips) |
+#   | schedule 04:00 Sun (weekly)   | boundary + channel     | 14 (everything) |
+#   | push: dev / workflow_dispatch | boundary + channel     | 14 (unchanged from before this split) |
 #
-# Channel cells stay off pull_request and the nightly boundary-only run
-# deliberately (design §3.2): they fetch live distro constraints, so a
-# pin bump anywhere in the fleet should not turn an unrelated PR red.
+# Channel cells stay off pull_request and nightly deliberately (design §3.2):
+# they fetch live distro constraints, so a pin bump anywhere in the fleet
+# should not turn an unrelated PR (or the nightly boundary-only run) red.
+# Every `pr-fast` cell is also tagged `boundary`, so the nightly/weekly/push
+# tiers still pick it up -- `tiers` is a list per cell (not a single `tier`
+# string) precisely so a cell can belong to more than one selection set
+# without being duplicated in ALL_CELLS.
 #
 # Scenario-level pruning (design §3.2's "scenarios 1, 4, and any scenario
 # whose file the PR touched" at PR-time) is NOT implemented here: today's
@@ -69,10 +78,9 @@ on:
     branches:
       - dev
   schedule:
-    # nightly: all boundary cells (today, the same 4 as PR-time — see the
-    # table above; this tier exists so a future PR that adds more boundary
-    # cells only needs to teach generate-matrix about them, not re-plumb
-    # the trigger split).
+    # nightly: ALL boundary cells (10 today) -- deliberately larger than the
+    # `pull_request` `pr-fast` lane above; this is where the 4 matcher-skew
+    # cells the fast lane skips get their alarm.
     - cron: '0 3 * * *'
     # weekly: boundary + channel, the full cell set.
     - cron: '0 4 * * 0'
@@ -120,39 +128,52 @@ jobs:
           # cross it against here beyond running it. `tier` is this file's
           # own addition (not read by build_venvs.sh) -- it is what the
           # filter below selects on.
+          # T2.7: each cell now carries a `tiers` LIST, not a single `tier`
+          # string -- a cell can belong to more than one selection set (the
+          # 6 PR-fast cells are also full boundary cells, so nightly/weekly/
+          # push still run them; they are not duplicated in this list).
           ALL_CELLS = [
               {"combo": "old-skill/old-core", "skill": "venv_skill_old",
                "core": "venv_core_old", "audio": "venv_audio",
-               "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
+               "skill_dir": "venvs", "core_dir": "venvs",
+               "tiers": ["pr-fast", "boundary"]},
               {"combo": "old-skill/new-core", "skill": "venv_skill_old",
                "core": "venv_core_new", "audio": "venv_audio",
-               "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
+               "skill_dir": "venvs", "core_dir": "venvs",
+               "tiers": ["pr-fast", "boundary"]},
               {"combo": "new-skill/old-core", "skill": "venv_skill_new",
                "core": "venv_core_old", "audio": "venv_audio",
-               "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
+               "skill_dir": "venvs", "core_dir": "venvs",
+               "tiers": ["pr-fast", "boundary"]},
               {"combo": "new-skill/new-core", "skill": "venv_skill_new",
                "core": "venv_core_new", "audio": "venv_audio",
-               "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
+               "skill_dir": "venvs", "core_dir": "venvs",
+               "tiers": ["pr-fast", "boundary"]},
               # T2.5 -- the M (matcher) axis. ovos-core declares neither
               # matcher plugin as a runtime dependency, so the deployer
               # picks the padatious/adapt vintage independently of the core
               # vintage; these six cells are what make the matrix able to
               # attribute a red cell to the matcher package rather than to
-              # ovos-core. Same "boundary" tier as the four aliases above
-              # (design §2.4's S×C×M cube) -- see cells.py's
-              # BOUNDARY_ALIASES for the matching cell ids.
+              # ovos-core (design §2.4's S×C×M cube) -- see cells.py's
+              # BOUNDARY_ALIASES for the matching cell ids. Two of the six
+              # (below) are promoted into `pr-fast` too -- design §3.2's
+              # rationale for a fast PR lane still wants matcher-axis
+              # coverage on both skill vintages, cheaply; the other four
+              # matcher/skew cells wait for the nightly `boundary` run.
               {"combo": "old-skill/new-core-old-matchers", "skill": "venv_skill_old",
                "core": "venv_core_new_matchers_old", "audio": "venv_audio",
-               "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
+               "skill_dir": "venvs", "core_dir": "venvs", "tiers": ["boundary"]},
               {"combo": "new-skill/new-core-old-matchers", "skill": "venv_skill_new",
                "core": "venv_core_new_matchers_old", "audio": "venv_audio",
-               "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
+               "skill_dir": "venvs", "core_dir": "venvs",
+               "tiers": ["pr-fast", "boundary"]},
               {"combo": "old-skill/old-core-new-matchers", "skill": "venv_skill_old",
                "core": "venv_core_old_matchers_new", "audio": "venv_audio",
-               "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
+               "skill_dir": "venvs", "core_dir": "venvs",
+               "tiers": ["pr-fast", "boundary"]},
               {"combo": "new-skill/old-core-new-matchers", "skill": "venv_skill_new",
                "core": "venv_core_old_matchers_new", "audio": "venv_audio",
-               "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
+               "skill_dir": "venvs", "core_dir": "venvs", "tiers": ["boundary"]},
               # skew sub-cells: ovos-padatious old, ovos-adapt-parser new,
               # on a current core. Design §2.2 scopes the skew's EFFECT to
               # the registration/dispatch scenario; these jobs still run
@@ -162,47 +183,55 @@ jobs:
               # header for uv's verbatim refusal.
               {"combo": "old-skill/new-core-padatious-old-adapt-new", "skill": "venv_skill_old",
                "core": "venv_core_skew_padatious_old_adapt_new", "audio": "venv_audio",
-               "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
+               "skill_dir": "venvs", "core_dir": "venvs", "tiers": ["boundary"]},
               {"combo": "new-skill/new-core-padatious-old-adapt-new", "skill": "venv_skill_new",
                "core": "venv_core_skew_padatious_old_adapt_new", "audio": "venv_audio",
-               "skill_dir": "venvs", "core_dir": "venvs", "tier": "boundary"},
+               "skill_dir": "venvs", "core_dir": "venvs", "tiers": ["boundary"]},
               # channel cells: one side pinned by a live OVOS distro
               # constraints file (fetched fresh in build_venvs.sh), the
               # other at dev. These verify the fleet, not a boundary — see
               # test_mixed_version_matrix.py.
               {"combo": "stable-skill/dev-core", "skill": "venv_skill_stable",
                "core": "venv_core_new", "skill_dir": "venvs/channel",
-               "core_dir": "venvs", "tier": "channel"},
+               "core_dir": "venvs", "tiers": ["channel"]},
               {"combo": "dev-skill/stable-core", "skill": "venv_skill_new",
                "core": "venv_core_stable", "skill_dir": "venvs",
-               "core_dir": "venvs/channel", "tier": "channel"},
+               "core_dir": "venvs/channel", "tiers": ["channel"]},
               {"combo": "testing-skill/dev-core", "skill": "venv_skill_testing",
                "core": "venv_core_new", "skill_dir": "venvs/channel",
-               "core_dir": "venvs", "tier": "channel"},
+               "core_dir": "venvs", "tiers": ["channel"]},
               {"combo": "dev-skill/testing-core", "skill": "venv_skill_new",
                "core": "venv_core_testing", "skill_dir": "venvs",
-               "core_dir": "venvs/channel", "tier": "channel"},
+               "core_dir": "venvs/channel", "tiers": ["channel"]},
           ]
 
-          # ALL_CELLS' own "tier" values are a closed whitelist -- the
-          # filter below only ever selects cells whose tier is in the
-          # `tiers` set built per-trigger further down, and every one of
-          # those sets is drawn from {"boundary", "channel"}. A typo'd tier
-          # value on a new cell (e.g. "boundry") would match none of those
-          # sets on ANY trigger, so the cell silently vanishes from every
-          # run with exit 0 and zero signal -- an adversarial-review
-          # finding. Assert the whitelist here, at collection time, so a
-          # bad tier value fails the job loudly instead.
-          assert {c["tier"] for c in ALL_CELLS} <= {"boundary", "channel"}, (
-              f"unknown tier(s) in ALL_CELLS: "
-              f"{ {c['tier'] for c in ALL_CELLS} - {'boundary', 'channel'} }")
+          # ALL_CELLS' own "tiers" values are a closed whitelist -- the
+          # filter below only ever selects cells with at least one tier in
+          # the `tiers` set built per-trigger further down, and every one of
+          # those sets is drawn from {"pr-fast", "boundary", "channel"}. A
+          # typo'd tier value on a new cell (e.g. "boundry") would match
+          # none of those sets on ANY trigger, so the cell silently vanishes
+          # from every run with exit 0 and zero signal -- an
+          # adversarial-review finding from the original (single-tier)
+          # version of this assert; still enforced under the list shape.
+          # Assert the whitelist here, at collection time, so a bad tier
+          # value fails the job loudly instead.
+          _KNOWN_TIERS = {"pr-fast", "boundary", "channel"}
+          _seen_tiers = {t for c in ALL_CELLS for t in c["tiers"]}
+          assert _seen_tiers <= _KNOWN_TIERS, (
+              f"unknown tier(s) in ALL_CELLS: {_seen_tiers - _KNOWN_TIERS}")
 
           event = os.environ["EVENT_NAME"]
           cron = os.environ.get("CRON", "")
 
           if event == "pull_request":
-              tiers = {"boundary"}
+              # T2.7 fast lane: the 4 S/C aliases + the 2 highest-value
+              # matcher cells (design §3.2's shape, scaled to today's 10+4
+              # inventory -- see the file-header table).
+              tiers = {"pr-fast"}
           elif event == "schedule" and cron == "0 3 * * *":
+              # nightly: ALL boundary cells (10), including the 4
+              # matcher/skew cells the PR-fast lane above skips.
               tiers = {"boundary"}
           elif event == "schedule" and cron == "0 4 * * 0":
               tiers = {"boundary", "channel"}
@@ -212,8 +241,8 @@ jobs:
               tiers = {"boundary", "channel"}
 
           selected = [
-              {k: v for k, v in cell.items() if k != "tier"}
-              for cell in ALL_CELLS if cell["tier"] in tiers
+              {k: v for k, v in cell.items() if k != "tiers"}
+              for cell in ALL_CELLS if set(cell["tiers"]) & tiers
           ]
           print(f"event={event!r} cron={cron!r} tiers={sorted(tiers)} "
                 f"-> {len(selected)} cell(s): "
