@@ -338,3 +338,40 @@ def test_expected_dispatch_topic_mutation_proof_m_probe_lying(monkeypatch):
         "the M term from the OR (spelling tracks S alone) would wrongly "
         "predict suffixed here and this assertion catches it")
 
+def test_the_workshop_constraint_guard_fails_on_a_genuinely_conflicting_specifier():
+    """Adversarial-review self-test for
+    ``driver._assert_specifier_contains`` (backing
+    ``driver.assert_fixture_resolves_its_own_workshop_constraints``, the
+    OWNER RULING's general resolution-tier metadata-skew guard).
+
+    An earlier draft of the guard never actually compared the installed
+    version against the constraint -- it string-sniffed for the presence
+    of ``'<3.0.0'`` or ``'>='``, which is true of nearly any real-world
+    constraint string, including a self-contradictory one that would
+    EXCLUDE the installed version. This test proves the FIXED guard
+    genuinely fails loudly on a conflicting specifier -- not just that it
+    passes on the one real string this suite happens to observe live.
+    """
+    from .driver import _assert_specifier_contains
+
+    # sanity: a real, satisfiable constraint must NOT raise.
+    _assert_specifier_contains("ovos_bus_client<3.0.0,>=2.6.2a2", "2.7.3a1",
+                               context="sanity check")
+
+    # the actual adversarial case: a floor that EXCLUDES the installed
+    # version outright.
+    with pytest.raises(AssertionError):
+        _assert_specifier_contains("ovos_bus_client>=99.0.0", "2.7.3a1",
+                                   context="conflicting floor")
+
+    # a ceiling that excludes it too, the direction a real accidental
+    # upper-bound regression would take.
+    with pytest.raises(AssertionError):
+        _assert_specifier_contains("ovos_bus_client<0.0.2", "2.7.3a1",
+                                   context="conflicting ceiling")
+
+    # garbage/wrong-package requirement string -- must also raise, not
+    # silently report "contains" against the wrong specifier.
+    with pytest.raises(AssertionError):
+        _assert_specifier_contains("some-other-package>=1.0.0", "2.7.3a1",
+                                   context="wrong package")

@@ -48,11 +48,39 @@ except ImportError:
     from ovos_workshop.skills.ovos import OVOSSkill as _SkillBase
     HAS_CONVERSE_MIXIN = False
 
+#: FallbackSkill exists on every workshop vintage this suite pins -- what
+#: changed (workshop 9.3.9a1, #523) is whether ``can_answer`` is abstract,
+#: not whether the class itself exists. Imported unconditionally: a missing
+#: FallbackSkill would be a genuinely new gap this suite has never observed
+#: on any pinned vintage, and a bare ImportError here is louder than a
+#: silent skip.
+from ovos_workshop.skills.fallback import FallbackSkill
+
 SKILL_ID = os.environ.get("BACKCOMPAT_SKILL_ID", "backcompat.mixed.test")
 INTENT_FILE = "food.order.intent"
 CONVERSE_TRIGGER_TOPIC = f"{SKILL_ID}:converse.trigger"
 GET_RESPONSE_TRIGGER_TOPIC = f"{SKILL_ID}:get_response.trigger"
 SPEAK_WAIT_TRIGGER_TOPIC = f"{SKILL_ID}:speak_wait.trigger"
+CONTEXT_SET_TRIGGER_TOPIC = f"{SKILL_ID}:context.set.trigger"
+CONTEXT_SET_DONE_TOPIC = "backcompat.skill.context.set.done"
+CONTEXT_UTTERANCE_TRIGGER_TOPIC = f"{SKILL_ID}:context.probe.trigger"
+CONTEXT_UTTERANCE_DONE_TOPIC = "backcompat.skill.context.probe.done"
+CQ_QUERY_TOPIC = "question:query"
+CQ_RESPONSE_TOPIC = "question:query.response"
+CQ_PING_TOPIC = "ovos.common_query.ping"
+CQ_PONG_TOPIC = "ovos.common_query.pong"
+ENTITY_FILE = "food.entity"
+ENTITY_SAMPLES = ["tacos", "burritos", "nachos"]
+ENTITY_BLACKLIST_SAMPLES = ["them", "it"]
+
+#: T2.4 opt-in flags (default off, so the pre-existing intent/converse/
+#: get_response/speak-wait scenarios this process already serves stay
+#: byte-for-byte unchanged). One process, one skill_id, several toggles --
+#: matches the STRUCTURE RULE (driver/skill_process.py stays the shared
+#: layer; new SCENARIOS get new test files, not a new process type).
+ENABLE_FALLBACK = os.environ.get("BACKCOMPAT_ENABLE_FALLBACK") == "1"
+ENABLE_CQ = os.environ.get("BACKCOMPAT_ENABLE_CQ") == "1"
+ENABLE_ENTITY = os.environ.get("BACKCOMPAT_ENABLE_ENTITY") == "1"
 
 #: Sample lines for the padatious resource. The matcher is never exercised —
 #: the driver dispatches the registered topic directly, the way ovos-core's
@@ -66,6 +94,11 @@ def _dist_version(name: str) -> str:
     return version(name)
 
 
+def _requires_dist(name: str):
+    from importlib.metadata import requires
+    return requires(name) or []
+
+
 def _make_skill_dir() -> str:
     """Lay out the minimal on-disk skill a real workshop install expects."""
     root = tempfile.mkdtemp(prefix="backcompat-skill-")
@@ -73,6 +106,22 @@ def _make_skill_dir() -> str:
     os.makedirs(locale)
     with open(join(locale, INTENT_FILE), "w") as f:
         f.write("\n".join(SAMPLES) + "\n")
+    if ENABLE_ENTITY:
+        # register_entity_file (ovos_workshop/skills/ovos.py) also loads a
+        # sibling "<entity>.blacklist" file via resources.load_blacklist_file
+        # (OVOS-INTENT-2 §4.3) -- real on-disk resource, not a stubbed
+        # blacklist list, so entity cell (d)'s payload-key assertion is
+        # observing the real registration codepath end to end.
+        with open(join(locale, ENTITY_FILE), "w") as f:
+            f.write("\n".join(ENTITY_SAMPLES) + "\n")
+        # register_entity_file (ovos_workshop/skills/ovos.py) strips the
+        # ".entity" suffix BEFORE calling resources.load_blacklist_file(),
+        # so the sibling resource this loads is "food.blacklist", not
+        # "food.entity.blacklist" -- confirmed live (an earlier attempt at
+        # this fixture used the wrong sibling name and silently loaded an
+        # empty blacklist).
+        with open(join(locale, "food.blacklist"), "w") as f:
+            f.write("\n".join(ENTITY_BLACKLIST_SAMPLES) + "\n")
     return root
 
 
@@ -99,6 +148,71 @@ class BackCompatSkill(_SkillBase):
         self.add_event(GET_RESPONSE_TRIGGER_TOPIC,
                        self.handle_get_response_trigger)
         self.add_event(SPEAK_WAIT_TRIGGER_TOPIC, self.handle_speak_wait_trigger)
+        self.add_event(CONTEXT_SET_TRIGGER_TOPIC, self.handle_context_set_trigger)
+        self.add_event(CONTEXT_UTTERANCE_TRIGGER_TOPIC,
+                       self.handle_context_probe_trigger)
+        if ENABLE_CQ:
+            # real ovos_commonqa.opm.CommonQAService wire contract -- see
+            # driver.py's module comment for why this binds the plugin's
+            # actual topics directly instead of a (non-existent)
+            # CommonQuerySkill base class.
+            self.add_event(CQ_QUERY_TOPIC, self.handle_cq_query)
+            self.add_event("ovos.common_query.ping", self.handle_cq_ping)
+        if ENABLE_ENTITY:
+            self.register_entity_file(ENTITY_FILE)
+            # NOTE: an earlier draft also wired a second, re-register
+            # trigger here to test entity cell (c)'s "exactly-once"
+            # claim via a synthetic re-registration. Adversarial review
+            # found the real bug fires on the FIRST call already (a
+            # dual-emit producer path that trains the padatious plugin
+            # twice per call, under two different names -- see
+            # test_backcompat_entities.py's cell (c) docstring and
+            # driver.make_padatious_pipeline), so the re-register trigger
+            # was unnecessary and removed.
+
+    # -- session/CONTEXT-1 ------------------------------------------------
+    def handle_context_set_trigger(self, message: Message):
+        """Mutate context through the real ``OVOSSkill.set_context`` API --
+        never a hand-rolled ``add_context`` emit -- then report done so the
+        driver can assert the NEXT utterance (a fresh dispatch, not this
+        handler) sees it via the real intent-context surface."""
+        word = message.data.get("word", "tacos")
+        context_key = message.data.get("context", "food")
+        self.set_context(context_key, word, origin=SKILL_ID)
+        self.bus.emit(message.forward(CONTEXT_SET_DONE_TOPIC,
+                                      {"skill_id": SKILL_ID,
+                                       "context": context_key,
+                                       "word": word,
+                                       "token": message.data.get("token")}))
+
+    def handle_context_probe_trigger(self, message: Message):
+        """Report what THIS skill's own gate dialect
+        (``self.alphanumeric_skill_id + context``) resolves to, so a test
+        can compare the write dialect (set_context) against the gate
+        dialect without guessing at either from outside the skill."""
+        context_key = message.data.get("context", "food")
+        gated_key = self.alphanumeric_skill_id + context_key
+        self.bus.emit(message.forward(CONTEXT_UTTERANCE_DONE_TOPIC,
+                                      {"skill_id": SKILL_ID,
+                                       "gated_key": gated_key,
+                                       "token": message.data.get("token")}))
+
+    # -- common_query -------------------------------------------------
+    def handle_cq_ping(self, message: Message):
+        self.bus.emit(message.reply(
+            CQ_PONG_TOPIC, {"skill_id": SKILL_ID, "is_classic_cq": False}))
+
+    def handle_cq_query(self, message: Message):
+        phrase = (message.data or {}).get("phrase", "")
+        if "capital of taco" in phrase.lower():
+            self.bus.emit(message.reply(
+                CQ_RESPONSE_TOPIC,
+                {"phrase": phrase, "skill_id": SKILL_ID,
+                 "answer": "Tacoville", "conf": 0.9}))
+        else:
+            self.bus.emit(message.reply(
+                CQ_RESPONSE_TOPIC,
+                {"phrase": phrase, "skill_id": SKILL_ID, "answer": None}))
 
     def handle_order(self, message: Message):
         self.bus.emit(message.forward(
@@ -182,15 +296,59 @@ class BackCompatSkill(_SkillBase):
         threading.Thread(target=_run, args=(message,), daemon=True).start()
 
 
+def _build_skill_class():
+    """Pick the class the driver actually instantiates. Fallback support is
+    layered on via a dynamically-built subclass rather than always mixing
+    ``FallbackSkill`` in, so the pre-existing intent/converse/get_response/
+    speak-wait scenarios keep exercising the exact same class they always
+    have (``BackCompatSkill`` unmodified) when ``BACKCOMPAT_ENABLE_FALLBACK``
+    is unset.
+
+    OWNER RULING (2026-08-14): a skill and the ovos-workshop it is tested
+    against are NOT independently reachable versions -- a skill pins
+    min/max ovos-workshop and resolves as a unit with it, the same way S
+    (the skill container) already collapses workshop + its resolved
+    bus-client into one axis (design §2.1's R1). There is therefore no
+    "pre-can_answer skill running under a can_answer-abstract workshop"
+    cell to build here: that mix is not independently reachable by real
+    resolution, so this file only ever builds ONE fallback skill shape --
+    a real ``can_answer`` override, exercised under whichever S-axis
+    workshop vintage this combo already pins. (A stripped-down
+    no-can_answer variant used to be built here for exactly that
+    cross-vintage cell; removed per the ruling -- see
+    ``test_backcompat_fallback.py``'s module docstring for the PR-body
+    note.)
+    """
+    if not ENABLE_FALLBACK:
+        return BackCompatSkill
+
+    class _FallbackBackCompatSkill(FallbackSkill, BackCompatSkill):
+        def can_answer(self, message: Message) -> bool:
+            return True
+
+        def initialize(self):
+            BackCompatSkill.initialize(self)
+            self.register_fallback(self.handle_fallback, priority=50)
+
+        def handle_fallback(self, message: Message) -> bool:
+            self.bus.emit(message.forward(
+                "backcompat.skill.fallback_fired",
+                {"skill_id": SKILL_ID}))
+            return True
+
+    return _FallbackBackCompatSkill
+
+
 def main():
     bus = MessageBusClient()
     bus.run_in_thread()
     bus.connected_event.wait(30)
 
     root = _make_skill_dir()
+    skill_cls = _build_skill_class()
     # Passing ``bus`` runs the full startup (including ``initialize``) inside
     # the constructor, so there is no separate ``_startup`` call to make here.
-    BackCompatSkill(skill_id=SKILL_ID, bus=bus, resources_dir=root)
+    skill_cls(skill_id=SKILL_ID, bus=bus, resources_dir=root)
 
     # Report what this workshop actually bound for the INTENT topic, so a
     # failing combo says which spellings existed rather than only that
@@ -228,6 +386,11 @@ def main():
         # some future or unobserved vintage genuinely has neither.
         "has_converse_api": hasattr(_SkillBase, "converse")
                             and hasattr(_SkillBase, "get_response"),
+        # entity cell (f): this venv's OWN ovos-workshop metadata, read from
+        # inside the venv that actually has it installed (a driver/core
+        # process never does -- it only pins ovos-core/-padatious). A bare
+        # "requires_dist" scrape, not an assumption about the string shape.
+        "workshop_requires_dist": _requires_dist("ovos-workshop"),
     }), flush=True)
     print("SKILL_READY", flush=True)
 
