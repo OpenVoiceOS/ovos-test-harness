@@ -199,6 +199,151 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
+def _skill_venv_probe(skill_python: str, script: str) -> str:
+    """Run ``script`` under ``skill_python`` (a DIFFERENT venv than the
+    driver's own) and return its stdout, stripped.
+
+    This is the general mechanism behind every ``*_supported()``/
+    ``*_signature()`` probe below: a real-symbol capability check against
+    whatever ovos-workshop THAT S-axis venv actually has installed --
+    never a hard-coded version-string comparison (design's "probe the
+    real symbol, not a version string" discipline, already used by
+    ``core_canonicalizes()``/``adapt_consumes_intent4_keywords()`` for the
+    M axis; this is the same principle applied cross-venv for the S axis,
+    where the symbol lives in a DIFFERENT Python process than the one
+    running pytest).
+
+    Cheap on purpose: only imports/introspects, never boots a full skill
+    (no ``OVOSSkill.__init__``, no bus connection) -- safe to call at
+    collection time (module import), before any ``BusServer``/
+    ``SkillProcess`` exists, so xfail markers built from these probes can
+    be static ``@pytest.mark.xfail(condition, ...)`` decorators instead of
+    imperative ``pytest.xfail()`` calls (which lose ``strict=True``
+    semantics).
+
+    Runs with ``cwd`` pinned to a scratch temp directory, never the
+    repo's own working directory: a bare ``python -c`` inherits the
+    caller's cwd as ``sys.path[0]``, and running this from a checkout
+    that happens to contain a same-named top-level package (observed
+    live: an ``ovos_bus_client`` checkout on this box) silently shadows
+    the venv's real installed package instead of raising -- a wrong
+    answer, not a loud one. Verified this actually happens by hitting it.
+    """
+    result = subprocess.run(
+        [skill_python, "-c", script],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        cwd=tempfile.gettempdir(), timeout=30)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"skill-venv probe failed (python={skill_python!r}):\n"
+            f"--- script ---\n{script}\n"
+            f"--- stderr ---\n{result.stderr}")
+    lines = [l for l in result.stdout.splitlines() if l.strip()]
+    if not lines:
+        raise RuntimeError(
+            f"skill-venv probe produced no stdout output at all "
+            f"(python={skill_python!r}):\n--- script ---\n{script}\n"
+            f"--- stderr ---\n{result.stderr}")
+    # the probe script's own print() is always the LAST line -- some
+    # ovos-workshop vintages log a deprecation WARNING straight to stdout
+    # (not stderr) on bare import, e.g. "OVOS - ovos_config.locale:
+    # get_default_lang - WARNING - ..." -- live-verified this happens on
+    # both channel pins, which made an earlier draft that did
+    # result.stdout.strip() == "True" silently read every probe as False
+    # (comparing "<warning line>\nTrue" against "True").
+    return lines[-1].strip()
+
+
+def fallback_can_answer_takes_message(skill_python: str) -> bool:
+    """Whether THIS S-axis venv's ``FallbackSkill.can_answer`` takes the
+    modern single ``message: Message`` parameter, vs the legacy
+    ``(utterances: List[str], lang: str)`` two-parameter form.
+
+    Real-symbol probe (``inspect.signature``), not a version string --
+    live-verified against both channel pins on this batch's own venvs:
+    ``ovos-workshop==3.4.0`` (the "stable" channel pin) has
+    ``can_answer(self, utterances, lang)``; ``ovos-workshop==7.0.10a1``
+    (the "testing" channel pin) already has ``can_answer(self, message)``,
+    the same shape ``origin/dev`` has -- so this is NOT a blanket "channel
+    cells are old" split, it is a real per-symbol boundary that happens to
+    land between the two channel pins, not at the channel/boundary line.
+
+    ``skill_process.py``'s fallback mixin defines ``can_answer(self,
+    message)`` unconditionally (the modern shape, matching what a skill
+    author writes against current docs) -- on a legacy-signature vintage,
+    ``FallbackSkill._handle_fallback_ack`` calls it with TWO positional
+    args (``utts, lang``), which raises ``TypeError`` inside the wrapped
+    event handler (``speak_errors=False`` swallows it into a log line, not
+    a crash) -- so no pong is ever sent. That TypeError, not "the ping/
+    pong protocol doesn't exist on this vintage" (it does, verbatim, on
+    both channel pins), is the real boundary this probe names.
+    """
+    script = (
+        "import inspect\n"
+        "from ovos_workshop.skills.fallback import FallbackSkill\n"
+        "params = list(inspect.signature(FallbackSkill.can_answer).parameters)\n"
+        "print('message' in params and len(params) == 2)\n"
+    )
+    return _skill_venv_probe(skill_python, script) == "True"
+
+
+def entity_blacklist_emission_supported(skill_python: str) -> bool:
+    """Whether THIS S-axis venv's ``OVOSSkill.register_entity_file`` loads
+    and emits a slot/entity blacklist at all (OVOS-INTENT-2 §4.3,
+    ovos-workshop#454).
+
+    Real-symbol probe: ``load_blacklist_file`` is the resource-loading
+    call #454 added (``ovos_workshop/skills/ovos.py``'s
+    ``register_entity_file``); its ABSENCE from the installed
+    ``register_entity_file`` source means this vintage predates blacklist
+    emission entirely -- verified live that #454 first shipped in
+    ovos-workshop 9.2.0a1 (``git log --ancestry-path
+    2a9bfbf6..origin/dev --grep="Increment Version"``), well above both
+    channel pins (stable 3.4.0, testing 7.0.10a1), so on current
+    constraints BOTH channels lack it -- a real, checked fact, not an
+    assumption from "channel = old".
+    """
+    script = (
+        "import inspect\n"
+        "from ovos_workshop.skills.ovos import OVOSSkill\n"
+        "src = inspect.getsource(OVOSSkill.register_entity_file)\n"
+        "print('load_blacklist_file' in src)\n"
+    )
+    return _skill_venv_probe(skill_python, script) == "True"
+
+
+def entity_dual_emit_supported(skill_python: str) -> bool:
+    """Whether THIS S-axis venv's producer-side entity registration
+    (``IntentServiceInterface.register_entity``, called by
+    ``OVOSSkill.register_entity_file``) dual-emits the spec-side
+    ``SpecMessage.ENTITY_REGISTER`` topic alongside the legacy
+    ``padatious:register_entity`` frame (ovos-workshop#431, the INTENT-4
+    registration dual-emit boundary -- same commit/boundary this suite's
+    ``core_canonicalizes()``-adjacent M-axis probes already reference,
+    first shipped 9.3.0a1).
+
+    Real-symbol probe via source inspection (the class this lives on,
+    ``IntentServiceInterface``, is only ever imported for its emit side
+    here, never instantiated) -- both channel pins (stable 3.4.0, testing
+    7.0.10a1) predate 9.3.0a1, so entity cell (c)'s double-training
+    finding (which depends entirely on the spec-topic handler's in-process
+    second call, see ``test_backcompat_entities.py``) simply does not
+    apply pre-dual-emit: a single-frame world cannot double-train via a
+    mechanism it does not have.
+    """
+    script = (
+        "import inspect\n"
+        "from ovos_workshop.intents import IntentServiceInterface\n"
+        # pre-#431 IntentServiceInterface has no register_entity at all --
+        # only the older register_padatious_entity name (live-verified on
+        # the 3.4.0 channel pin) -- absence of the modern method is
+        # itself proof there is no dual-emit to probe the source of.
+        "method = getattr(IntentServiceInterface, 'register_entity', None)\n"
+        "print(method is not None and 'ENTITY_REGISTER' in inspect.getsource(method))\n"
+    )
+    return _skill_venv_probe(skill_python, script) == "True"
+
+
 def core_canonicalizes() -> bool:
     """Whether the core-side stack folds the suffixed intent id at registration.
 
@@ -333,6 +478,38 @@ def make_converse_service(bus: MessageBusClient):
     if "config" in inspect.signature(ConverseService.__init__).parameters:
         return ConverseService(bus=bus, config={})
     return ConverseService(bus=bus)
+
+
+def make_padatious_pipeline(bus: MessageBusClient):
+    """Instantiate the CORE side's own real ``PadatiousPipeline`` (the M
+    axis's own plugin) on ``bus`` -- same pattern as
+    ``make_converse_service``/``make_stop_service``. Used by entity cell
+    (c)'s exactly-once probe: ``PadatiousPipeline.registered_entities`` is
+    the plugin's own bookkeeping list, appended to inside its real
+    ``register_entity()`` bus handler -- a live count of how many times
+    THIS plugin actually trained an entity, not a wire-frame proxy for it.
+
+    Must be constructed and listening BEFORE the skill process spawns, so
+    it is present on the bus to receive the skill's boot-time
+    ``initialize()`` registration -- the same ordering discipline
+    ``test_backcompat_fallback.py``'s ``fallback_skill`` fixture applies
+    to its registration ``Capture`` (adversarial-review finding there:
+    binding a listener AFTER the one-shot event already fired means it
+    never sees it).
+    """
+    from ovos_padatious.opm import PadatiousPipeline
+    return PadatiousPipeline(bus=bus, config={})
+
+
+def make_stop_service(bus: MessageBusClient):
+    """Instantiate the CORE side's own ``StopService`` pipeline plugin --
+    real per-version ovos-core code, the same pattern as
+    ``make_converse_service``. Used by the T2.4 stop scenario's #802
+    pre-merge oracle: probes what ``match_high`` ACTUALLY returns today,
+    rather than assuming a shape.
+    """
+    from ovos_core.intent_services.stop_service import StopService
+    return StopService(bus=bus, config={})
 
 
 def core_has_pipeline_match_api() -> bool:
@@ -878,6 +1055,199 @@ class WireTwinListener:
             self.proc.wait(timeout=15)
         except subprocess.TimeoutExpired:
             self.proc.kill()
+#: T2.4 scenario constants -- session/CONTEXT-1, common_query, fallback,
+#: stop, and entity. Real wire topics, verified against the current
+#: ``origin/dev`` source of ovos-workshop / ovos-bus-client /
+#: ovos-common-query-pipeline-plugin (not assumed):
+#:
+#: * ``add_context`` / ``remove_context`` -- ``OVOSSkill.set_context`` /
+#:   ``.remove_context`` (``ovos_workshop/skills/ovos.py``) forward through
+#:   ``IntentServiceInterface.set_context`` -> ``_AdaptIntentApi.set_context``
+#:   (``ovos_workshop/intents.py``), which emits the literal ``add_context``
+#:   topic with ``{"context": <alnum_skill_id + context>, "word": ...,
+#:   "origin": ...}``. The write dialect is ``self.alphanumeric_skill_id +
+#:   context`` -- NOT the raw ``skill_id`` -- which is exactly the
+#:   write/gate dialect mismatch the still-open workshop#527/core#857 pair
+#:   fixes (CAMPAIGN.md cross-session handoff).
+#: * ``ovos.common_query.ping``/``.pong`` and ``question:query``/
+#:   ``question:query.response`` -- the real
+#:   ``ovos_commonqa.opm.CommonQAService`` wire contract
+#:   (``ovos-common-query-pipeline-plugin``). NOTE: despite
+#:   ``ovos-workshop``'s own ``docs/skill-classes.md`` documenting a
+#:   ``ovos_workshop.skills.common_query_skill.CommonQuerySkill`` base
+#:   class, no such module exists in ``ovos_workshop/skills/`` on current
+#:   dev (checked directly: only ``active.py, api.py, auto_translatable.py,
+#:   common_play.py, converse.py, fallback.py, game_skill.py,
+#:   idle_display_skill.py, intent_provider.py, layers.py, ovos.py,
+#:   passive.py, util.py``) -- the docs are stale/aspirational, a real
+#:   finding, not something this suite can paper over. The skill-side CQ
+#:   responder in ``skill_process.py`` therefore binds the real wire topics
+#:   the plugin's ``opm.py`` actually implements directly, which is the
+#:   closest available thing to "the real workshop CQ API" until that class
+#:   ships -- it is NOT a hand-rolled protocol invention, every topic name
+#:   and payload key is copied from ``ovos_commonqa/opm.py`` as read on
+#:   ``origin/dev``, not guessed.
+#: * ``ovos.skills.fallback.ping``/``.pong``,
+#:   ``ovos.skills.fallback.register``/``.deregister``,
+#:   ``ovos.skills.fallback.<skill_id>.request``/``.response`` -- verbatim
+#:   from ``ovos_workshop/skills/fallback.py`` on current dev.
+#: * ``<skill_id>.stop.ping`` / ``skill.stop.pong``, ``<skill_id>.stop`` /
+#:   ``mycroft.stop`` / ``<skill_id>.stop.response`` -- verbatim from
+#:   ``ovos_workshop/skills/ovos.py`` (``_register_system_event_handlers``,
+#:   ``_handle_stop_ack``, ``_handle_session_stop``); these are baseline
+#:   ``OVOSSkill`` behaviour, not gated behind any opt-in flag.
+#: * ``padatious:register_entity`` -- the LEGACY entity-registration topic
+#:   (``_PadatiousIntentApi.emit_legacy_register_entity``,
+#:   ``ovos_workshop/intents.py``): payload key ``'blacklist'``. The
+#:   spec-compliant producer path (``IntentServiceInterface.register_entity``)
+#:   instead sends ``'blacklisted_words'``. Confirmed by reading both call
+#:   sites side by side on current dev -- this is entity cell (d)'s
+#:   payload-key skew, not an assumption.
+CONTEXT_SET_TRIGGER_TOPIC = f"{SKILL_ID}:context.set.trigger"
+CONTEXT_SET_DONE_TOPIC = "backcompat.skill.context.set.done"
+ADD_CONTEXT_TOPIC = "add_context"
+REMOVE_CONTEXT_TOPIC = "remove_context"
+CONTEXT_UTTERANCE_TRIGGER_TOPIC = f"{SKILL_ID}:context.probe.trigger"
+CONTEXT_UTTERANCE_DONE_TOPIC = "backcompat.skill.context.probe.done"
+
+CQ_PING_TOPIC = "ovos.common_query.ping"
+CQ_PONG_TOPIC = "ovos.common_query.pong"
+CQ_QUERY_TOPIC = "question:query"
+CQ_RESPONSE_TOPIC = "question:query.response"
+
+FALLBACK_PING_TOPIC = "ovos.skills.fallback.ping"
+FALLBACK_PONG_TOPIC = "ovos.skills.fallback.pong"
+FALLBACK_REGISTER_TOPIC = "ovos.skills.fallback.register"
+FALLBACK_DEREGISTER_TOPIC = "ovos.skills.fallback.deregister"
+
+
+def fallback_request_topic(skill_id: str) -> str:
+    return f"ovos.skills.fallback.{skill_id}.request"
+
+
+def fallback_response_topic(skill_id: str) -> str:
+    return f"ovos.skills.fallback.{skill_id}.response"
+
+
+STOP_PING_TOPIC = f"{SKILL_ID}.stop.ping"
+STOP_PONG_TOPIC = "skill.stop.pong"
+STOP_PER_SKILL_TOPIC = f"{SKILL_ID}.stop"
+STOP_GLOBAL_TOPIC = "mycroft.stop"
+STOP_RESPONSE_TOPIC = f"{SKILL_ID}.stop.response"
+
+ENTITY_FILE = "food.entity"
+ENTITY_SAMPLES = ["tacos", "burritos", "nachos"]
+ENTITY_BLACKLIST_SAMPLES = ["them", "it"]
+LEGACY_REGISTER_ENTITY_TOPIC = "padatious:register_entity"
+
+
+def boundary_xfail(*, boundary: str, axes, blocked_on: Optional[str],
+                    owner: str, note: str) -> str:
+    """Build a structured xfail reason string (design Part 4.1 rule 2).
+
+    Every field is embedded verbatim in the rendered reason, so the human
+    text stays greppable/machine-parseable (``boundary=``, ``axes=``,
+    ``blocked_on=``, ``owner=``) without needing a separate JSON sidecar for
+    T2.4's scope -- ``FINDINGS/SPRINT.md`` (design Part 4.2) is future work
+    this helper is written to feed, not something this batch builds.
+    """
+    axes_str = ",".join(axes)
+    blocked_str = blocked_on if blocked_on else "none"
+    return (f"boundary={boundary} | axes={axes_str} | "
+            f"blocked_on={blocked_str} | owner={owner} | {note}")
+
+
+def _bus_client_requirement_string(reqs) -> Optional[str]:
+    """Pick the ovos-bus-client entry out of a PEP 508 requirement list
+    (``importlib.metadata.requires()`` shape), tolerating the
+    underscore/hyphen and ``ovos_bus_client``/``ovos-bus-client`` spelling
+    skew seen live across vintages. Returns ``None`` if absent."""
+    for r in reqs:
+        name = r.split(";")[0].split(">")[0].split("<")[0].split("=")[0].strip()
+        if name.lower().replace("_", "-") == "ovos-bus-client":
+            return r
+    return None
+
+
+def assert_fixture_resolves_its_own_workshop_constraints(
+        skill: "SkillProcess", combo: str) -> None:
+    """Resolution-tier metadata-skew guard (general pattern -- OWNER RULING
+    2026-08-14, generalizing what was originally only entity cell (f)).
+
+    A skill's own declared ``ovos-bus-client`` dependency constraint
+    (``skill.versions['workshop_requires_dist']``, reported by whichever
+    ovos-workshop this S-axis venv actually installed -- see
+    ``skill_process.py``'s ``_requires_dist`` in its ``VERSIONS`` line)
+    must actually CONTAIN the ``ovos-bus-client`` version that venv really
+    resolved (``skill.versions['ovos_bus_client']``) -- parsed and checked
+    with ``packaging.requirements.Requirement(...).specifier.contains()``,
+    not string-sniffed.
+
+    Adversarial-review finding on an earlier draft of this guard: it never
+    actually compared the installed version against anything -- it
+    string-checked for the presence of ``'<3.0.0'`` or ``'>='`` in the
+    floor spec, which is true of essentially any real-world constraint
+    string (including a self-contradictory one, e.g. a hypothetical floor
+    of ``>=99.0.0`` or a ceiling of ``<0.0.2`` that would EXCLUDE the
+    resolved version), so the guard could never fail for the reason its
+    docstring claims to check. Fixed: real containment check via
+    ``packaging``, plus a same-module self-test
+    (``test_cells.py``'s ``test_the_workshop_constraint_guard_fails_on_a_
+    genuinely_conflicting_specifier``) that feeds a deliberately
+    conflicting specifier and asserts THIS function raises.
+
+    A driver/core process never has ovos-workshop installed at all (only
+    ovos-core/-padatious/-commonqa, see ``build_venvs.sh``) -- an early
+    draft of this check queried ``importlib.metadata`` from the DRIVER
+    process and always got an empty requirement list; live-verified wrong
+    and corrected to read the SKILL process's own self-report instead,
+    which is why this helper takes a ``SkillProcess``, not a bare package
+    name.
+    """
+    reqs = skill.versions.get("workshop_requires_dist") or []
+    assert reqs, (
+        f"{combo}: the skill process reported no ovos-workshop dependency "
+        f"metadata at all -- unexpected, check skill_process.py's "
+        f"VERSIONS line")
+    bus_client_req_str = _bus_client_requirement_string(reqs)
+    assert bus_client_req_str is not None, (
+        f"{combo}: ovos-workshop declares no ovos-bus-client requirement "
+        f"in {reqs!r}")
+    installed_bus_client = skill.versions.get("ovos_bus_client")
+    assert installed_bus_client, ("skill process never reported its own "
+                                  "ovos-bus-client version")
+    _assert_specifier_contains(bus_client_req_str, installed_bus_client,
+                               context=f"{combo}: ovos-workshop's own "
+                                       f"ovos-bus-client constraint")
+
+
+def _assert_specifier_contains(requirement_str: str, installed_version: str,
+                               *, context: str) -> None:
+    """The real containment check ``assert_fixture_resolves_its_own_
+    workshop_constraints`` needs, factored out so it also has its own
+    adversarial unit test (``test_cells.py``) with no venv pair required --
+    same principle as ``cells.assert_vintage`` getting its own
+    ``test_a_mislabeled_probe_result_fails_loudly``.
+
+    Raises ``AssertionError`` (not silently returns False) when the
+    installed version is genuinely excluded by the requirement's own
+    specifier -- prereleases included, since every vintage this suite
+    pins is an alpha.
+    """
+    from packaging.requirements import Requirement
+    req = Requirement(requirement_str)
+    if req.name.lower().replace("_", "-") != "ovos-bus-client":
+        raise AssertionError(
+            f"{context}: _bus_client_requirement_string picked the wrong "
+            f"entry ({requirement_str!r}), not an ovos-bus-client "
+            f"requirement -- fixture/helper bug, not a product finding")
+    contains = req.specifier.contains(installed_version, prereleases=True)
+    assert contains, (
+        f"{context} ({requirement_str!r}) does NOT contain the installed "
+        f"ovos-bus-client version ({installed_version!r}) -- the resolved "
+        f"version is excluded by the skill's own declared constraint, "
+        f"which would make this a genuinely broken venv pin, not a "
+        f"product-side compat gap")
 
 
 def dispatch(bus: MessageBusClient, topic: str, **data) -> str:
