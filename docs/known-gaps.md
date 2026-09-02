@@ -558,6 +558,47 @@ already xfail. No additional uncovered MUSTs were found in these three beyond
 the INTENT-4 registration-validation overlap noted above (INTENT-3 §5.3
 required-slot rules are noted engine-specific in that suite).
 
+## Legacy/spec topic pairs with no component cell
+
+Every pair in `ovos_spec_tools.messages.MIGRATION_MAP` is exercised at the bus
+level by `test/migration/`: whichever name a peer emits on, a subscriber on the
+other name receives the event exactly once. What the pairs below still lack is
+a cell that drives the pair against the service that owns the *effect*, so that
+"the legacy topic still works" means the audio actually played rather than the
+message merely arrived. Each is a skipped cell naming the service, so it is
+counted in every run rather than silently absent, and the meta-test refuses to
+let a pair sit here without a row.
+
+| Legacy topic | Spec topic | A component cell needs |
+|--------------|-----------|------------------------|
+| `detach_intent` | `ovos.intent.deregister` | ovos-core's intent service to deregister a live intent |
+| `detach_skill` | `ovos.skill.deregister` | ovos-core's intent service to deregister a live skill |
+| `mycroft.audio.play_sound` | `ovos.audio.play_sound` | ovos-audio (PlaybackService) to play a sound file |
+| `mycroft.audio.queue` | `ovos.audio.queue` | ovos-audio (PlaybackService) to queue a uri |
+| `mycroft.audio.speak.status` | `ovos.audio.is_speaking` | ovos-audio (PlaybackService) to answer the speaking query |
+| `mycroft.audio.speech.stop` | `ovos.audio.stop` | ovos-audio (PlaybackService) to abort playback |
+| `mycroft.awoken` | `ovos.listener.awoken` | ovos-dinkum-listener to leave sleep mode |
+| `mycroft.mic.listen` | `ovos.mic.listen` | ovos-audio (PlaybackService) to answer a listen request |
+| `mycroft.skill.disable_intent` | `ovos.intent.disable` | ovos-core's intent service to disable a live intent |
+| `mycroft.skill.enable_intent` | `ovos.intent.enable` | ovos-core's intent service to re-enable a disabled intent |
+| `recognizer_loop:record_begin` | `ovos.listener.record.started` | ovos-dinkum-listener to open a recording |
+| `recognizer_loop:record_end` | `ovos.listener.record.ended` | ovos-dinkum-listener to close a recording |
+| `recognizer_loop:sleep` | `ovos.listener.sleep` | ovos-dinkum-listener to enter sleep mode |
+| `skill.stop.pong` | `ovos.stop.pong` | a skill container (ovos-workshop) to answer the stop ping |
+| `speak:b64_audio` | `ovos.utterance.speak.b64` | ovos-audio (PlaybackService) to render base64 speech |
+| `speak:b64_audio.response` | `ovos.audio.speech` | ovos-audio (PlaybackService) to answer a base64 speak request |
+
+### Fallback and converse topic divergences
+
+`ovos.fallback.register` versus `ovos.skills.fallback.register`, the per-skill
+`<skill_id>.fallback.ping` versus the broadcast query, and the converse
+ownership field are divergences between a specification and what core does,
+not renames the bus bridges: none of them is in `MIGRATION_MAP`, and which
+name wins is an owner decision rather than a harness one. They are covered as
+conformance gaps in the FALLBACK-1 and CONVERSE-1 sections above and are
+deliberately out of scope for the migration-pair suite, which would otherwise
+assert a bridge nobody has agreed to build.
+
 ## How a gap closes
 
 1. Pin the implementation branch(es) that close the gap in

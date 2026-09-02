@@ -513,6 +513,60 @@ red cell green.
 
 ---
 
+## Legacy/spec topic pairs (`test/migration/`)
+
+Also not a conformance suite. `ovos_spec_tools.messages.MIGRATION_MAP` is the
+list of events that exist under two names at once during the migration window,
+and the TESTING channel's defining property is that both names keep working.
+`test/migration/test_migration_pairs.py` iterates that map and asserts, for
+every pair, that an emission on either name reaches a subscriber on the other
+exactly once.
+
+That is the bus level, and it is generic. The component level is not: "the
+legacy topic still produces the modern effect" needs the service that owns the
+effect to be running. Each pair therefore either names the harness module that
+drives it against its real component, or reports itself as a skipped cell whose
+reason names the service a cell would need. `test_migration_coverage.py` fails
+when a pair has neither, so a topic added to the map upstream cannot arrive
+here unnoticed.
+
+| Legacy topic | Spec topic | Coverage |
+|--------------|-----------|----------|
+| `recognizer_loop:utterance` | `ovos.utterance.handle` | bus-level green; component cell in `test/migration/test_pipeline_dual_style.py` |
+| `speak` | `ovos.utterance.speak` | bus-level green; component cell in `test/backcompat/audio_process.py` |
+| `recognizer_loop:audio_output_start` | `ovos.audio.output.started` | bus-level green; component cell in `test/backcompat/audio_process.py` |
+| `recognizer_loop:audio_output_end` | `ovos.audio.output.ended` | bus-level green; component cell in `test/backcompat/audio_process.py` |
+| `mycroft.mic.listen` | `ovos.mic.listen` | bus-level green; no component cell — needs ovos-audio (PlaybackService) to answer a listen request |
+| `speak:b64_audio` | `ovos.utterance.speak.b64` | bus-level green; no component cell — needs ovos-audio (PlaybackService) to render base64 speech |
+| `speak:b64_audio.response` | `ovos.audio.speech` | bus-level green; no component cell — needs ovos-audio (PlaybackService) to answer a base64 speak request |
+| `mycroft.audio.queue` | `ovos.audio.queue` | bus-level green; no component cell — needs ovos-audio (PlaybackService) to queue a uri |
+| `mycroft.audio.play_sound` | `ovos.audio.play_sound` | bus-level green; no component cell — needs ovos-audio (PlaybackService) to play a sound file |
+| `mycroft.audio.speak.status` | `ovos.audio.is_speaking` | bus-level green; no component cell — needs ovos-audio (PlaybackService) to answer the speaking query |
+| `mycroft.audio.speech.stop` | `ovos.audio.stop` | bus-level green; no component cell — needs ovos-audio (PlaybackService) to abort playback |
+| `recognizer_loop:record_begin` | `ovos.listener.record.started` | bus-level green; no component cell — needs ovos-dinkum-listener to open a recording |
+| `recognizer_loop:record_end` | `ovos.listener.record.ended` | bus-level green; no component cell — needs ovos-dinkum-listener to close a recording |
+| `recognizer_loop:sleep` | `ovos.listener.sleep` | bus-level green; no component cell — needs ovos-dinkum-listener to enter sleep mode |
+| `mycroft.awoken` | `ovos.listener.awoken` | bus-level green; no component cell — needs ovos-dinkum-listener to leave sleep mode |
+| `skill.stop.pong` | `ovos.stop.pong` | bus-level green; no component cell — needs a skill container (ovos-workshop) to answer the stop ping |
+| `mycroft.stop` | `ovos.stop` | bus-level green; component cell in `test/conformance/test_stop1_conformance.py` |
+| `complete_intent_failure` | `ovos.intent.unmatched` | bus-level green; component cell in `test/skills_fleet/test_fleet_routing.py` |
+| `detach_intent` | `ovos.intent.deregister` | bus-level green; no component cell — needs ovos-core's intent service to deregister a live intent |
+| `detach_skill` | `ovos.skill.deregister` | bus-level green; no component cell — needs ovos-core's intent service to deregister a live skill |
+| `mycroft.skill.enable_intent` | `ovos.intent.enable` | bus-level green; no component cell — needs ovos-core's intent service to re-enable a disabled intent |
+| `mycroft.skill.disable_intent` | `ovos.intent.disable` | bus-level green; no component cell — needs ovos-core's intent service to disable a live intent |
+
+Three further places carry both a legacy and a specified shape without being
+topic renames, and each is asserted as one cell rather than two, because what
+matters is that both shapes reach the same state:
+
+| Cell | Both styles | Status |
+|------|-------------|--------|
+| `test_scheduler_dual_protocol.py` | `mycroft.scheduler.*` (schedule, remove, `get_event`) and `ovos.scheduler.*` schedule/get/cancel | green against the scheduler service of [bus-client#311](https://github.com/OpenVoiceOS/ovos-bus-client/pull/311), which is not on PyPI: install that branch and set `OVOS_SCHEDULER_CELLS=1` to run these cells |
+| `test_pipeline_dual_style.py::TestUtteranceEntryBothStyles` / `TestPipelineAttribution` | legacy and spec turn openers; bare `pipeline_id` attribution alongside a `-high`/`-medium`/`-low` session pipeline | green |
+| `test_pipeline_dual_style.py::TestSessionSnapshotBothStyles` | `ovos.session.update_default` and `ovos.session.sync` | green on the legacy carrier; the SESSION-2 §2.7 data carrier is skipped pending [bus-client#278](https://github.com/OpenVoiceOS/ovos-bus-client/pull/278) |
+
+---
+
 ## See also
 
 - [known-gaps.md](known-gaps.md) — the live `xfail` clauses, with the
