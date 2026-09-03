@@ -192,6 +192,7 @@ Clauses naming the spec field skip until `ovos-bus-client` populates it.
 | `TestSec31SessionIdentity` | SESSION-1 §3.1 | An empty/absent session resolves to `session_id: "default"`. | **xfail** (bus-client mints a random uuid) |
 | `TestSec31PerSessionKeying` | SESSION-1 §3.1 (spec §227) | Per-session state is keyed on `session_id` — an active handler in session A is not visible to session B. | green |
 | `TestSec21BusStateless` | SESSION-2 §2.1 (spec §543) | The bus leaves `session` byte-identical in transit — it does not interpret, mutate, or persist it. | green |
+| `TestLocationTimezoneContract` | implementation-contract, not a SESSION-1 §3 field | `location` (`Session.location_preferences`) round-trips serialize/deserialize byte-stable, including nested `timezone.code`; `Session.timezone` reads that code; a per-session zone wins over the deployment-configured zone through `SessionManager.get(message)`; an absent session zone falls back to the configured one. Pins the surface `ovos-skill-alerts`#183's two-sessions-two-timezones DST differential depends on end-to-end, at the producing repo instead of only downstream. | green |
 
 ---
 
