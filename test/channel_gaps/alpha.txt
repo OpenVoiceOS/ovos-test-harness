@@ -36,7 +36,6 @@
 [modules]
 
 [tests]
-test/conformance/test_persona1_conformance.py::TestSec8Handler::test_handler_terminates_once
 test/conformance/test_stop1_conformance.py::TestSec42PingPong::test_ping_broadcast_topic
 
 [xpass]

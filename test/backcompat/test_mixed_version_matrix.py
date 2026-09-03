@@ -268,18 +268,44 @@ pytestmark = pytest.mark.skipif(
 #: shape so an unset combo never claims a gap.
 IS_BROKEN_CELL = COMBOS.get(COMBO, (False, False, True)) == (True, True, False)
 
-_XFAIL_REASON = (
-    "old skill container (ovos-workshop==9.3.1a2, suffixed binding only) does "
-    "not hear a canonical dispatch; needs the #271 bridge (wire twin from the "
-    "emitter, or local canonicalization in a modern client), unreleased. XPASS here means #271 shipped — drop "
-    "this marker and keep the guard."
-    if COMBO not in _BROKEN_CHANNEL_COMBOS else
-    f"{COMBO}: the OVOS distro constraints file pins an ovos-workshop below "
-    "the 9.3.2a1 canonical-binding boundary, so this channel's skill side is "
-    "suffixed-only against a dev core that canonicalizes at registration; "
-    "same gap as old-skill/new-core, reached via a live fleet pin instead of "
-    "a boundary pin. XPASS here means either the channel moved its pin past "
-    "the boundary or #271 shipped — check which, then drop the marker.")
+#: ovos-bus-client#271 (the wire-twin bridge) has shipped: the boundary-pinned
+#: old-skill/new-core cell now hears a canonical dispatch and passes for real,
+#: per the docstring's own kill-switch instruction ("the day #271 releases,
+#: old skill/new core starts passing ... the marker comes off — the guard is
+#: then permanent"). Two other cells still reach this same (suffixed-only
+#: skill, canonicalizing matcher) shape for reasons #271 never touched, so
+#: they keep the guard:
+#:
+#: * the two live-fleet channel combos, through a distro constraints pin
+#:   that has not moved past the 9.3.2a1 canonical-binding boundary yet;
+#: * ``old-skill/old-core-new-matchers``, where the canonicalization comes
+#:   from an old core resolving a current ``ovos-padatious`` (COMBOS' own
+#:   comment: "pins the blame on padatious") -- #271 is a bus-client wire
+#:   fix and has no bearing on a matcher-side canonicalization decision, so
+#:   this cell is independently still broken.
+_STILL_XFAIL_COMBOS = _BROKEN_CHANNEL_COMBOS | {"old-skill/old-core-new-matchers"}
+IS_XFAIL_CELL = IS_BROKEN_CELL and COMBO in _STILL_XFAIL_COMBOS
+
+if COMBO == "old-skill/old-core-new-matchers":
+    _XFAIL_REASON = (
+        f"{COMBO}: an OLD ovos-core resolving a CURRENT ovos-padatious "
+        "canonicalizes at registration (the fold lives in the matcher "
+        "package, not ovos-core -- see COMBOS' own probe comment above), so "
+        "the suffixed-only old skill still never hears a bound handler; "
+        "unrelated to ovos-bus-client#271, which is a bus wire-twin fix "
+        "with no bearing on this matcher-side canonicalization decision. "
+        "XPASS here means either this core pin stopped resolving that "
+        "padatious vintage or padatious itself changed the fold — check "
+        "which, then drop the marker.")
+else:
+    _XFAIL_REASON = (
+        f"{COMBO}: the OVOS distro constraints file pins an ovos-workshop below "
+        "the 9.3.2a1 canonical-binding boundary, so this channel's skill side is "
+        "suffixed-only against a dev core that canonicalizes at registration; "
+        "same gap as old-skill/new-core used to be before ovos-bus-client#271 "
+        "shipped, reached via a live fleet pin instead of a boundary pin. XPASS "
+        "here means the channel moved its pin past the boundary — check that, "
+        "then drop the marker.")
 
 
 @pytest.fixture(scope="module")
@@ -757,7 +783,7 @@ def test_matcher_skew_leaves_the_dispatch_spelling_to_padatious(stack):
         f"§2.2 says it cannot")
 
 
-@pytest.mark.xfail(condition=IS_BROKEN_CELL, strict=True, reason=_XFAIL_REASON)
+@pytest.mark.xfail(condition=IS_XFAIL_CELL, strict=True, reason=_XFAIL_REASON)
 @pytest.mark.axes("S", "C", "M")
 def test_the_skill_handler_runs(stack):
     """The contract: a canonical dispatch must reach the skill's handler.
@@ -796,7 +822,7 @@ def test_the_skill_handler_runs(stack):
         spoken.close()
 
 
-@pytest.mark.xfail(condition=IS_BROKEN_CELL, strict=True, reason=_XFAIL_REASON)
+@pytest.mark.xfail(condition=IS_XFAIL_CELL, strict=True, reason=_XFAIL_REASON)
 @pytest.mark.axes("S", "C", "M")
 def test_the_handler_runs_exactly_once(stack):
     """A skill bound to both spellings must not answer twice.
