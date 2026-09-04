@@ -50,6 +50,22 @@ DIST_NAME_OVERRIDES = {
     "ovos-padatious-pipeline-plugin": "ovos-padatious",
 }
 
+# Packages install_channel.sh installs itself, outside this plan, WHEN the
+# channel's constraints file does not name them. ovoscope is this harness's
+# own test driver, not a member of the device stack a channel's constraints
+# file describes, so a channel that never pins it should get the harness's
+# own current floor rather than requirements.txt's git leftover handling (its
+# own metadata pins a dev-stack ovos-core floor that would ResolutionImpossible
+# against an old channel's ovos-core pin if resolved as a plain leftover
+# under -c). But a channel that DOES pin ovoscope chose that version because
+# it is the one compatible with that channel's own old core/bus-client API —
+# ovoscope itself calls accessors (e.g. SessionManager.get_default_session)
+# that postdate old channel stacks, so "one current ovoscope everywhere" is
+# wrong here. plan() below only excludes a SEPARATELY_INSTALLED name when the
+# channel does not cover it; a covered name flows through normally and the
+# channel's own pin wins, same as any other channel-covered package.
+SEPARATELY_INSTALLED = {"ovoscope"}
+
 GIT_RE = re.compile(r"git\+https://github\.com/[^/]+/(?P<repo>[^@#]+)"
                     r"(?:@(?P<ref>[^#\s]+))?")
 NAME_RE = re.compile(r"^\s*(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*(?P<rest>[<>=!~;\[].*)?$")
@@ -95,6 +111,10 @@ def plan(requirements, constraints):
             if dist is None:
                 print(f"warning: unparsed requirement line: {line!r}",
                       file=sys.stderr)
+                continue
+            if dist in SEPARATELY_INSTALLED and dist not in covered_names:
+                # Not pinned by this channel: install_channel.sh installs it
+                # separately, at the harness's own floor, outside this plan.
                 continue
             if dist in covered_names:
                 covered.append(dist)

@@ -194,6 +194,13 @@ PLUGINS: Dict[str, Dict[str, Any]] = {
         "spec_xfail": None,
         "fuzzy": True,
         "settle": 1.5,
+        # model2vec loads its model in a background thread on first use and
+        # treats "not ready yet" as a clean no-match rather than blocking the
+        # bus (see ovos_m2v_pipeline._ensure_model); on a cold Hugging Face
+        # cache that download can outlast every per-test settle/timeout/retry
+        # combined. Block on the plugin's own synchronous load path once,
+        # in setUpClass, before either test's timed window starts.
+        "warmup": lambda pipeline: pipeline._ensure_model(background_ok=False),
     },
     "linha-fina": {
         "module": "linha_fina",
@@ -291,6 +298,7 @@ def _build_case(key: str, spec: Dict[str, Any]) -> type:
     timeout = spec.get("timeout", 5.0)
     fuzzy = spec.get("fuzzy", False)
     decoy = spec.get("decoy", False)
+    warmup = spec.get("warmup")
     skill_id = f"intent4_{key.replace('-', '_')}.skill"
 
     class _Case(E2EPipelineHarness):
@@ -298,6 +306,31 @@ def _build_case(key: str, spec: Dict[str, Any]) -> type:
         CONFIG_KEY = spec["config_key"]
         PLUGIN_CONFIG = dict(spec["plugin_config"])
         SKILL_ID = skill_id
+
+        @classmethod
+        def setUpClass(cls) -> None:
+            """Warm the engine's model, generically, before either timed test
+            runs.
+
+            Some engines (m2v: model2vec) lazily download a model on first
+            use. The per-test ``settle``/``timeout`` above are sized for
+            matching against an already-loaded engine; on a cold cache the
+            fixed ``time.sleep(settle)`` is spent on the download instead,
+            and the capture that follows finds nothing to match — a
+            deterministic failure whenever this is the first case to touch
+            that engine's model, not an intermittent one (a retry would not
+            help: the plugin itself treats "model not ready yet" as a clean
+            no-match for that one utterance, by design, so a slow-download
+            case can lose every retry too). A generic registration-and-wait
+            round does not force a real wait here either, for the same
+            reason: ``PLUGINS[key]["warmup"]``, when a plugin needs one, is a
+            callable that blocks on the plugin's OWN synchronous load path
+            (e.g. m2v's ``pipeline._ensure_model(background_ok=False)``)
+            instead.
+            """
+            super().setUpClass()
+            if warmup is not None:
+                warmup(cls.pipeline)
 
         # -- helpers ----------------------------------------------------
 

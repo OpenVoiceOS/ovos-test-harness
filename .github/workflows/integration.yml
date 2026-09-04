@@ -39,7 +39,10 @@ jobs:
           # No unpinned `pip install --upgrade pip` here: an unbounded pip
           # upgrade is itself a moving dependency, defeating the point of a
           # pinned requirements.txt. Use the pip actions/setup-python ships.
-          pip install -r requirements.txt
+          # --pre: requirements.txt's ovoscope floor has no non-prerelease
+          # release that satisfies it (every ovoscope release at or above the
+          # floor is an alpha), so prereleases must be explicitly allowed.
+          pip install --pre -r requirements.txt
           pip install pytest-timeout
           # ovos-media (the OVOS-OCP-1 Virtual Media Player) is installed
           # here rather than from requirements.txt so its floor sits next to

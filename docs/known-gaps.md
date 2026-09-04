@@ -195,30 +195,18 @@ CONTEXT-1 store PR:
   the suite's coverage map as the pending FALLBACK-1 §6.1 form, to be
   asserted when core moves to it.
 
-## OVOS-CONVERSE-1
-
-### §2.1: `session.converse_handlers` field
-
-- **Spec mandates:** `session.converse_handlers` carries the active
-  converse owner, head-first.
-
-- **Current core:** models converse ownership with the legacy
-  `session.active_skills` list. The spec field is not yet populated. The
-  clause is skip-guarded (probed at runtime) and runs once
-  `ovos-bus-client`'s `feat/session-spec-fields` is pinned in.
-
-- **Test:** `TestSec21OwnerOrdering.test_converse_handlers_reflects_owner`
-
 ## OVOS-SESSION-1 / OVOS-SESSION-2 (spec session fields)
 
 The session suite asserts the legacy carriers green and the spec field
 names under a runtime probe, skipping cleanly until `ovos-bus-client`
-populates them (`feat/session-spec-fields`). The pending spec fields:
+populates them (`feat/session-spec-fields`). `converse_handlers` is no
+longer pending — ovos-core 3.2.8a1 (#933) writes it at dispatch per
+CONVERSE-1 §3.1 — so it is not listed below. The remaining pending spec
+fields:
 
 | Spec field | Owning clause | Current legacy carrier | Test |
 |------------|---------------|------------------------|------|
 | `active_handlers` | PIPELINE-1 §7.1 | `session.active_skills` | `TestActiveHandlerRecency.test_active_handlers_spec_field` |
-| `converse_handlers` | CONVERSE-1 §2.1 | `session.active_skills` | `TestConverseOwnerOrdering.test_converse_handlers_spec_field` |
 | `response_mode` | CONVERSE-1 §2.2 | `session.utterance_states` (RESPONSE) | `TestResponseMode.test_response_mode_spec_field` |
 | `fallback_handlers` | FALLBACK-1 §4 | (none) | `TestFallbackHandlersField.test_fallback_handlers_spec_field` |
 

@@ -90,6 +90,26 @@ else
   "${PIP[@]}" -c "$CFILE" ovos-gui-api-client dbus_next json-database
 fi
 
+# ovoscope is this harness's OWN test driver, not a member of the device
+# stack a channel's constraints file describes — but it is not version-free
+# either: ovoscope calls accessors (e.g. SessionManager.get_default_session)
+# that postdate old channel stacks, so a channel's OWN ovoscope pin, where it
+# has one, is the version actually compatible with that channel's old
+# core/bus-client API and must be honoured, not overridden. Only a channel
+# that pins no ovoscope at all (nothing in constraint_names(), so resolve.py
+# left it out of covered.txt) gets the harness's own current floor here.
+# --no-deps for the same reason step [3/4]'s git leftovers use it: ovoscope's
+# own metadata pins ovos-core/ovos-bus-client floors from the dev stack, and
+# honouring those would drag the channel packages this job exists to pin
+# right back up to dev. --pre because every ovoscope release at or above the
+# floor is a prerelease.
+if grep -qxF ovoscope "$PLAN/covered.txt"; then
+  echo "==> [5/4] ovoscope: $CHANNEL pins its own (already installed under -c)"
+else
+  echo "==> [5/4] ovoscope (unpinned on $CHANNEL — the harness's own driver, own floor)"
+  "${PIP[@]}" --no-deps --pre "ovoscope>=1.6.23a1"
+fi
+
 echo
 echo "==> resolved channel versions"
 python3 - <<'EOF'
