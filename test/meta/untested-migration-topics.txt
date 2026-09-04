@@ -1,0 +1,25 @@
+# MIGRATION_MAP legacy topics whose twin no back-compat cell drives.
+#
+# A ratchet: an entry may be removed once a cell under test/backcompat/ names
+# both the legacy and the spec topic, never added. The four intent-management
+# renames here carry lossy payload transforms, which is exactly where an
+# undriven twin hands a legacy consumer a payload it cannot read.
+complete_intent_failure
+detach_intent
+detach_skill
+mycroft.audio.play_sound
+mycroft.audio.queue
+mycroft.audio.speak.status
+mycroft.audio.speech.stop
+mycroft.awoken
+mycroft.mic.listen
+mycroft.skill.disable_intent
+mycroft.skill.enable_intent
+mycroft.stop
+recognizer_loop:record_begin
+recognizer_loop:record_end
+recognizer_loop:sleep
+recognizer_loop:utterance
+skill.stop.pong
+speak:b64_audio
+speak:b64_audio.response
