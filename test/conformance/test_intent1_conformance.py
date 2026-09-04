@@ -30,7 +30,7 @@ Coverage map (clause -> status against ovos-spec-tools):
 - §3.4 slot name charset (lowercase/digit/_, no leading digit) ... green
 - §3.5 groups nest without limit ................................. green
 - §3.6 unbalanced metacharacters rejected ........................ green
-- §3.6 single-branch group rejected .............................. green
+- §3.6 single-branch group folds to the bare branch .............. xfail (the expander rejects a group with no `|`)
 - §3.6 empty-sample template rejected ............................ green
 - §3.6 slot-only template rejected ............................... green
 - §3.6 adjacent slots rejected (surface + expanded) .............. green
@@ -110,11 +110,20 @@ class TestSec3_2Alternatives(TestCase):
             ["please turn on the lights", "turn on the lights"],
         )
 
-    def test_single_branch_group_is_malformed(self):
-        """"A group MUST contain at least one ``|`` … a group with no ``|`` is
-        malformed" (§3.2, §3.6)."""
-        with self.assertRaises(MalformedTemplate):
-            expand("(word) the lights")
+    @pytest.mark.xfail(
+        reason="OVOS-INTENT-1 §3.6 MUST: a single-branch group `(word)` is "
+               "degenerate but not malformed — loaders MUST accept it, SHOULD "
+               "warn, and MUST treat it as exactly the bare branch. The "
+               "reference expander ovos_spec_tools/expansion.py raises "
+               "MalformedTemplate on a group with no `|`.",
+        strict=True,
+    )
+    def test_single_branch_group_folds_to_the_bare_branch(self):
+        """"A single-branch group … is degenerate but **not** malformed:
+        loaders MUST accept it, SHOULD warn, and MUST treat it as exactly the
+        bare branch (``(word)`` ≡ ``word``)" (§3.6)."""
+        self.assertEqual(sorted(expand("(word) the lights")),
+                         ["word the lights"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────

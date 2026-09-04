@@ -33,7 +33,8 @@ Coverage map (clause -> status against the installed ovos-core services):
 - §3.2 empty-list (no-transcription) returned as-is .............. green
 - §3.3 metadata chain: context-in -> context-out, mutation kept .. green
 - §3.4 intent chain: Match.captures may be enriched .............. green
-- §3.4 Match.skill_id / intent_name MUST NOT change (enforced) ... xfail (service does not enforce)
+- §3.4 a returned Match with a changed skill_id is discarded ..... green
+- §3.4 the identity backstop holds for an in-place mutation ....... xfail (the runner compares the return value against the same object)
 - §4   chain runs ascending priority (lower number first) ........ green
 - §7   a raising transformer is caught; chain proceeds ........... green
 - §7   raising transformer == returned its input unchanged ....... green
@@ -41,7 +42,8 @@ Coverage map (clause -> status against the installed ovos-core services):
 - §1.3 <type>_transformer_ids stamped on touched Message ......... green
 - §8.1 canceled/cancel_reason propagate through the chain ........ green
 - §8.1 orchestrator stamps cancel_by from the emitting id ........ green
-- §5   per-session <type>_transformers override fields ........... skip (bus-client lacks fields)
+- §5.1 per-session <type>_transformers fields present on the wire  skip (bus-client lacks fields)
+- §5.2 a session denylist suppresses a transformer ................ xfail (no runner reads the §5 session fields)
 
 Non-bus-observable prose is noted inline with ``# not bus-observable:``.
 xfail discipline per ``_conformance.py``.
@@ -262,18 +264,38 @@ class TestSec34Intent(TestCase):
         self.assertTrue(out.match_data.get("enriched"))
         self.assertEqual(out.match_data.get("orig"), 1, "engine capture dropped")
 
-    @pytest.mark.xfail(
-        reason="OVOS-TRANSFORM-1 §3.4 / §9 MUST: if a transformer returns a Match "
-               "whose skill_id or intent_name differs from its input, the "
-               "orchestrator MUST treat it as a §7 shape violation, discard the "
-               "output and proceed with the prior Match unchanged. "
-               "IntentTransformersService.transform does not enforce the identity "
-               "invariant — a transformer that overwrites skill_id is honoured.",
-        strict=True,
-    )
     def test_skill_id_invariant_enforced(self):
         """§3.4 MUST NOT change ``Match.skill_id``; §9 MUST: the orchestrator
-        treats a changed skill_id as a shape violation and keeps the prior Match."""
+        treats a changed skill_id as a shape violation, discards the output and
+        keeps the prior Match."""
+        class Hijack(IntentTransformer):
+            def __init__(s):
+                super().__init__("hijack", priority=50)
+
+            def transform(s, intent):
+                return IntentHandlerMatch(match_type=intent.match_type,
+                                          match_data=intent.match_data,
+                                          skill_id="OTHER_SKILL",
+                                          utterance=intent.utterance)
+
+        svc = _intent_service([Hijack()])
+        out = svc.transform(self._match())
+        self.assertEqual(out.skill_id, "myskill",
+                         "orchestrator did not backstop a skill_id change")
+
+    @pytest.mark.xfail(
+        reason="OVOS-TRANSFORM-1 §3.4 / §9 MUST: a transformer that changes the "
+               "dispatch identity is a §7 shape violation — the orchestrator "
+               "MUST discard the output and proceed with the prior Match "
+               "unchanged. IntentTransformersService.transform compares the "
+               "returned Match against the input Match, so a transformer that "
+               "mutates its input in place and returns the same object passes "
+               "the check and the hijacked skill_id is dispatched.",
+        strict=True,
+    )
+    def test_skill_id_invariant_enforced_against_in_place_mutation(self):
+        """§3.4 / §9: the identity backstop MUST hold whether the transformer
+        returns a new Match or mutates the one it was handed."""
         class Hijack(IntentTransformer):
             def __init__(s):
                 super().__init__("hijack", priority=50)
@@ -285,7 +307,8 @@ class TestSec34Intent(TestCase):
         svc = _intent_service([Hijack()])
         out = svc.transform(self._match())
         self.assertEqual(out.skill_id, "myskill",
-                         "orchestrator did not backstop a skill_id change")
+                         "orchestrator did not backstop an in-place "
+                         "skill_id change")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -545,19 +568,49 @@ class TestSec5PerSessionOverrides(TestCase):
     @_requires_override_fields
     def test_session_carries_override_fields(self):
         """§5.1: the session registers the six ``<type>_transformers`` ordering
-        fields per OVOS-SESSION-1 §2.1."""
+        fields per OVOS-SESSION-1 §2.1. This asserts the wire surface exists —
+        that the fields are present on a serialized session — not that any
+        runner reads them; the cell below drives that."""
         from ovos_bus_client.session import Session
         s = Session("probe").serialize()
         for typ in ("utterance", "metadata", "intent", "audio", "dialog", "tts"):
             self.assertIn(f"{typ}_transformers", s,
                           f"session lacks {typ}_transformers override field")
 
+    @pytest.mark.xfail(
+        reason="OVOS-TRANSFORM-1 §5.2/§5.3 MUST: the policy channel "
+               "blacklisted_<type>_transformers denies a transformer for the "
+               "session that carries it. ovos-bus-client registers no "
+               "blacklisted_<type>_transformers session field, and the runner "
+               "services resolve their chain once from deployer config into "
+               "the process-wide TransformersService.plugins list and never "
+               "read the session off the context, so a per-session denylist "
+               "carried on the wire has no effect.",
+        strict=True,
+    )
+    def test_session_denylist_suppresses_a_transformer(self):
+        """§5.2/§5.3: a transformer named in the session's
+        ``blacklisted_utterance_transformers`` MUST NOT run for that session."""
+        from ovos_bus_client.session import Session
+        ran = []
+
+        class Denied(UtteranceTransformer):
+            def __init__(s):
+                super().__init__("denied", priority=50)
+
+            def transform(s, utterances, context=None):
+                ran.append("denied")
+                return utterances, {}
+
+        sess = Session("probe").serialize()
+        sess["blacklisted_utterance_transformers"] = ["denied"]
+        svc = _utt_service([Denied()])
+        svc.transform(["hello"], {"session": sess})
+        self.assertEqual(ran, [], "denylisted transformer ran for the session")
+
 # not bus-observable: §6 introspection (ovos.transformer.{type}.list query /
 #   .response) — the installed ovos-core transformer services do not subscribe
 #   to the §6 query topics, so there is no responder to drive; this is a missing
 #   orchestrator surface rather than a divergence in observed behaviour.
-# not bus-observable: §5.2/§5.3 denylist composition — needs the §5 session
-#   fields AND orchestrator-side composition wiring; both absent in the stack,
-#   so the skip above guards the whole section.
 # not bus-observable: §7 re-entrancy / concurrency — a structural plugin
 #   contract, not an observable single-run property.

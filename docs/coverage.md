@@ -18,10 +18,13 @@ Status legend:
 
 ## Top-level matrix
 
-The architecture `dev` branch carries 20 specs. All 20 are covered by 20
-conformance suites, each with its own `## OVOS-...` detail section below.
-SESSION-1 and SESSION-2 share one suite. INTENT-4 is covered by both an
-orchestrator suite and a per-plugin registration-compliance suite.
+The pinned corpus (`test/meta/architecture.sha`) carries 21 specs. Twenty of
+them have a conformance suite; OVOS-SCHEDULER-1 has none. Every spec has its own
+`## OVOS-...` detail section below, and `test/meta/` reads both the count and
+the section list off the pinned spec corpus, so a spec cannot be added upstream
+without forcing a row here. SESSION-1 and SESSION-2 share one suite. INTENT-4
+is covered by both an orchestrator suite and a per-plugin
+registration-compliance suite.
 
 `OVOS-USER-ID-1` is not tracked here: no such document exists among the
 ratified `OpenVoiceOS/architecture` specs, so there is nothing to trace
@@ -49,6 +52,7 @@ suite coverage against.
 | OVOS Common Playback (OCP) | OVOS-OCP-1 | `test_ocp1_conformance.py` | implemented |
 | Persona Pipeline Plugin | OVOS-PERSONA-1 | `test_persona1_conformance.py` | implemented |
 | Transformer Plugins | OVOS-TRANSFORM-1 | `test_transform1_conformance.py` | implemented |
+| Scheduled Events | OVOS-SCHEDULER-1 | — | no suite |
 
 ---
 
@@ -256,12 +260,14 @@ skips.
 *Bus Message Specification.* Asserts the §7 conformance clauses against the
 runtime envelope, `ovos_bus_client.message.Message` — the type every
 component on the bus actually exchanges — rather than the reference
-`ovos_spec_tools.message.Message`. Every clause is green: the installed
-bus-client envelope already conforms.
+`ovos_spec_tools.message.Message`. The routing, derivation and serialization
+clauses are green; the §2 unknown-key tolerance rule is not implemented by
+either envelope.
 
 | Class | Clause(s) | Asserts | Status |
 |-------|-----------|---------|--------|
-| `TestSec2Envelope` | §2 | The envelope carries exactly `type`/`data`/`context`; an absent `data`/`context` is treated as empty; unknown top-level keys are rejected. | green |
+| `TestSec2Envelope` | §2 | The envelope carries exactly `type`/`data`/`context`; an absent `data`/`context` is treated as empty. | green |
+| `TestSec2Envelope.test_unknown_top_level_key_ignored`, `.test_reference_ignores_unknown_top_level_key` | §2 | A consumer MUST NOT reject a Message over a top-level key it does not know, and MUST ignore the key. | **xfail** (both envelopes raise on an unknown key) |
 | `TestSec21Type` | §2.1 | `type` is a non-empty, whitespace-free string matching the topic syntax. | green |
 | `TestSec22Data` | §2.2 | `data` is a JSON object; consumers MUST NOT reject a Message on key order. | green |
 | `TestSec23Context` | §2.3 | `context` is topic-independent metadata; a consumer MUST NOT reject on unrecognised keys; an empty `context` is well-formed. | green |
@@ -302,14 +308,15 @@ conformance clauses and the §7 bus surface against the real
 `ovos_audio.service.PlaybackService`, driven through
 `ovoscope.audio.PlaybackServiceHarness` with a silent `MockTTS`. The bus
 runs single-namespace (no legacy bridge) so subscriptions are read from the
-service's own handler registry, not rescued by a legacy-topic bridge. Every
-clause is green: the installed `ovos-audio` service already conforms.
+service's own handler registry, not rescued by a legacy-topic bridge. The bus
+surface is green; the §4.4 listen flag is driven by its spec name and is the
+one divergence.
 
 | Class | Clause(s) | Asserts | Status |
 |-------|-----------|---------|--------|
 | `TestSec3LocalRendering` | §3, §8 | The service subscribes to `ovos.utterance.speak`, renders, and plays. | green |
 | `TestSec5LifecycleSignals` | §5.1, §5.2 | The service emits `ovos.audio.output.started` on playback start and `ovos.audio.output.ended` on playback end. | green |
-| `TestSec44ListenFlag` | §4.4 | A Message carrying `listen: true` triggers `ovos.mic.listen` after playback. | green |
+| `TestSec44ListenFlag` | §4.4 | A Message carrying the spec field `listen: true` triggers `ovos.mic.listen` after playback; without the flag the microphone stays shut. | green / **xfail** (`test_mic_listen_after_listen_true`: the service reads only the legacy `expect_response` key) |
 | `TestSec6StopIntegration` | §6 | A stop signal on `ovos.audio.stop`/`ovos.stop` clears the queue and halts playback. | green |
 | `TestSec34RemoteRendering` | §3.4 | The service subscribes to `ovos.utterance.speak.b64` and emits `ovos.audio.speech` for b64 delivery. | green |
 | `TestSec41QueuedSound` | §4.1, §8 | Queued sound playback via `ovos.audio.queue` is FIFO and sequential. | green |
@@ -347,13 +354,13 @@ full divergence note.
 Dialog renderer, slot model) against `ovos-spec-tools`, the reference
 implementation. INTENT-1 is a file-format/grammar spec with no bus surface,
 so almost every clause is asserted directly against the spec-tools API;
-one class also drives an end-to-end registration/match round. Every clause
-is green: `ovos-spec-tools` already conforms.
+one class also drives an end-to-end registration/match round. The grammar
+clauses are green apart from the §3.6 single-branch fold.
 
 | Class | Clause(s) | Asserts | Status |
 |-------|-----------|---------|--------|
 | `TestSec2InputModel` | §2 | Input-direction templates are authored in normalized form; brackets cannot be literal, no escape mechanism. | green |
-| `TestSec3_2Alternatives` | §3.2 | Parenthesised alternatives expand to one branch each; an empty branch contributes nothing. | green |
+| `TestSec3_2Alternatives` | §3.2, §3.6 | Parenthesised alternatives expand to one branch each; an empty branch contributes nothing; a single-branch group folds to the bare branch. | green / **xfail** (`test_single_branch_group_folds_to_the_bare_branch`: the expander rejects a group with no `\|`) |
 | `TestSec3_3Optionals` | §3.3 | `[x]` is exactly equivalent to `(x\|)`. | green |
 | `TestSec3_4NamedSlots` | §3.4 | `{name}`/`{{name}}` fold to the same slot; slot names use the lowercase/digit/underscore charset with no leading digit. | green |
 | `TestSec3_5Nesting` | §3.5 | Expansion groups nest without limit. | green |
@@ -478,14 +485,26 @@ transformers injected into each service's loaded set.
 | `TestSec1ChainModel` | §1 | Every transformer in a chain always runs — no early exit; the last transformer's output is what proceeds. | green |
 | `TestSec32Utterance` | §3.2 | The utterance chain takes an input list and returns a possibly-modified list; may mutate `Message.context`; an empty (no-transcription) list is returned as-is. | green |
 | `TestSec33Metadata` | §3.3 | The metadata chain's only input and output is `Message.context`; a mutation is kept. | green |
-| `TestSec34Intent.test_skill_id_invariant_enforced` | §3.4, §9 | The intent chain may enrich `Match.captures`; `Match.skill_id`/`intent_name` MUST NOT change. | green / **xfail** (identity invariant not enforced) |
+| `TestSec34Intent` | §3.4, §9 | The intent chain may enrich `Match.captures`; a returned `Match` whose `skill_id` differs from its input is discarded and the prior `Match` proceeds. | green |
+| `TestSec34Intent.test_skill_id_invariant_enforced_against_in_place_mutation` | §3.4, §9 | The identity backstop holds when the transformer mutates the `Match` it was handed instead of returning a new one. | **xfail** (the runner compares the return value against the same object) |
 | `TestSec4Ordering` | §4 | A chain runs in ascending priority order (lower number first). | green |
 | `TestPerTypeContract` | §1.1 | A transformer is a `(type, transformer_id)` pair over the six defined types. | green |
 | `TestSec30Lang.test_lang_is_a_threaded_parameter` | §3.0 | A bidirectional `lang` parameter is threaded through every chain (audio/utterance/dialog/TTS). | **xfail** (installed templates take no `lang` parameter) |
 | `TestSec7ErrorHandling` | §7 | A raising transformer is caught and treated as if it returned its input unchanged; a wrong-shape return is treated like a raise. | green |
 | `TestSec13SelfIdentification` | §1.3 | A transformer stamps its own id onto `<type>_transformer_ids` on every Message it touches. | green |
 | `TestSec8Cancellation` | §8.1 | A transformer signals cancellation via `canceled`/`cancel_reason`, which propagate through the chain; the orchestrator stamps `cancel_by`. | green |
-| `TestSec5PerSessionOverrides` | §5 | Six per-session `<type>_transformers` preference fields are honoured. | skip-guarded (bus-client field) |
+| `TestSec5PerSessionOverrides.test_session_carries_override_fields` | §5.1 | A serialized session carries the six `<type>_transformers` preference fields. This is field presence on the wire, not chain selection. | skip-guarded (bus-client field) |
+| `TestSec5PerSessionOverrides.test_session_denylist_suppresses_a_transformer` | §5.2, §5.3 | A transformer named in the session's `blacklisted_utterance_transformers` does not run for that session. | **xfail** (no runner reads the §5 session fields) |
+
+---
+
+## OVOS-SCHEDULER-1 — no suite
+
+*Scheduled Events.* The harness asserts nothing about this spec. It has no
+conformance suite, no cell and no clause-level status; every section is listed
+in `test/meta/uncited-sections.txt` and the spec is named in
+[known-gaps.md](known-gaps.md) so the absence is recorded rather than implied.
+Read the shipped scheduler as untested against SCHEDULER-1, not as conformant.
 
 ---
 

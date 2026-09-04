@@ -290,5 +290,15 @@ discovery in the checked-out repos still runs through
 `ovos-plugin-manager`'s in-process plugin loading rather than a bus
 introspection topic. **Not adopted.**
 
+## OVOS-SCHEDULER-1
+
+Canonical topics: `ovos.scheduler.schedule`, `.cancel`, `.list`, `.fire`,
+`.missed` (each request with a `.response` counterpart).
+
+The harness has no suite for this spec, so nothing here was measured against a
+running stack. `ovos-workshop`'s scheduled-event API and the legacy
+`mycroft.scheduler.*` adapter are the surfaces a survey would start from.
+**Not surveyed.**
+
 ---
 [← Coverage](coverage.md) · [Home](../README.md)
