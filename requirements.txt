@@ -116,6 +116,11 @@ git+https://github.com/OpenVoiceOS/ovos-gui@dev
 # SessionManager.bind (landed 1.10.4a1) and the public resolve_session_id
 # (1.10.3a1+); see the ovos-bus-client pin above.
 ovos-spec-tools>=1.10.4a1
+# transformer runner services under test (TRANSFORM-1). Most of that suite
+# drives ovos_plugin_manager.transformer_services directly, so the floor is
+# explicit rather than left to transitive resolution: >=2.11.6a1 is the
+# release carrying the §3.4 intent-identity backstop the suite asserts green.
+ovos-plugin-manager>=2.11.6a1
 # padacioso matcher: drops the unhashable-Session lru_cache key so it matches
 # under ovos-bus-client 2.x (PyPI 1.0.0 raises TypeError on every match).
 # TODO flip to @dev once OpenVoiceOS/padacioso#... (the lru_cache fix) merges.

@@ -40,16 +40,15 @@ Coverage map (clause -> status against the installed stack):
 - SESSION-1 §3.1  empty/absent session resolves to session_id default ... xfail (bus-client mints a random uuid)
 - SESSION-1 §3.1  per-session state keyed on session_id (A not in B) .... green
 - SESSION-2 §2.1  the bus leaves session untouched in transit .......... green
-- location/timezone: ``location`` round-trips byte-stable ............... green (implementation-contract)
-- location/timezone: ``Session.timezone`` reads the location code ....... green (implementation-contract)
-- location/timezone: a per-session zone wins over the configured one .... green (implementation-contract)
-- location/timezone: an absent session zone falls back to config ....... green (implementation-contract)
+- SESSION-1 §3.5  ``location`` round-trips the three keys ............... green
+- SESSION-1 §3.5  ``Session.timezone`` resolves from ``location.tz`` .... green
+- SESSION-1 §3.5  a partial ``location`` is accepted .................... green
+- SESSION-1 §3.5  the session ``tz`` wins over the configured zone ...... green
+- SESSION-1 §3.5  an absent ``tz`` falls back to the configured zone .... green
 
-``location`` (``Session.location_preferences`` / ``.timezone``) is not a
-SESSION-1 §3 registry field — the spec's closed field set (§3, §2.4) has no
-`location`/`timezone` entry, so nothing here is a spec clause. It is pure
-``ovos-bus-client`` implementation contract that ``ovos-skill-alerts``' DST
-differential (PR #183) already depends on end-to-end
+``location`` is the §3.5 three-key field ``{lat, lon, tz}``. ``tz`` is the one
+key the spec gives normative consumer behaviour to, and it is the surface
+``ovos-skill-alerts``' DST differential (PR #183) depends on end-to-end
 (``SessionManager.get(message).timezone`` -> ``dateutil.tz.gettz``); these
 cells catch a breaking rename or precedence change at the producing repo
 instead of only downstream in that skill's tests.
@@ -528,84 +527,71 @@ class TestSec21BusStateless(TestCase):
         self.assertEqual(seen[-1], payload,
                          "the bus mutated the session in transit")
 
-
 # ─────────────────────────────────────────────────────────────────────────────
-# location/timezone — implementation-contract (not a SESSION-1 §3 field)
+# §3.5 — location
 # ─────────────────────────────────────────────────────────────────────────────
 
-_LISBON_TZ = {"code": "Europe/Lisbon", "name": "Europe/Lisbon",
-              "dstOffset": 60.0, "offset": 0.0}
-_CHICAGO_LOCATION = {
-    "city": {"code": "Chicago", "name": "Chicago",
-             "state": {"code": "IL", "name": "Illinois",
-                       "country": {"code": "US", "name": "United States"}}},
+_CHICAGO = {"lat": 41.85, "lon": -87.65, "tz": "America/Chicago"}
+_LISBON = {"lat": 38.72, "lon": -9.14, "tz": "Europe/Lisbon"}
+_LEGACY_CHICAGO_CONFIG = {
+    "city": {"code": "Chicago", "name": "Chicago"},
     "coordinate": {"latitude": 41.85, "longitude": -87.65},
     "timezone": {"code": "America/Chicago", "name": "America/Chicago",
                  "dstOffset": 0.0, "offset": -360.0},
 }
 
 
-class TestLocationTimezoneContract(TestCase):
-    """``Session.location_preferences`` / ``Session.timezone`` are not a
-    SESSION-1 §3 registry field — the closed field set (§2.4, §3) has no
-    ``location``/``timezone`` entry, so a producer/consumer pair is free to
-    define this surface as it likes. ``ovos-bus-client`` does: the wire key
-    is ``location`` (``Session.serialize()``/``.deserialize()``), and
-    ``Session.timezone`` reads the IANA code at ``location["timezone"]["code"]``.
+class TestSec35Location(TestCase):
+    """§3.5: ``location`` recognizes exactly three keys — ``lat``, ``lon`` and
+    ``tz`` — each independently omissible. The one key the specification gives
+    normative consumer behaviour to is ``tz``: when present it is the IANA zone
+    a consumer MUST use to resolve wall-clock time for that session; when
+    absent the consumer resolves against its own deployment-configured zone.
 
-    ``ovos-skill-alerts`` PR #183 built a DST-correctness feature entirely on
-    this surface — two sessions with distinct timezones resolve two distinct
-    UTC instants through ``SessionManager.get(message).timezone`` ->
-    ``dateutil.tz.gettz()``. That consumer differential only proves the wiring
-    holds for the skill's own driver; these cells pin the same contract at the
-    producing repo (``ovos-bus-client``) so a rename or precedence change is
-    caught before it ever reaches a downstream skill's DST tests. Each cell is
-    marked implementation-contract, not spec-clause, since no SESSION-1 text
-    claims this field."""
+    ovos-skill-alerts PR #183 built a DST-correctness feature on exactly this
+    surface — two sessions with distinct zones resolve two distinct UTC
+    instants through ``SessionManager.get(message).timezone``. These cells pin
+    the clause at the producing repo (``ovos-bus-client``) so a rename or a
+    precedence change is caught before it reaches a downstream skill."""
 
-    def test_location_round_trips_byte_stable(self):
-        """``location`` (nested city/coordinate/timezone) serializes and
-        deserializes back to an identical dict, including the nested
-        ``timezone.code`` — implementation-contract, no SESSION-1 §3 entry for
-        this field."""
+    def test_location_round_trips_the_three_keys(self):
+        """§3.5: the three-key ``location`` object serializes and deserializes
+        unchanged. MUST."""
         sess = Session("se-loc-roundtrip", lang="en-US",
-                       location_prefs=dict(_CHICAGO_LOCATION))
+                       location_prefs=dict(_CHICAGO))
         data = sess.serialize()
-        self.assertEqual(data.get("location"), _CHICAGO_LOCATION)
+        self.assertEqual(data.get("location"), _CHICAGO)
+        self.assertEqual(Session.deserialize(data).location, _CHICAGO)
 
-        restored = Session.deserialize(data)
-        self.assertEqual(restored.location_preferences, _CHICAGO_LOCATION)
-        self.assertEqual(restored.location_preferences["timezone"]["code"],
-                         "America/Chicago")
-
-    def test_timezone_reads_the_location_code(self):
-        """``Session.timezone`` returns the IANA code from the session's own
-        location prefs when present — implementation-contract."""
+    def test_timezone_reads_location_tz(self):
+        """§3.5: "When ``location.tz`` is present, it is the IANA zone name a
+        consumer MUST use to resolve wall-clock time for that session."."""
         sess = Session("se-loc-tzread", lang="en-US",
-                       location_prefs=dict(_CHICAGO_LOCATION))
+                       location_prefs=dict(_CHICAGO))
         self.assertEqual(sess.timezone, "America/Chicago")
 
-    def test_session_zone_overrides_the_configured_zone(self):
-        """A per-session timezone survives serialize/deserialize and WINS over
-        the deployment-configured zone when read through
-        ``SessionManager.get(message)`` — the exact surface
-        ovos-skill-alerts#183's two-sessions-two-timezones differential
-        exercises end-to-end. Implementation-contract: SESSION-1 places no
-        precedence rule on this field because it does not claim it."""
-        configured = {"location": dict(_CHICAGO_LOCATION)}
+    def test_partial_location_is_accepted(self):
+        """§3.5: "Each of ``lat``, ``lon``, and ``tz`` is independently
+        omissible; a ``location`` object MAY carry any subset." A tz-only
+        location still resolves wall-clock time. MUST."""
+        sess = Session("se-loc-partial", location_prefs={"tz": "Europe/Lisbon"})
+        self.assertEqual(sess.serialize().get("location"),
+                         {"tz": "Europe/Lisbon"})
+        self.assertEqual(sess.timezone, "Europe/Lisbon")
+
+    def test_session_tz_wins_over_the_configured_zone(self):
+        """§3.5: the session-carried ``tz`` is what a consumer resolves against
+        — it is not overridden by the deployment configuration. MUST."""
+        configured = {"location": dict(_LEGACY_CHICAGO_CONFIG)}
         with patch.object(bus_client_session, "Configuration",
                           lambda: configured):
             configured_zone = Session("se-loc-configured").timezone
             self.assertEqual(configured_zone, "America/Chicago")
 
             overriding = Session("se-loc-override", lang="en-US",
-                                 location_prefs={
-                                     "city": _CHICAGO_LOCATION["city"],
-                                     "coordinate": _CHICAGO_LOCATION["coordinate"],
-                                     "timezone": _LISBON_TZ,
-                                 })
+                                 location_prefs=dict(_LISBON))
             msg = Message("recognizer_loop:utterance", {},
-                         {"session": overriding.serialize()})
+                          {"session": overriding.serialize()})
             got = SessionManager.get(msg)
 
             self.assertEqual(got.timezone, "Europe/Lisbon")
@@ -613,24 +599,16 @@ class TestLocationTimezoneContract(TestCase):
                                 "session-carried zone did not win over the "
                                 "configured zone")
 
-    def test_absent_session_zone_falls_back_to_configured_zone(self):
-        """A session that carries no timezone of its own falls back to the
-        deployment-configured zone when read through ``SessionManager.get``.
-
-        SESSION-1 is silent on this field entirely (no §3 entry), so this is
-        NOT a spec clause — it is the ``ovos-bus-client`` implementation
-        contract ovos-skill-alerts#183's ``get_session_tz()`` fallback path
-        relies on. An intentional future change to this fallback (e.g.
-        raising instead of defaulting) should update that consumer."""
-        configured = {"location": dict(_CHICAGO_LOCATION)}
+    def test_absent_tz_falls_back_to_the_configured_zone(self):
+        """§3.5: "When ``location.tz`` is absent, the consumer resolves
+        wall-clock time against its own deployment-configured timezone."."""
+        configured = {"location": dict(_LEGACY_CHICAGO_CONFIG)}
         with patch.object(bus_client_session, "Configuration",
                           lambda: configured):
             sess = Session.deserialize({"session_id": "se-loc-absent"})
-            # positive control: the session with no location of its own
-            # really did fall through to the configured location, not to
-            # some other default; otherwise the test below is vacuous.
-            self.assertEqual(sess.location_preferences, _CHICAGO_LOCATION)
+            self.assertEqual(sess.location, {},
+                             "session carried a location it was never given")
             msg = Message("recognizer_loop:utterance", {},
-                         {"session": sess.serialize()})
-            got = SessionManager.get(msg)
-            self.assertEqual(got.timezone, "America/Chicago")
+                          {"session": sess.serialize()})
+            self.assertEqual(SessionManager.get(msg).timezone,
+                             "America/Chicago")

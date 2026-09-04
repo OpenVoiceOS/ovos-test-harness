@@ -21,6 +21,42 @@ conformant.
 These reasons are the canonical record of the gap. They are kept verbatim
 from the test decorators so this page stays accurate.
 
+## OVOS-MSG-1
+
+### §2: unknown top-level keys MUST be ignored, not rejected
+
+- **Spec mandates:** "A consumer that receives a Message carrying top-level
+  keys it does not know MUST NOT reject the Message on that ground alone, and
+  MUST ignore those keys." A Message is malformed only when it cannot be parsed
+  as a JSON object or when a defined key carries a value of the wrong type.
+
+- **Current impl:** the MSG-1 reference envelope (`ovos_spec_tools.message`),
+  which `ovos-bus-client` adopted, raises `MalformedMessage` on any top-level
+  key outside `type`/`data`/`context`. A single emitter of an additive
+  envelope extension therefore severs valid traffic for every consumer, which
+  is the outcome the clause's informative note exists to prevent.
+
+- **Test:** `TestSec2Envelope.test_unknown_top_level_key_ignored`,
+  `TestSec2Envelope.test_reference_ignores_unknown_top_level_key`
+
+- **`reason`:** `"OVOS-MSG-1 §2 MUST: a consumer that receives a Message carrying top-level keys it does not know MUST NOT reject the Message on that ground alone, and MUST ignore those keys. ovos-bus-client's Message.deserialize (the MSG-1 reference envelope, ovos_spec_tools/message.py) raises MalformedMessage on any unknown top-level key."`
+
+## OVOS-INTENT-1
+
+### §3.6: a single-branch group folds to the bare branch
+
+- **Spec mandates:** "A single-branch group — a parenthesised group with no
+  `|`, e.g. `(word)` — is degenerate but **not** malformed: loaders MUST accept
+  it, SHOULD warn, and MUST treat it as exactly the bare branch."
+
+- **Current impl:** the reference expander `ovos_spec_tools/expansion.py`
+  raises `MalformedTemplate` for a group offering fewer than two branches, so
+  a template a loader is required to accept is rejected outright.
+
+- **Test:** `TestSec3_2Alternatives.test_single_branch_group_folds_to_the_bare_branch`
+
+- **`reason`:** `"OVOS-INTENT-1 §3.6 MUST: a single-branch group `(word)` is degenerate but not malformed — loaders MUST accept it, SHOULD warn, and MUST treat it as exactly the bare branch. The reference expander ovos_spec_tools/expansion.py raises MalformedTemplate on a group with no `|`."`
+
 ## OVOS-STOP-1
 
 > §3.1/§5.2 (global stop dispatched on `<stop_plugin_id>:global_stop`) is
@@ -337,6 +373,23 @@ rather than gaps.
 
 - **`reason`:** `"AUDIO-IN-1 §5.1 MUST resolve the STT input language as detected_lang > request_lang > lang from the session; OVOSDinkumVoiceService._stt_text resolves it from stt_context.get('lang') or the deployment config default and never consults session.detected_lang / session.request_lang / session.lang"`
 
+## OVOS-AUDIO-1
+
+### §4.4: the listen flag is named `listen`
+
+- **Spec mandates:** "When a received Message carries `listen: true`, the audio
+  output service MUST emit `ovos.mic.listen` after all audio for that utterance
+  has completed and after `ovos.audio.output.ended`." The field is `listen`,
+  defined by OVOS-PIPELINE-1 §9.6.
+
+- **Current impl:** `ovos_audio/service.py` reads `expect_response` off the
+  `ovos.utterance.speak` payload, so a producer that sends the spec field gets
+  no microphone re-open and the follow-up turn is lost.
+
+- **Test:** `TestSec44ListenFlag.test_mic_listen_after_listen_true`
+
+- **`reason`:** `"OVOS-AUDIO-1 §4.4 MUST: when a received ovos.utterance.speak carries listen: true, the audio output service MUST emit ovos.mic.listen after playback and after ovos.audio.output.ended. ovos_audio/service.py reads only the legacy expect_response key on that path, so the spec field never re-opens the microphone."`
+
 ## OVOS-OCP-1
 
 ### §5: per-session now-playing isolation
@@ -416,22 +469,42 @@ The chain semantics (§1 run-to-completion, §4 ascending-priority order), the
 per-type IO contracts (§3.2 utterance, §3.3 metadata, §3.4 intent-capture
 enrichment), error handling (§7), the `<type>_transformer_ids` stamp (§1.3),
 and cancellation (§8.1) are green against the ovos-core transformer services.
-The §5 per-session override fields are skip-guarded (bus-client field presence,
-see the SESSION-fields note above). Two behavior gaps remain.
+The §5.1 preference fields are skip-guarded on bus-client field presence (see
+the SESSION-fields note above). Three behavior gaps remain.
 
-### §3.4 / §9: intent-transformer identity invariant MUST be enforced
+### §3.4 / §9: the identity backstop misses an in-place mutation
 
 - **Spec mandates:** if a transformer returns a `Match` whose `skill_id` or
   `intent_name` differs from its input, the orchestrator MUST treat it as a §7
   shape violation — discard the output and proceed with the prior `Match`
   unchanged.
 
-- **Current impl:** `IntentTransformersService.transform` does not enforce the
-  identity invariant — a transformer that overwrites `skill_id` is honoured.
+- **Current impl:** `IntentTransformersService.transform` enforces the
+  invariant by comparing the returned `Match` against the input one, which
+  catches a transformer that builds a new `Match`. A transformer that assigns
+  to `intent.skill_id` and returns the object it was handed compares equal to
+  itself, so the hijacked identity is dispatched.
 
-- **Test:** `TestSec34Intent.test_skill_id_invariant_enforced`
+- **Test:** `TestSec34Intent.test_skill_id_invariant_enforced_against_in_place_mutation`
 
-- **`reason`:** `"OVOS-TRANSFORM-1 §3.4 / §9 MUST: if a transformer returns a Match whose skill_id or intent_name differs from its input, the orchestrator MUST treat it as a §7 shape violation, discard the output and proceed with the prior Match unchanged. IntentTransformersService.transform does not enforce the identity invariant — a transformer that overwrites skill_id is honoured."`
+- **`reason`:** `"OVOS-TRANSFORM-1 §3.4 / §9 MUST: a transformer that changes the dispatch identity is a §7 shape violation — the orchestrator MUST discard the output and proceed with the prior Match unchanged. IntentTransformersService.transform compares the returned Match against the input Match, so a transformer that mutates its input in place and returns the same object passes the check and the hijacked skill_id is dispatched."`
+
+### §5.2 / §5.3: no runner reads the per-session transformer fields
+
+- **Spec mandates:** twelve session fields select the chain per session — six
+  `<type>_transformers` preference fields and six
+  `blacklisted_<type>_transformers` policy fields, composed by §5.3 so policy
+  overrides preference.
+
+- **Current impl:** `ovos-bus-client` registers the six preference fields but
+  none of the six policy fields, and the runner services resolve their chain
+  once from deployer configuration into the process-wide
+  `TransformersService.plugins` list. Neither channel is read off the session,
+  so every session on an orchestrator runs the same chain.
+
+- **Test:** `TestSec5PerSessionOverrides.test_session_denylist_suppresses_a_transformer`
+
+- **`reason`:** `"OVOS-TRANSFORM-1 §5.2/§5.3 MUST: the policy channel blacklisted_<type>_transformers denies a transformer for the session that carries it. ovos-bus-client registers no blacklisted_<type>_transformers session field, and the runner services resolve their chain once from deployer config into the process-wide TransformersService.plugins list and never read the session off the context, so a per-session denylist carried on the wire has no effect."`
 
 ### §3.0: bidirectional `lang` threaded through every chain
 
@@ -446,6 +519,14 @@ see the SESSION-fields note above). Two behavior gaps remain.
 - **Test:** `TestSec30Lang.test_lang_is_a_threaded_parameter`
 
 - **`reason`:** `"OVOS-TRANSFORM-1 §3.0 MUST: the orchestrator threads a bidirectional lang parameter through the audio/utterance/dialog/TTS chains (input AND output of each transform call). The installed transformer templates take no lang parameter."`
+
+## OVOS-SCHEDULER-1
+
+The spec has no conformance suite. Every section of `scheduler-1.md` is listed
+in `test/meta/uncited-sections.txt`, including the owner-scoping rule of §6.2,
+the `misfire` handling of §4.3, the persist-before-answer ordering of §5.1 and
+the legacy `mycroft.scheduler.*` adapter of §8. Nothing here is asserted, and
+nothing about the shipped scheduler should be read as conformant until it is.
 
 ## Follow-up: MUST-clause enumeration (INTENT-1/2/3/4, SESSION-1/2)
 
