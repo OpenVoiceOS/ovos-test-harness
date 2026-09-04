@@ -188,6 +188,7 @@ Clauses naming the spec field skip until `ovos-bus-client` populates it.
 | `TestResponseMode.test_response_mode_spec_field` | CONVERSE-1 §2.2 | `session.response_mode` names the owner holding response mode. | skip-guarded |
 | `TestFallbackHandlersField` | FALLBACK-1 §4 | `session.fallback_handlers` is carried on the session. | skip-guarded |
 | `TestUpdatedSessionEcho` | SESSION-2 §2, §2.6 | The echoed session keeps the entry `session_id`. A pipeline-side mutation rides forward on the response. | green |
+| `TestSec26HandlerBoundaryMutation` | SESSION-2 §2.6 | A handler-boundary mutation made through `SessionManager.get(message)` rides `forward`/`reply`/`response`, and the same on `CollectionMessage`/`GUIMessage`; a mutation with no derived Message has no bus-visible effect; `SessionManager.bind` pins the round session for later `get`/derivation calls and refuses a non-store default-shaped session or a session-id mismatch. Needs `ovos-bus-client>=2.11.4a1` and `ovos-spec-tools>=1.10.4a1` (`SessionManager.bind`). | green |
 | `TestSec21OmissionAndNull` | SESSION-1 §2.1 | An omitted field resolves to the deployment default; an explicit `null` is treated as omitted (not a deferral sentinel) and is not rejected. | green |
 | `TestSec31SessionIdentity` | SESSION-1 §3.1 | An empty/absent session resolves to `session_id: "default"`. | **xfail** (bus-client mints a random uuid) |
 | `TestSec31PerSessionKeying` | SESSION-1 §3.1 (spec §227) | Per-session state is keyed on `session_id` — an active handler in session A is not visible to session B. | green |
@@ -421,6 +422,7 @@ are xfail — see [known-gaps.md](known-gaps.md).
 | `TestSec2EntryCarrier` | §2 | `session.intent_context` is a flat key -> entry map carried inside the session; absence is an empty map; entry fields (including a null-valued flag entry) round-trip. | green |
 | `TestSec3KeyShapes` | §3 | Scope is encoded in the key — a bare key is shared, a prefixed key has exactly one separator. | green |
 | `TestSec4Propagation` | §4.1 | `session.intent_context` rides forward/reply derivations and an ordinary Message unchanged. | green |
+| `TestSec53HandlerCarrierWrite` | §5.3 | A handler that writes `session.intent_context` through `SessionManager.get(message)` sees the write on `forward`/`reply`/`response`, on `CollectionMessage`/`GUIMessage` derivations, and on a later (not an earlier) derivation; a removal rides as a `null`-entry tombstone. Needs `ovos-bus-client>=2.11.4a1` (#324) and `ovos-spec-tools>=1.10.4a1`. | green |
 | `TestSec53SessionSyncMerge.test_sync_sets_entry` / `.test_sync_null_deletes_entry` | §5.3 | `ovos.session.sync` applies `intent_context` entry-by-entry: a co-present entry sets, a `null` entry deletes. | **xfail** (no sync-merge handler) |
 | `TestSec4Decay` | §4 | Per-utterance decay: `turns_remaining` decrements after a round; a dead entry is pruned before the next match. | green (decay tick landed, ovos-core#802) |
 | `TestSec6RequiresContext` | §6 | An engine MUST NOT report an intent matched unless every `requires_context` key names a live entry. | green |

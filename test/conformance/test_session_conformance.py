@@ -30,6 +30,11 @@ Coverage map (clause -> status against the installed stack):
 - FALLBACK-1 §4   session.fallback_handlers carries the pool ..... green
 - SESSION-2       session_id preserved on the response ........... green
 - SESSION-2       a session mutation rides the forward ........... green
+- SESSION-2 §2.6  a handler-boundary write rides forward/reply/response  green
+- SESSION-2 §2.6  the same write on CollectionMessage/GUIMessage . green
+- SESSION-2 §2.6  no derived Message means no bus-visible effect . green
+- SESSION-2 §2.6  SessionManager.bind pins the round session for get/derive  green
+- SESSION-2 §2.6  bind refuses a non-store default / an id mismatch  green
 - SESSION-1 §2.1  an omitted field resolves to the deployment default ... green
 - SESSION-1 §2.1  an explicit null is treated as omitted (not deferral) . green
 - SESSION-1 §3.1  empty/absent session resolves to session_id default ... xfail (bus-client mints a random uuid)
@@ -65,7 +70,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 import pytest
-from ovos_bus_client.message import Message
+from ovos_bus_client.message import CollectionMessage, GUIMessage, Message
 from ovos_bus_client.session import Session, SessionManager, UtteranceState
 import ovos_bus_client.session as bus_client_session
 from ovos_utils.log import LOG
@@ -301,6 +306,116 @@ class TestUpdatedSessionEcho(TestCase):
         sess = _last_session(recs)
         self.assertIsNotNone(sess)
         self.assertIn(PARROT_ID, [s[0] for s in sess.active_skills])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SESSION-2 §2.6 — handler-boundary mutation, propagated via SessionManager
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSec26HandlerBoundaryMutation(TestCase):
+    """SESSION-2 §2.6: "a dispatched handler … MAY mutate session in-place;
+    its emissions via ``forward``/``reply``/``response`` … carry the mutated
+    session forward. A handler that emits no Message has no bus-visible way
+    to propagate its session mutations." Exercised directly against
+    ``ovos_bus_client``'s ``SessionManager``/``Message`` carrier — the
+    handler-boundary write-then-derive round-trip is a property of those
+    classes, not of the orchestrator, so no minicroft boot is needed. MUST
+    (carrier)."""
+
+    def test_handler_write_rides_forward_reply_response(self):
+        """§2.6: a handler that reads its session off the dispatch Message
+        via ``SessionManager.get``, mutates it in place, and derives
+        ``forward``/``reply``/``response`` sees the mutation on all three.
+        MUST."""
+        msg = Message("skill.dispatch", {}, {"session": Session("se-26-a").serialize()})
+        sess = SessionManager.get(msg)
+        sess.activate_skill("probe.skill")
+        for derived in (msg.forward("probe.skill.activate"),
+                       msg.reply("skill.dispatch.response"),
+                       msg.response({})):
+            self.assertIn("probe.skill",
+                          [s[0] for s in derived.context["session"]["active_skills"]])
+
+    def test_collection_and_gui_message_carry_the_same_mutation(self):
+        """§2.6: the handler boundary is not special-cased to plain
+        ``Message`` — ``CollectionMessage``/``GUIMessage`` (whose
+        non-standard constructors force hand-built derivations) carry a
+        mutation made through the session bound via ``SessionManager.get``
+        the same way. This is the surface bus-client < 2.11.4a1 lost: their
+        ``forward``/``reply`` stamped from the registry's default-session
+        fallback only, never from the session a caller actually bound to the
+        source Message. MUST."""
+        cmsg = CollectionMessage("collect.query", "handler.id", "q-1",
+                                 data={}, context={"session": Session("se-26-b").serialize()})
+        SessionManager.get(cmsg).activate_skill("probe.skill")
+        self.assertIn("probe.skill",
+                      [s[0] for s in cmsg.forward("collect.something")
+                       .context["session"]["active_skills"]])
+
+        gmsg = GUIMessage("gui.value.set", foo="bar")
+        gmsg.context = {"session": Session("se-26-c").serialize()}
+        SessionManager.get(gmsg).activate_skill("probe.skill")
+        self.assertIn("probe.skill",
+                      [s[0] for s in gmsg.forward("gui.something")
+                       .context["session"]["active_skills"]])
+
+    def test_emitting_no_message_has_no_bus_visible_effect(self):
+        """§2.6, negative control: a handler that mutates the *object*
+        returned by ``SessionManager.get`` but never derives a Message from
+        the one it was given has nothing on the wire — the spec's "a handler
+        that emits no Message has no bus-visible way to propagate its
+        session mutations." A message BUILT BEFORE the mutation (frozen at
+        construction, never derived from the dispatch Message afterwards)
+        still carries its own pre-mutation snapshot. MUST NOT."""
+        msg = Message("skill.dispatch", {}, {"session": Session("se-26-d").serialize()})
+        unrelated = Message("some.other.topic", {}, {"session": Session("se-26-d").serialize()})
+        SessionManager.get(msg).activate_skill("probe.skill")
+        self.assertNotIn(
+            "probe.skill",
+            [s[0] for s in unrelated.context["session"].get("active_skills", [])])
+
+    def test_bind_makes_get_and_derivations_see_the_orchestrator_round_session(self):
+        """§2.6 (implementation detail powering it): an orchestrator that
+        opens its own round session at intake and wants every later
+        ``SessionManager.get``/derivation in that round to see that exact
+        object — mutations included, per ``SessionManager.bind``'s
+        docstring — binds it explicitly instead of letting ``get`` rebuild
+        one lazily. After ``bind``, ``get`` returns the bound object and a
+        mutation on it is what a derivation stamps. MUST (implementation
+        contract; SessionManager itself is not spec-mandated)."""
+        msg = Message("some.topic", {}, {})
+        default = SessionManager.get_default_session()
+        self.addCleanup(SessionManager.reset_default_session)
+        bound = SessionManager.bind(msg, default)
+        self.assertIs(bound, default)
+        self.assertIs(SessionManager.get(msg), default)
+        default.activate_skill("probe.skill")
+        derived = msg.forward("some.topic.derived")
+        self.assertIn("probe.skill",
+                      [s[0] for s in derived.context["session"]["active_skills"]])
+
+    def test_bind_refuses_a_default_shaped_session_that_is_not_the_store(self):
+        """§2.6 (implementation contract): binding a freshly built
+        default-shaped ``Session`` — rather than the registry's own
+        ``get_default_session()`` object — would make ``get`` (which returns
+        the binding) and the derivation stamp (which reads the store)
+        disagree about the same Message, so ``bind`` refuses it with
+        ``ValueError``. MUST NOT silently accept."""
+        msg = Message("some.other.topic", {}, {})
+        not_the_store = Session.deserialize({"session_id": "default"})
+        with self.assertRaises(ValueError):
+            SessionManager.bind(msg, not_the_store)
+
+    def test_bind_refuses_a_session_id_mismatch(self):
+        """§2.6 (implementation contract): a Message whose own carrier names
+        one session id cannot be bound to a different named session — that
+        is two disagreeing claims about which session the Message belongs
+        to, not "the binding wins", so ``bind`` raises ``ValueError``. MUST
+        NOT silently accept."""
+        msg = Message("t", {}, {"session": {"session_id": "sat-2"}})
+        other_named = Session("sat-1")
+        with self.assertRaises(ValueError):
+            SessionManager.bind(msg, other_named)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
