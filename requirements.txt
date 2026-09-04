@@ -31,8 +31,14 @@ git+https://github.com/OpenVoiceOS/ovos-core@dev
 # requires ovos-workshop>=9.3.2a1, which the merged branch itself predates,
 # 9.0.2a1). @dev (9.3.3a1) is both current and resolves against ovos-core@dev.
 git+https://github.com/OpenVoiceOS/ovos-workshop@dev
-# session spec fields (active_handlers / converse_handlers / response_mode)
-ovos-bus-client>=2.4.0a1
+# session spec fields (active_handlers / converse_handlers / response_mode).
+# Floor bumped for #324: forward/reply/response on CollectionMessage/GUIMessage
+# stamped from the registry's default-session fallback only, never from the
+# session a caller bound via SessionManager.get(source) -- a handler write on
+# either subclass was lost on derivation (CONTEXT-1 §5.3 / SESSION-2 §2.6).
+# Also raises the ovos-spec-tools floor below to 1.10.4a1 for
+# SessionManager.bind.
+ovos-bus-client>=2.11.4a1
 # pipeline engines (workshop-9-compatible)
 # adapt @dev carries the None-blacklist guard (#47): the INTENT-3 e2e registers a
 # keyword intent for a session whose blacklisted_intents/blacklisted_skills are
@@ -106,8 +112,10 @@ git+https://github.com/OpenVoiceOS/ovoscope@dev
 # The producer-side GUI-1 clauses need only ovos-bus-client's GUIInterface; if
 # this install is unavailable the GUI service classes skip cleanly.
 git+https://github.com/OpenVoiceOS/ovos-gui@dev
-# published spec vocabulary
-ovos-spec-tools>=0.17.1a1
+# published spec vocabulary. Floor bumped: the ovos-bus-client #324 fix needs
+# SessionManager.bind (landed 1.10.4a1) and the public resolve_session_id
+# (1.10.3a1+); see the ovos-bus-client pin above.
+ovos-spec-tools>=1.10.4a1
 # padacioso matcher: drops the unhashable-Session lru_cache key so it matches
 # under ovos-bus-client 2.x (PyPI 1.0.0 raises TypeError on every match).
 # TODO flip to @dev once OpenVoiceOS/padacioso#... (the lru_cache fix) merges.
