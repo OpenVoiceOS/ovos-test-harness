@@ -357,7 +357,7 @@ is green: `ovos-spec-tools` already conforms.
 | `TestSec3_3Optionals` | §3.3 | `[x]` is exactly equivalent to `(x\|)`. | green |
 | `TestSec3_4NamedSlots` | §3.4 | `{name}`/`{{name}}` fold to the same slot; slot names use the lowercase/digit/underscore charset with no leading digit. | green |
 | `TestSec3_5Nesting` | §3.5 | Expansion groups nest without limit. | green |
-| `TestSec3_6Malformed` | §3.6 | A tool MUST reject unbalanced metacharacters, single-branch groups, empty-sample templates, slot-only templates, adjacent slots, repeated slot names, and undefined/cyclic vocabulary references. | green |
+| `TestSec3_6Malformed` | §3.6 | A tool MUST reject unbalanced metacharacters, the empty group `()`, empty-sample templates, slot-only templates, adjacent slots, repeated slot names, and undefined/cyclic vocabulary references. | green |
 | `TestSec3_7VocabularyReference` | §3.7 | `<name>` expands to its named vocabulary as alternatives. | green |
 | `TestSec4Expansion` | §4 | A template expands to a finite sample set; slots stay opaque through expansion; whitespace is normalized and duplicates removed. | green |
 | `TestSec5_1DialogFill` | §5.1 | A `.dialog` template with an unfilled slot MUST NOT render. | green |
