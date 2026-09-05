@@ -14,9 +14,7 @@ session back on its responses:
 The installed bus-client carries the spec session fields (``active_handlers``,
 ``converse_handlers``, ``fallback_handlers``, ``response_mode``) and, per
 SESSION-1 §3.4, omits them from the serialized form when empty (empty ≡
-omission), so presence is only asserted on populated sessions. The one clause
-the stack does not yet populate — ``converse_handlers`` — is tracked as a
-a strict expected-fail so it flips loudly when the orchestrator starts draining it.
+omission), so presence is only asserted on populated sessions.
 Drivers are described in ``_conformance.py``.
 
 Coverage map (clause -> status against the installed stack):
@@ -24,7 +22,7 @@ Coverage map (clause -> status against the installed stack):
 - PIPELINE-1 §7.1 re-activation dedups head-first ................ green
 - PIPELINE-1 §7.1 session.active_handlers carries the skill ...... green
 - CONVERSE-1 §2.1 owners ordered most-recently-activated first ... green
-- CONVERSE-1 §2.1 session.converse_handlers mirrors the ordering .. xfail (not drained yet)
+- CONVERSE-1 §2.1 session.converse_handlers mirrors the ordering .. green
 - CONVERSE-1 §2.2 get-response sets the response state ........... green
 - CONVERSE-1 §2.2 session.response_mode carries the state ........ green
 - FALLBACK-1 §4   session.fallback_handlers carries the pool ..... green
@@ -191,14 +189,9 @@ class TestConverseOwnerOrdering(TestCase):
         sess.activate_skill("b.skill")
         self.assertEqual(sess.active_skills[0][0], "b.skill")
 
-    @pytest.mark.xfail(
-        reason="the stack does not yet drain the converse owner ordering into "
-               "session.converse_handlers (CONVERSE-1 §2.1)",
-        strict=True,
-    )
     def test_converse_handlers_spec_field(self):
         """``session.converse_handlers`` mirrors the converse owner ordering
-        (§2.1). Strict-xfailed until the orchestrator populates the field."""
+        (§2.1)."""
         recs = capture(_MC, utterance("start parrot mode", "se-cv-spec",
                                       CONVERSE_PIPELINE), 4.0)
         sess = _require_session(self, recs)
@@ -545,13 +538,20 @@ _CHICAGO_LOCATION = {
 }
 
 
+_CHICAGO_LOCATION_FLAT = {"lat": 41.85, "lon": -87.65, "tz": "America/Chicago"}
+
+
 class TestLocationTimezoneContract(TestCase):
-    """``Session.location_preferences`` / ``Session.timezone`` are not a
-    SESSION-1 §3 registry field — the closed field set (§2.4, §3) has no
+    """``Session.location`` / ``Session.timezone`` are not a SESSION-1 §3
+    registry field — the closed field set (§2.4, §3) has no
     ``location``/``timezone`` entry, so a producer/consumer pair is free to
     define this surface as it likes. ``ovos-bus-client`` does: the wire key
-    is ``location`` (``Session.serialize()``/``.deserialize()``), and
-    ``Session.timezone`` reads the IANA code at ``location["timezone"]["code"]``.
+    is ``location`` (``Session.serialize()``/``.deserialize()``), a
+    ``{lat, lon, tz}`` dict per OVOS-SESSION-1 §3.5, and ``Session.timezone``
+    reads the IANA code at ``location["tz"]``. The legacy nested
+    city/coordinate/timezone shape (``location_preferences``) is accepted on
+    input and normalized to the flat shape, and offered back out as a derived,
+    deprecated view — it is not what round-trips byte-stable.
 
     ``ovos-skill-alerts`` PR #183 built a DST-correctness feature entirely on
     this surface — two sessions with distinct timezones resolve two distinct
@@ -564,19 +564,28 @@ class TestLocationTimezoneContract(TestCase):
     claims this field."""
 
     def test_location_round_trips_byte_stable(self):
-        """``location`` (nested city/coordinate/timezone) serializes and
-        deserializes back to an identical dict, including the nested
-        ``timezone.code`` — implementation-contract, no SESSION-1 §3 entry for
-        this field."""
+        """``location`` (the canonical OVOS-SESSION-1 §3.5 ``{lat, lon, tz}``
+        shape) round-trips its flat keys byte-stable — implementation-
+        contract, no SESSION-1 §3 entry for this field. ovos-bus-client#335
+        additionally projects the legacy ``timezone.code`` view onto the wire
+        dict for one deprecation cycle (owner ruling); SESSION-1 §3.5 defines
+        only the flat keys, so that projection is tolerated when present,
+        not required, and must be exactly ``{"code": tz}`` when it is."""
         sess = Session("se-loc-roundtrip", lang="en-US",
-                       location_prefs=dict(_CHICAGO_LOCATION))
+                       location_prefs=dict(_CHICAGO_LOCATION_FLAT))
         data = sess.serialize()
-        self.assertEqual(data.get("location"), _CHICAGO_LOCATION)
+        location = dict(data.get("location") or {})
+        extra_timezone = location.pop("timezone", None)
+        self.assertEqual(location, _CHICAGO_LOCATION_FLAT)
+        if extra_timezone is not None:
+            self.assertEqual(extra_timezone,
+                             {"code": _CHICAGO_LOCATION_FLAT["tz"]})
 
         restored = Session.deserialize(data)
-        self.assertEqual(restored.location_preferences, _CHICAGO_LOCATION)
-        self.assertEqual(restored.location_preferences["timezone"]["code"],
-                         "America/Chicago")
+        restored_location = dict(restored.location or {})
+        restored_location.pop("timezone", None)
+        self.assertEqual(restored_location, _CHICAGO_LOCATION_FLAT)
+        self.assertEqual(restored.location["tz"], "America/Chicago")
 
     def test_timezone_reads_the_location_code(self):
         """``Session.timezone`` returns the IANA code from the session's own

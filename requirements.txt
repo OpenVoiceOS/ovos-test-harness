@@ -105,8 +105,16 @@ git+https://github.com/OpenVoiceOS/ovos-solver-failure-plugin@dev
 # media keyword/search pipeline plugin (OCPPipelineMatcher). Driven at the
 # component level, so it needs no ovos-media player install.
 git+https://github.com/OpenVoiceOS/ovos-ocp-pipeline-plugin@dev
-# e2e harness lib (None-iter-guard fix landed on dev)
-git+https://github.com/OpenVoiceOS/ovoscope@dev
+# e2e harness lib. This is the harness's OWN test driver, not a member of the
+# spec stack under test, so unlike every other line in this file it is a
+# normal PyPI floor pin, not a git @dev ref: never install it from git, and
+# never let a channel's device-stack constraints file pin it either (see the
+# ovoscope override in test/channel_compat/install_channel.sh — every channel
+# runs this same floor). The floor covers the extra_pipelines= lean-boot
+# opt-in (>=1.6.17a1, see test_common_query1_conformance.py /
+# test_persona1_conformance.py / test_solvers_conformance.py) plus the
+# None-iter-guard fix.
+ovoscope>=1.6.23a1
 # GUI service (NamespaceManager) — drives the GUI-1 service-contract clauses
 # (SYSTEM_ prefix gating, per-session namespace stack, reserved-key stripping).
 # The producer-side GUI-1 clauses need only ovos-bus-client's GUIInterface; if

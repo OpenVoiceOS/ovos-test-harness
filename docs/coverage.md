@@ -83,7 +83,7 @@ Deterministic on a `FakeBus`.
 |-------|-----------|---------|--------|
 | `TestSec5GlobalStop` | §4.1 step 1, §5.1, §5.3 | A generic `stop` with empty active handlers terminates once and broadcasts `ovos.stop`. | green |
 | `TestSec5GlobalStop.test_global_stop_dispatch_topic` | §3.1, §5.2 | Global stop dispatched on `<stop_plugin_id>:global_stop`. | **xfail** (core emits legacy `stop:global`) |
-| `TestSec42PingPong.test_ping_broadcast_topic` / `.test_pong_reply_from_active_skill` | §4.1 step 2, §4.2 | With active handlers, the stop plugin is meant to broadcast `ovos.stop.ping` and collect `ovos.stop.pong`. | **xfail** (core dispatches the per-skill `<skill_id>.stop.ping` directly and never emits the broadcast ping or `ovos.stop.pong`; ovos-core#802) |
+| `TestSec42PingPong.test_ping_broadcast_topic` / `.test_pong_reply_from_active_skill` | §4.1 step 2, §4.2 | With active handlers, the stop plugin broadcasts `ovos.stop.ping` and collects `ovos.stop.pong`; only a skill that pongs `can_handle: True` is dispatched the targeted stop. | green (ovos-core#932) |
 | `TestSec43PerSkillStop` | §4.1 step 3, §4.3, §4 | An active skill yields a targeted `<skill_id>.stop` (not the broadcast). No active skill escalates to the `ovos.stop` global. | green |
 | `TestSec2ReservedName.test_reserved_stop_registration_not_dispatched` | §2 (+ INTENT-4 §5.3 / PIPELINE-1 §7.3) | A registration naming the reserved `stop` is malformed and must not become matchable. | **xfail** (core does not reject it) |
 
@@ -153,7 +153,7 @@ pipeline.
 | `TestSec4ConverseRoundTrip` | §4, §6.4 | An active owner consumes the follow-up via `converse:skill` before normal matching. Parrot echoes it. Terminates once. | green |
 | `TestSec4Decline` | §4 | With no active owner, converse declines and the utterance falls through to the normal pipeline (no `converse:skill`). | green |
 | `TestSec21OwnerOrdering.test_most_recent_owner_first` | §2.1 | Re-activating an owner moves it to the head of `active_skills` (index 0). | green |
-| `TestSec21OwnerOrdering.test_converse_handlers_reflects_owner` | §2.1 | `session.converse_handlers` carries the active owner head-first. | skip-guarded (bus-client field) |
+| `TestSec21OwnerOrdering.test_converse_handlers_reflects_owner` | §2.1 | `session.converse_handlers` carries the active owner head-first. | green |
 
 ## OVOS-FALLBACK-1 — `test_fallback1_conformance.py`
 
@@ -183,7 +183,7 @@ Clauses naming the spec field skip until `ovos-bus-client` populates it.
 | `TestActiveHandlerRecency` | PIPELINE-1 §7.1 | Dispatch records the skill in the session's active list (echoed on the response). Re-activation is head-first dedup. | green |
 | `TestActiveHandlerRecency.test_active_handlers_spec_field` | PIPELINE-1 §7.1 | `session.active_handlers` carries the dispatched skill head-first. | skip-guarded |
 | `TestConverseOwnerOrdering` | CONVERSE-1 §2.1 | Converse owners ordered most-recently-activated first. | green |
-| `TestConverseOwnerOrdering.test_converse_handlers_spec_field` | CONVERSE-1 §2.1 | `session.converse_handlers` mirrors that ordering. | skip-guarded |
+| `TestConverseOwnerOrdering.test_converse_handlers_spec_field` | CONVERSE-1 §2.1 | `session.converse_handlers` mirrors that ordering. | green |
 | `TestResponseMode.test_get_response_enable_sets_response_state` | CONVERSE-1 §2.2 | Enabling get-response marks the skill RESPONSE. Disabling clears it back to INTENT. | green |
 | `TestResponseMode.test_response_mode_spec_field` | CONVERSE-1 §2.2 | `session.response_mode` names the owner holding response mode. | skip-guarded |
 | `TestFallbackHandlersField` | FALLBACK-1 §4 | `session.fallback_handlers` is carried on the session. | skip-guarded |
@@ -357,7 +357,7 @@ is green: `ovos-spec-tools` already conforms.
 | `TestSec3_3Optionals` | §3.3 | `[x]` is exactly equivalent to `(x\|)`. | green |
 | `TestSec3_4NamedSlots` | §3.4 | `{name}`/`{{name}}` fold to the same slot; slot names use the lowercase/digit/underscore charset with no leading digit. | green |
 | `TestSec3_5Nesting` | §3.5 | Expansion groups nest without limit. | green |
-| `TestSec3_6Malformed` | §3.6 | A tool MUST reject unbalanced metacharacters, single-branch groups, empty-sample templates, slot-only templates, adjacent slots, repeated slot names, and undefined/cyclic vocabulary references. | green |
+| `TestSec3_6Malformed` | §3.6 | A tool MUST reject unbalanced metacharacters, the empty group `()`, empty-sample templates, slot-only templates, adjacent slots, repeated slot names, and undefined/cyclic vocabulary references. | green |
 | `TestSec3_7VocabularyReference` | §3.7 | `<name>` expands to its named vocabulary as alternatives. | green |
 | `TestSec4Expansion` | §4 | A template expands to a finite sample set; slots stay opaque through expansion; whitespace is normalized and duplicates removed. | green |
 | `TestSec5_1DialogFill` | §5.1 | A `.dialog` template with an unfilled slot MUST NOT render. | green |
