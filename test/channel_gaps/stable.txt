@@ -131,6 +131,10 @@ test/conformance/test_fallback1_conformance.py::TestSec6QueryResponse::test_exac
 test/conformance/test_fallback1_conformance.py::TestSec6QueryResponse::test_query_topics_emitted
 test/conformance/test_fallback1_conformance.py::TestSec6QueryResponse::test_response_topic_emitted
 test/conformance/test_intent1_conformance.py::TestE2EExpansionDrivesMatch::test_expanded_branch_matches
+# stable pins ovos-spec-tools==1.6.0a1, which predates the §3.6 single-branch
+# group fold added in 1.10.7a2: this channel's expand() still raises
+# MalformedTemplate for (word) instead of folding it with a warning.
+test/conformance/test_intent1_conformance.py::TestSec3_2Alternatives::test_single_branch_group_folds_with_warning
 test/conformance/test_intent2_conformance.py::TestE2EVocOccurrence::test_phrase_occurrence_matches
 test/conformance/test_intent3_conformance.py::TestE2EKeywordConstraints::test_all_constraints_satisfied_matches
 test/conformance/test_intent3_conformance.py::TestE2EKeywordConstraints::test_at_most_one_intent_per_utterance
