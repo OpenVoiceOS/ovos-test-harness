@@ -38,7 +38,12 @@ git+https://github.com/OpenVoiceOS/ovos-workshop@dev
 # either subclass was lost on derivation (CONTEXT-1 §5.3 / SESSION-2 §2.6).
 # Also raises the ovos-spec-tools floor below to 1.10.4a1 for
 # SessionManager.bind.
-ovos-bus-client>=2.11.4a1
+# Floor bumped again to 2.11.13a1 for SessionManager.handle_session_sync --
+# the one-cycle shim that folds a pre-spec ovos.session.sync push from an
+# old peer (default-session field-by-field, named-session intent_context
+# only, never an unheld named session) so SESSION-2 §5.1 / §2.7 hold at a
+# current core even while the push itself is retiring.
+ovos-bus-client>=2.11.13a1
 # pipeline engines (workshop-9-compatible)
 # adapt @dev carries the None-blacklist guard (#47): the INTENT-3 e2e registers a
 # keyword intent for a session whose blacklisted_intents/blacklisted_skills are
