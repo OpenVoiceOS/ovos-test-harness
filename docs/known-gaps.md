@@ -587,14 +587,16 @@ Prioritized: **[C]** = correctness/security critical, **[N]** = normal.
   stateless with respect to session — a Message carrying a session is delivered
   to a bus observer byte-identical; the bus does not interpret, mutate, or
   persist it.
+- **[C]** §5.1 (spec §347, §355) — `TestPreSpecSessionSyncShim`: the retiring
+  pre-spec `ovos.session.sync` push folds `Message.data.session` (or
+  `context.session`) field-by-field into the default session, merging
+  `intent_context` entry-by-entry per CONTEXT-1 §5.3, and reflects the merged
+  state on the next round. `SessionManager.handle_session_sync`
+  (`ovos-bus-client>=2.11.13a1`) is the fold; ovos-core carries no core-side
+  handler for the push at all (PR #935, merged 164455c, `ovos-core>=3.2.10a1`).
 
 **Remaining**:
 
-- **[C]** §5.1 (spec §347, §355): "the orchestrator MUST merge
-  `Message.data.session` from an in-progress round and reflect the merged
-  state." Overlaps CONTEXT-1 §5.3 sync (tracked there as a strict-xfail). Not
-  separately asserted for SESSION-2, and a blind strict-xfail risks XPASS on
-  the CI stack, so it stays documented pending a deterministic driver.
 - **[N]** a client MUST make every round self-sufficient via the session
   (spec §625); a component MUST NOT rely on async bus events for session state
   (§596). Client-contract MUSTs — no client in the stack, not bus-observable;

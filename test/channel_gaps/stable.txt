@@ -230,6 +230,22 @@ test/conformance/test_session_conformance.py::TestLocationTimezoneContract::test
 test/conformance/test_session_conformance.py::TestLocationTimezoneContract::test_location_round_trips_byte_stable
 test/conformance/test_session_conformance.py::TestLocationTimezoneContract::test_session_zone_overrides_the_configured_zone
 test/conformance/test_session_conformance.py::TestLocationTimezoneContract::test_timezone_reads_the_location_code
+# TestPreSpecSessionSyncShim needs no minicroft of its own, but shares the
+# module's setUpModule boot timeout above. It would fail here for a second,
+# stable-specific reason too: stable's bus-client==1.3.7 has no
+# SessionManager.handle_session_sync at all -- ovos.session.sync there is a
+# bare request/echo (SessionManager.sync -> cls.bus.emit(message.reply(
+# "ovos.session.update_default", {"session_data": cls.default_session.
+# serialize()}))) that discards the inbound payload entirely and replies
+# with its own default session, and ovos-core 1.3.1 has no reference to
+# ovos.session.sync at all. Nothing about a fold or a merge exists to prove
+# here; the push is silently discarded.
+test/conformance/test_session_conformance.py::TestPreSpecSessionSyncShim::test_default_session_push_via_data_carrier_changes_only_named_field
+test/conformance/test_session_conformance.py::TestPreSpecSessionSyncShim::test_default_session_push_via_context_carrier_same_result
+test/conformance/test_session_conformance.py::TestPreSpecSessionSyncShim::test_data_carrier_wins_over_a_decoy_context_carrier
+test/conformance/test_session_conformance.py::TestPreSpecSessionSyncShim::test_default_session_push_merges_intent_context_entry_by_entry
+test/conformance/test_session_conformance.py::TestPreSpecSessionSyncShim::test_named_session_push_with_hostile_pipeline_leaves_the_round_untouched
+test/conformance/test_session_conformance.py::TestPreSpecSessionSyncShim::test_unheld_named_session_push_is_ignored
 test/conformance/test_session_conformance.py::TestFallbackHandlersField::test_fallback_handlers_spec_field
 test/conformance/test_session_conformance.py::TestResponseMode::test_get_response_enable_sets_response_state
 test/conformance/test_session_conformance.py::TestResponseMode::test_response_mode_spec_field

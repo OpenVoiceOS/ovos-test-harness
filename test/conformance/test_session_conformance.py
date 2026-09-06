@@ -38,6 +38,12 @@ Coverage map (clause -> status against the installed stack):
 - SESSION-1 §3.1  empty/absent session resolves to session_id default ... xfail (bus-client mints a random uuid)
 - SESSION-1 §3.1  per-session state keyed on session_id (A not in B) .... green
 - SESSION-2 §2.1  the bus leaves session untouched in transit .......... green
+- SESSION-2 §5.1  ovos.session.sync default-session push folds field-by-field  green
+- SESSION-2 §5.1  the push folds identically via data or context carrier  green
+- SESSION-2 §5.1  a data carrier wins over a decoy context carrier ...... green
+- SESSION-2 §5.1  the push merges intent_context entry-by-entry ......... green
+- SESSION-2 §2.2/§2.7  a named-session push never touches an open round . green
+- SESSION-2 §2.2  an unheld named-session push is ignored everywhere .... green
 - location/timezone: ``location`` round-trips byte-stable ............... green (implementation-contract)
 - location/timezone: ``Session.timezone`` reads the location code ....... green (implementation-contract)
 - location/timezone: a per-session zone wins over the configured one .... green (implementation-contract)
@@ -409,6 +415,204 @@ class TestSec26HandlerBoundaryMutation(TestCase):
         other_named = Session("sat-1")
         with self.assertRaises(ValueError):
             SessionManager.bind(msg, other_named)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SESSION-2 §5.1 / §2.7 — the retiring pre-spec ovos.session.sync push
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestPreSpecSessionSyncShim(TestCase):
+    """SESSION-2 defines no topic on which one participant pushes a session
+    at another (§2.7); the pre-spec ``ovos.session.sync`` push predates that
+    rule and is retiring behind a one-cycle shim,
+    ``SessionManager.handle_session_sync`` (``ovos-bus-client>=2.11.13a1``).
+    Needs ``ovos-bus-client>=2.11.13a1``.
+
+    A default-session push folds field-by-field per §5.1: an omitted field
+    leaves the stored field unchanged, a present field replaces it, and
+    ``intent_context`` merges entry-by-entry per OVOS-CONTEXT-1 §5.3. A
+    named-session push is §2.2 territory — this process is never pushed
+    someone else's session — so it merges only ``intent_context``, only into
+    a session this process already holds, and never touches an open round's
+    other fields. Every assertion here reads the session off a Message
+    derivation (``forward``), the same wire-shaped carrier the next round of
+    an utterance would see, rather than a registry lookup — the fold is only
+    real if it rides forward onto the next turn.
+
+    ovos-core carries no core-side handler for this push (PR #935, merged
+    164455c, ``ovos-core>=3.2.10a1``): the shim lives entirely in the
+    bus-client singleton every process already imports, so a satellite still
+    emitting the pre-spec push keeps working against a current core with no
+    core-side code at all."""
+
+    def setUp(self):
+        self.addCleanup(SessionManager.reset_default_session)
+        self.addCleanup(setattr, SessionManager, "bus", SessionManager.bus)
+
+    @staticmethod
+    def _next_round():
+        """A dispatch-shaped Message naming the default session — what an
+        ordinary next-round Message from a satellite that already saw the
+        default session would carry."""
+        return Message("some.topic", {}, {"session": {"session_id": "default"}})
+
+    def test_default_session_push_via_data_carrier_changes_only_named_field(self):
+        """§5.1: a default-session push carried in ``data["session"]`` with
+        only ``lang`` present replaces ``lang`` and leaves every omitted
+        field — ``pipeline``, an existing ``intent_context`` entry — as the
+        orchestrator already had it."""
+        default = SessionManager.get_default_session()
+        default.lang = "en-US"
+        default.pipeline = ["padatious-high"]
+        default.set_intent_context("kept", "here", scope="shared")
+        SessionManager.update(default)
+
+        push = Message("ovos.session.sync",
+                       {"session": {"session_id": "default", "lang": "pt-pt"}})
+        SessionManager.handle_session_sync(push)
+
+        derived = self._next_round().forward("ovos.utterance.handled")
+        sess = derived.context["session"]
+        self.assertEqual(sess["lang"], "pt-PT")
+        self.assertEqual(sess["pipeline"], ["padatious-high"])
+        self.assertEqual(sess["intent_context"]["kept"]["value"], "here")
+
+    def test_default_session_push_via_context_carrier_same_result(self):
+        """§5.1: the same push, carried in ``context["session"]`` instead of
+        ``data["session"]``, folds identically — the field-by-field merge
+        does not depend on which carrier the pre-spec peer used."""
+        default = SessionManager.get_default_session()
+        default.lang = "en-US"
+        default.pipeline = ["padatious-high"]
+        default.set_intent_context("kept", "here", scope="shared")
+        SessionManager.update(default)
+
+        push = Message("ovos.session.sync", {},
+                       {"session": {"session_id": "default", "lang": "pt-pt"}})
+        SessionManager.handle_session_sync(push)
+
+        derived = self._next_round().forward("ovos.utterance.handled")
+        sess = derived.context["session"]
+        self.assertEqual(sess["lang"], "pt-PT")
+        self.assertEqual(sess["pipeline"], ["padatious-high"])
+        self.assertEqual(sess["intent_context"]["kept"]["value"], "here")
+
+    def test_data_carrier_wins_over_a_decoy_context_carrier(self):
+        """§5.1: ``data["session"]`` is checked first (``handle_session_sync``'s
+        own precedence for "the producer built the request that way"); a
+        Message carrying a decoy ``context["session"]`` too still folds the
+        ``data`` one, not the ``context`` one."""
+        default = SessionManager.get_default_session()
+        default.lang = "en-US"
+        SessionManager.update(default)
+
+        push = Message("ovos.session.sync",
+                       {"session": {"session_id": "default", "lang": "pt-pt"}},
+                       {"session": {"session_id": "default", "lang": "fr-fr"}})
+        SessionManager.handle_session_sync(push)
+
+        derived = self._next_round().forward("ovos.utterance.handled")
+        self.assertEqual(derived.context["session"]["lang"], "pt-PT")
+
+    def test_default_session_push_merges_intent_context_entry_by_entry(self):
+        """§5.1 / CONTEXT-1 §5.3: a push whose ``intent_context`` carries one
+        new entry and one ``null`` tombstone applies both, entry-by-entry,
+        onto the default session's working map — a co-present unrelated
+        entry survives untouched."""
+        default = SessionManager.get_default_session()
+        default.set_intent_context("kept", "here", scope="shared")
+        default.set_intent_context("gone", "bye", scope="shared")
+        SessionManager.update(default)
+
+        push = Message("ovos.session.sync",
+                       {"session": {
+                           "session_id": "default",
+                           "intent_context": {"added": {"value": "hi"},
+                                              "gone": None}}})
+        SessionManager.handle_session_sync(push)
+
+        derived = self._next_round().forward("ovos.utterance.handled")
+        ic = derived.context["session"]["intent_context"]
+        self.assertEqual(ic["added"]["value"], "hi")
+        self.assertEqual(ic["kept"]["value"], "here")
+        self.assertNotIn("gone", ic)
+
+    def test_named_session_push_with_hostile_pipeline_leaves_the_round_untouched(self):
+        """§2.2 / §2.7: a NAMED-session push arriving mid-round, carrying a
+        hostile ``pipeline``, changes nothing — not the round this process
+        holds, and not the unrelated default session. The orchestrator is
+        never pushed someone else's session; the shim only ever folds
+        ``intent_context`` into a session it already holds, never any other
+        field."""
+        round_sess = Session("sat-open-round")
+        round_sess.pipeline = ["safe-pipeline"]
+        round_msg = Message("recognizer_loop:utterance", {},
+                            {"session": round_sess.serialize()})
+        held = SessionManager.get(round_msg)  # binds the live object to the round
+
+        class _FakeBusClient:
+            pass
+
+        fake_bus = _FakeBusClient()
+        fake_bus.session = held
+        SessionManager.bus = fake_bus
+
+        default = SessionManager.get_default_session()
+        default.pipeline = ["default-pipeline"]
+        SessionManager.update(default)
+
+        hostile = Session("sat-open-round")
+        hostile.pipeline = ["hostile.pipeline"]
+        push = Message("ovos.session.sync", {"session": hostile.serialize()})
+        SessionManager.handle_session_sync(push)
+
+        round_derived = round_msg.forward("ovos.utterance.handled")
+        self.assertEqual(round_derived.context["session"]["pipeline"],
+                         ["safe-pipeline"])
+
+        default_derived = self._next_round().forward("ovos.utterance.handled")
+        self.assertEqual(default_derived.context["session"]["pipeline"],
+                         ["default-pipeline"])
+
+    def test_unheld_named_session_push_is_ignored(self):
+        """§2.2: a NAMED-session push naming a session this process holds
+        NONE of — no open round for it, nothing in the registry — is
+        another client's state and has no effect anywhere: not on the
+        unrelated default session, not on an open round for a different
+        session, and it must not seed the registry with a new entry either
+        ("there is nothing here to carry its state on")."""
+        default = SessionManager.get_default_session()
+        default.pipeline = ["default-pipeline"]
+        SessionManager.update(default)
+
+        round_sess = Session("sat-open-round")
+        round_sess.pipeline = ["safe-pipeline"]
+        round_msg = Message("recognizer_loop:utterance", {},
+                            {"session": round_sess.serialize()})
+        held = SessionManager.get(round_msg)
+
+        class _FakeBusClient:
+            pass
+
+        fake_bus = _FakeBusClient()
+        fake_bus.session = held
+        SessionManager.bus = fake_bus
+
+        stranger = Session("stranger-session")
+        stranger.pipeline = ["stranger-pipeline"]
+        stranger.set_intent_context("x", "y", scope="shared")
+        push = Message("ovos.session.sync", {"session": stranger.serialize()})
+        SessionManager.handle_session_sync(push)
+
+        round_derived = round_msg.forward("ovos.utterance.handled")
+        self.assertEqual(round_derived.context["session"]["pipeline"],
+                         ["safe-pipeline"])
+
+        default_derived = self._next_round().forward("ovos.utterance.handled")
+        self.assertEqual(default_derived.context["session"]["pipeline"],
+                         ["default-pipeline"])
+
+        self.assertNotIn("stranger-session", SessionManager.sessions)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

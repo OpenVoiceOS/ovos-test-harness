@@ -58,6 +58,18 @@ test/conformance/test_session_conformance.py::TestSec26HandlerBoundaryMutation::
 test/conformance/test_session_conformance.py::TestSec26HandlerBoundaryMutation::test_bind_refuses_a_session_id_mismatch
 test/conformance/test_session_conformance.py::TestSec26HandlerBoundaryMutation::test_collection_and_gui_message_carry_the_same_mutation
 test/conformance/test_session_conformance.py::TestSec26HandlerBoundaryMutation::test_handler_write_rides_forward_reply_response
+# testing pins ovos-bus-client 1.5.0, which has no
+# SessionManager.handle_session_sync at all (floor 2.11.13a1) -- the
+# mechanism this channel does ship is the same bare request/echo as stable
+# (SessionManager.sync replies with cls.default_session.serialize() and
+# never reads the inbound payload), so the push is silently discarded, not
+# folded or replaced.
+test/conformance/test_session_conformance.py::TestPreSpecSessionSyncShim::test_default_session_push_via_data_carrier_changes_only_named_field
+test/conformance/test_session_conformance.py::TestPreSpecSessionSyncShim::test_default_session_push_via_context_carrier_same_result
+test/conformance/test_session_conformance.py::TestPreSpecSessionSyncShim::test_data_carrier_wins_over_a_decoy_context_carrier
+test/conformance/test_session_conformance.py::TestPreSpecSessionSyncShim::test_default_session_push_merges_intent_context_entry_by_entry
+test/conformance/test_session_conformance.py::TestPreSpecSessionSyncShim::test_named_session_push_with_hostile_pipeline_leaves_the_round_untouched
+test/conformance/test_session_conformance.py::TestPreSpecSessionSyncShim::test_unheld_named_session_push_is_ignored
 # testing pins ovos-bus-client 1.5.0, which predates the canonical
 # OVOS-SESSION-1 §3.5 {lat, lon, tz} 'location' field entirely — Session has
 # no .location attribute at all yet.
