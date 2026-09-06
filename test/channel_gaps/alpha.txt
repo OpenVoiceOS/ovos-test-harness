@@ -36,7 +36,6 @@
 [modules]
 
 [tests]
-test/conformance/test_stop1_conformance.py::TestSec42PingPong::test_ping_broadcast_topic
 
 [xpass]
 test/conformance/test_converse1_conformance.py::TestSec4ConverseRoundTrip::test_followup_consumed_by_active_owner

@@ -14,6 +14,11 @@ xfailed one test at a time — there are no tests to mark — so the harness ski
 collecting them and asserts separately that they still fail to import.
 
 ``[tests]`` lists node ids that collect but fail. Those get a strict xfail.
+This also covers a module that imports fine but whose module-level
+``setUpModule()`` raises before any test runs: pytest reports that as an
+``ERROR`` against every test in the module, and a strict xfail marker on each
+of those node ids catches it the same way it catches an ordinary assertion
+failure — just list every affected test individually here.
 
 ``[xpass]`` lists node ids the SUITE already marks ``xfail(strict=True)`` for a
 dev-stack reason, and which PASS on this channel. The channel is behind dev, so

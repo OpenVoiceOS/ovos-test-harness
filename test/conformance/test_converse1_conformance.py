@@ -19,7 +19,7 @@ Coverage map (clause -> status against current ovos-core@dev):
 - §4   an active owner consumes the follow-up before intent match  green
 - §4   a declining owner falls through to the normal pipeline ... green
 - §6.4 exactly one ``ovos.utterance.handled`` per utterance ..... green
-- §2.1 ``session.converse_handlers`` reflects the owner ......... xfail (active_skills)
+- §2.1 ``session.converse_handlers`` reflects the owner ......... green
 
 2026-08-10 harness-credibility repoint: "an active owner consumes the
 follow-up" un-flipped from xfail to green by this repoint. It was marked
@@ -31,7 +31,6 @@ first run against @dev.
 import time
 from unittest import TestCase
 
-import pytest
 from ovos_bus_client.message import Message
 from ovos_bus_client.session import Session
 from ovos_utils.log import LOG
@@ -52,18 +51,6 @@ from ._conformance import (
 PARROT_ID = "ovos-skill-parrot.openvoiceos"
 # the converse stage runs ahead of the matcher when there are active owners
 CONVERSE_PIPELINE = ["ovos-converse-pipeline-plugin", PADACIOSO_HIGH]
-
-# whether the installed bus-client exposes the CONVERSE-1 session field
-_HAS_CONVERSE_HANDLERS = "converse_handlers" in Session("probe").serialize()
-# A spec-mandated session field that the installed bus-client does not carry
-# is a conformance failure, not an environment precondition — track it as a
-# strict xfail so it flips to a pass the moment the field lands.
-_requires_converse_field = pytest.mark.xfail(
-    not _HAS_CONVERSE_HANDLERS,
-    reason="CONVERSE-1 §2.1 MUST: the installed ovos-bus-client Session has no "
-           "converse_handlers field",
-    strict=True,
-)
 
 _MC = None
 
@@ -195,11 +182,9 @@ class TestSec21OwnerOrdering(TestCase):
         # parrot was activated last -> head of the list (index 0)
         self.assertEqual(sess.active_skills[0][0], PARROT_ID)
 
-    @_requires_converse_field
     def test_converse_handlers_reflects_owner(self):
         """``session.converse_handlers`` carries the active owner, head-first
-        (§2.1). xfail/skipped until ovos-core stamps the spec field rather than
-        the legacy ``active_skills``."""
+        (§2.1)."""
         sess = _activate_parrot("cv-handlers")
         handlers = sess.serialize().get("converse_handlers") or []
         owners = [h.get("skill_id") if isinstance(h, dict) else h for h in handlers]

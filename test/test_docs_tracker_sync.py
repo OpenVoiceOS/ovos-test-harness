@@ -31,6 +31,8 @@ import re
 
 import pytest
 
+from test.channel_compat.gaps import read_gaps
+
 CONFORMANCE = pathlib.Path(__file__).parent / "conformance"
 CHANNEL_GAPS_DIRS = [
     pathlib.Path(__file__).parent / "conformance",
@@ -180,23 +182,21 @@ REPO_ROOT = pathlib.Path(__file__).parent.parent
 
 
 def _channel_gap_node_ids(path):
-    """Every non-comment, non-section-header line in a channel-gaps tracker.
+    """Every module path and pytest node id a channel-gaps tracker lists.
 
-    Lines under ``[modules]`` are bare module paths; lines under ``[tests]``
-    and ``[xpass]`` are full pytest node ids (``module.py::Class::test``).
-    Either way the leading ``module.py`` segment (before the first ``::``,
-    if any) is what has to still exist on disk — resolving the rest of the
-    node id (class/test name) needs the full conformance stack imported,
-    which this meta-test does not have, so module-file existence is as far
-    as it checks.
+    ``[modules]`` rows are bare module paths; ``[tests]`` and ``[xpass]``
+    rows are full pytest node ids (``module.py::Class::test``). Delegates
+    the actual parsing to ``read_gaps()`` — the same reader
+    ``conftest.py``/``test_channel_gaps.py`` use — rather than re-parsing the
+    file line by line, so a gap-file format change only has one place to go
+    stale. Either way the leading ``module.py`` segment (before the first
+    ``::``, if any) is what has to still exist on disk — resolving the rest
+    of the node id (class/test name) needs the full conformance stack
+    imported, which this meta-test does not have, so module-file existence
+    is as far as it checks.
     """
-    ids = []
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or line.startswith("["):
-            continue
-        ids.append(line)
-    return ids
+    modules, tests, xpass = read_gaps(path.stem)
+    return [*modules, *tests, *xpass]
 
 
 @pytest.mark.parametrize("path", sorted(CHANNEL_GAPS.glob("*.txt")),

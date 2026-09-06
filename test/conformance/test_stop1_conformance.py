@@ -14,8 +14,8 @@ During the transition both the legacy and the spec topic names are emitted.
 Coverage map (clause -> status against current ovos-core@dev):
 - §5.1 empty ``active_handlers`` triggers a global stop ......... green (terminates)
 - §5.3 global stop broadcasts on ``ovos.stop`` .................. green (STOP-1 wiring landed, ovos-core#802)
-- §4.2 stoppability query broadcast ``ovos.stop.ping`` .......... xfail (emits '<skill_id>.stop.ping' per-skill; #777 closed, never merged)
-- §4.2 a stoppable skill answers ``ovos.stop.pong`` ............. xfail (dispatches <skill_id>.stop directly, no pong)
+- §4.2 stoppability query broadcast ``ovos.stop.ping`` .......... green (ovos-core#932)
+- §4.2 a stoppable skill answers ``ovos.stop.pong`` ............. green (ovos-core#932)
 - §4.3 per-skill stop dispatched on ``<skill_id>:stop`` ......... green (STOP-1 wiring landed, ovos-core#802)
 - §4   stop with an active skill vs none chooses skill/global ... green (STOP-1 wiring landed, ovos-core#802)
 - §4.1/§5.1 no active skill escalates to global ``ovos.stop`` ... green (STOP-1 wiring landed, ovos-core#802)
@@ -29,9 +29,10 @@ Repointing to ``ovos-core@dev`` flipped the three ``ovos.stop`` / ``ovos.stop.pi
 assertions above from green to xfail: real ovos-core@dev at the time had none
 of #777's STOP-1 wiring. ovos-core#802 landed that wiring in the 3.0.x alphas
 (2026-08-14): the ``ovos.stop`` broadcast, ``:global_stop`` self-dispatch, and
-``<skill_id>:stop`` per-skill dispatch clauses above are green again. The
-``ovos.stop.ping`` / ``ovos.stop.pong`` broadcast-discovery pair is still
-unimplemented and stays xfail.
+``<skill_id>:stop`` per-skill dispatch clauses above are green again.
+ovos-core#932 landed the ``ovos.stop.ping`` broadcast / ``ovos.stop.pong``
+collection pair in 3.2.9a1 (``stop_service.py``): the two clauses above are
+green too.
 """
 import time
 from unittest import TestCase
@@ -82,6 +83,19 @@ def _stop_with_active(session_id: str, active_skill: str) -> Message:
                    {"session": sess.serialize(), "source": "A", "destination": "B"})
 
 
+def _stop_with_two_active(session_id: str, *active_skills: str) -> Message:
+    """Entry message for ``stop`` carrying two active handlers, so a §4.2
+    pong round has more than one candidate to discriminate between."""
+    sess = Session(session_id)
+    sess.lang = "en-US"
+    sess.pipeline = [STOP_HIGH]
+    for skill_id in active_skills:
+        sess.activate_skill(skill_id)
+    return Message(ENTRY_TOPIC,
+                   {"utterances": ["stop"], "lang": "en-US"},
+                   {"session": sess.serialize(), "source": "A", "destination": "B"})
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # §4.1 / §5.1 — Generic stop with no active handlers escalates to global stop
 # ─────────────────────────────────────────────────────────────────────────────
@@ -116,48 +130,40 @@ class TestSec42PingPong(TestCase):
     """§4.1 step 2 / §4.2: with active handlers present, the stop plugin emits a
     broadcast ``ovos.stop.ping`` and collects ``ovos.stop.pong`` responses."""
 
-    @pytest.mark.xfail(strict=True,
-                       reason="STOP-1 §4.2 MUST: the stoppability query MUST be "
-                              "broadcast on 'ovos.stop.ping'; ovos-core @dev "
-                              "dispatches the per-skill '<skill_id>.stop.ping' "
-                              "directly instead — the broadcast-ping emit from "
-                              "closed PR #777 (feat/stop-1-conformance) never "
-                              "merged. Verdict flipped from green to xfail by the "
-                              "2026-08-10 harness-credibility repoint, which "
-                              "moved this suite off #777's dead branch onto "
-                              "ovos-core@dev; tracked by ovos-core#802.")
     def test_ping_broadcast_topic(self):
         """The stoppability query is the broadcast topic ``ovos.stop.ping`` (§4.2)."""
         recs = capture(_MC, _stop_with_active("stop-ping", "fake.skill"), 4.0)
         self.assertIn("ovos.stop.ping", types(recs))
 
-    @pytest.mark.xfail(strict=True,
-                       reason="STOP-1 §4.2 MUST: a stoppable skill's reply MUST "
-                              "land on the shared broadcast topic 'ovos.stop.pong'; "
-                              "ovos-core @dev instead dispatches the per-skill stop "
-                              "directly ('<skill_id>.stop') without ever emitting "
-                              "'ovos.stop.pong' (stack drift since 2026-07-16)")
     def test_pong_reply_from_active_skill(self):
-        """An active, stoppable skill answers the ping with ``ovos.stop.pong``
-        carrying ``{skill_id, can_handle: True}``; that pong is collected and the
-        skill is told to stop (§4.2)."""
-        skill_id = "stoppable.test"
+        """§4.2: only the active skill that pongs ``can_handle: True`` is
+        selected for the targeted stop; a second active skill that pongs
+        ``can_handle: False`` never is (§4.1 selection, §4.3 dispatch).
+        A tautological ``assertIn("ovos.stop.pong", ...)`` would prove
+        nothing here — the fixture itself emits that topic — so this
+        asserts the pong's CONTENT changed which skill got dispatched."""
+        positive_id = "stoppable.test"
+        negative_id = "declining.test"
 
         def _responder(msg):
-            # mimic a ConversationalSkill/stoppable skill answering the broadcast
+            # mimic two ConversationalSkill/stoppable skills answering the
+            # broadcast: one offers to stop, the other declines.
             _MC.bus.emit(msg.reply("ovos.stop.pong",
-                                   {"skill_id": skill_id, "can_handle": True}))
+                                   {"skill_id": positive_id, "can_handle": True}))
+            _MC.bus.emit(msg.reply("ovos.stop.pong",
+                                   {"skill_id": negative_id, "can_handle": False}))
 
         _MC.bus.on("ovos.stop.ping", _responder)
         try:
-            recs = capture(_MC, _stop_with_active("stop-pong", skill_id), 4.0)
+            recs = capture(_MC, _stop_with_two_active(
+                "stop-pong", negative_id, positive_id), 4.0)
         finally:
             _MC.bus.remove("ovos.stop.ping", _responder)
         seq = types(recs)
-        self.assertIn("ovos.stop.pong", seq)
-        # the collected, stoppable skill is dispatched its per-skill stop (§4.3):
-        # STOP-1 §4.3 / the §3 topic table dispatch it on ``<skill_id>:stop``.
-        self.assertIn(f"{skill_id}:stop", seq)
+        # the collected, stoppable skill is dispatched its per-skill stop
+        # (§4.3 / the §3 topic table): ``<skill_id>:stop``.
+        self.assertIn(f"{positive_id}:stop", seq)
+        self.assertNotIn(f"{negative_id}:stop", seq)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

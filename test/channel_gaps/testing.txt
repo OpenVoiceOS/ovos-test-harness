@@ -42,6 +42,31 @@ test/conformance/test_pipeline1_conformance.py
 test/conformance/test_stop1_conformance.py
 
 [tests]
+# testing's pinned ovoscope (0.13.1) predates the lean-boot extra_pipelines=
+# kwarg entirely, so MiniCroft/SkillManager raise a bare TypeError in
+# setUpModule() (it passes extra_pipelines=COMMON_QUERY_PIPELINE) before any
+# test in the module runs. A strict xfail on each affected node id catches
+# that setup-phase error the same way it catches an ordinary failure.
+test/conformance/test_common_query1_conformance.py::TestSec6Poll::test_ping_broadcast
+test/conformance/test_common_query1_conformance.py::TestSec6Poll::test_pong_claim
+test/conformance/test_common_query1_conformance.py::TestSec9NoWinnerReachesFallback::test_no_winner_does_not_speak_an_answer
+# testing pins ovos-bus-client/ovos-spec-tools below the SessionManager.bind
+# floors (1.10.4a1 / 2.11.4a1), so SessionManager has neither bind() nor
+# get_default_session() yet.
+test/conformance/test_session_conformance.py::TestSec26HandlerBoundaryMutation::test_bind_makes_get_and_derivations_see_the_orchestrator_round_session
+test/conformance/test_session_conformance.py::TestSec26HandlerBoundaryMutation::test_bind_refuses_a_default_shaped_session_that_is_not_the_store
+test/conformance/test_session_conformance.py::TestSec26HandlerBoundaryMutation::test_bind_refuses_a_session_id_mismatch
+test/conformance/test_session_conformance.py::TestSec26HandlerBoundaryMutation::test_collection_and_gui_message_carry_the_same_mutation
+test/conformance/test_session_conformance.py::TestSec26HandlerBoundaryMutation::test_handler_write_rides_forward_reply_response
+# testing pins ovos-bus-client 1.5.0, which predates the canonical
+# OVOS-SESSION-1 §3.5 {lat, lon, tz} 'location' field entirely — Session has
+# no .location attribute at all yet.
+test/conformance/test_session_conformance.py::TestLocationTimezoneContract::test_location_round_trips_byte_stable
+# testing pins ovos-core before the native global-stop-broadcast wiring
+# (ovos-core#802): with the modernize/emit_legacy bridge fully disabled it
+# never emits 'ovos.stop' at all, so the dual-emit-off native-only assertion
+# has nothing to observe.
+test/conformance/test_stop1_dual_emit_off_conformance.py::test_global_stop_broadcast_topic_native_only
 test/conformance/test_converse1_conformance.py::TestSec4ConverseRoundTrip::test_followup_consumed_by_active_owner
 test/conformance/test_stop1_dual_emit_off_conformance.py::test_utterance_handled_fires_natively_with_bridge_disabled
 test/conformance/test_solvers_conformance.py::TestPersona1Solver_ovos_solver_failure_plugin::test_active_persona_claims
@@ -87,6 +112,7 @@ test/conformance/test_common_query1_conformance.py::TestSec7AnswerCollection::te
 test/conformance/test_common_query1_conformance.py::TestSec9And10WinningContest::test_winning_contest_speaks
 test/conformance/test_common_query1_conformance.py::TestSec9NoWinnerReachesFallback::test_non_question_falls_through_to_fallback
 test/conformance/test_common_query1_conformance.py::TestSec9NoWinnerReachesFallback::test_non_question_terminates_once
+test/conformance/test_converse1_conformance.py::TestSec21OwnerOrdering::test_converse_handlers_reflects_owner
 test/conformance/test_converse1_conformance.py::TestSec3Activation::test_activation_recorded_in_session
 test/conformance/test_converse1_conformance.py::TestSec4ConverseRoundTrip::test_followup_terminates_once
 test/conformance/test_converse1_conformance.py::TestSec4Decline::test_decline_falls_through_to_pipeline
@@ -129,6 +155,7 @@ test/conformance/test_persona1_conformance.py::TestSec8Handler::test_handler_ter
 test/conformance/test_persona1_conformance.py::TestSec8Handler::test_out_of_band_query_answers
 test/conformance/test_session_conformance.py::TestActiveHandlerRecency::test_activation_updates_session_active_skills
 test/conformance/test_session_conformance.py::TestActiveHandlerRecency::test_active_handlers_spec_field
+test/conformance/test_session_conformance.py::TestConverseOwnerOrdering::test_converse_handlers_spec_field
 test/conformance/test_session_conformance.py::TestFallbackHandlersField::test_fallback_handlers_spec_field
 test/conformance/test_session_conformance.py::TestResponseMode::test_response_mode_spec_field
 test/conformance/test_session_conformance.py::TestSec31PerSessionKeying::test_state_for_session_a_not_visible_to_b
@@ -139,3 +166,6 @@ test/conformance/test_transform1_conformance.py::TestSec7ErrorHandling::test_sha
 test/conformance/test_transform1_conformance.py::TestSec8Cancellation::test_cancel_by_stamped_by_orchestrator
 
 [xpass]
+# testing's pinned persona plugin already declines an unsupported persona_id;
+# the suite's strict xfail documents a dev-stack gap that does not hold here.
+test/conformance/test_persona1_conformance.py::TestSec4NoPersonaMode::test_unsupported_persona_id_declines
