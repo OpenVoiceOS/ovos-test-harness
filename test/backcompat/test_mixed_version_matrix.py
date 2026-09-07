@@ -106,6 +106,7 @@ Design references below (``design §X.Y``) are to ``docs/matrix-design.md``.
 import os
 import time
 import uuid
+from typing import Optional
 
 import pytest
 
@@ -132,10 +133,12 @@ from .driver import (ACTIVATED_TOPIC,
                      mic_listen_spec_topic,
                      audio_output_end_topic_probe, converse_match,
                      core_canonicalizes, core_has_pipeline_match_api,
-                     dispatch, dispatch_match, emitter_side_has_reemit_hook,
-                     dispatch_topic_for, make_converse_service,
-                     session_context, wait_for_active_skill,
-                     wait_for_response_mode)
+                     core_supports_utterance_dispatch,
+                     dispatch, dispatch_match, dispatch_utterance,
+                     emitter_side_has_reemit_hook,
+                     dispatch_topic_for, make_intent_service,
+                     register_padatious_intents, session_context,
+                     wait_for_active_skill, wait_for_response_mode)
 
 #: What each combo is *supposed* to be, so a silent pin drift (a new workshop
 #: release changing what it binds, or the padatious fold being reverted) fails
@@ -243,6 +246,34 @@ _BROKEN_CHANNEL_COMBOS = {"stable-skill/dev-core", "testing-skill/dev-core"}
 
 COMBO = os.environ.get("BACKCOMPAT_COMBO", "")
 SKILL_PYTHON = os.environ.get("BACKCOMPAT_SKILL_PYTHON", "")
+
+
+def _combo_core_is_new(combo: str) -> Optional[bool]:
+    """Whether ``combo``'s core-side venv is the NEW-core vintage, or
+    ``None`` for a combo this module does not recognize.
+
+    Boundary combos read straight off the cell's own C axis (``cells.py``'s
+    4-tuple identity, the same one ``test_pins_are_the_intended_vintage``
+    checks the M axis against) -- not ``COMBOS[combo][1]`` (``want_canon``),
+    which is the M axis and drifts from C on every ``*-matchers`` cell.
+    Channel combos pin ``ovos-core`` off a live distro constraints file
+    rather than a boundary pin, so C isn't part of that 4-tuple at all for
+    them; whichever side names ``dev-core`` is core-at-dev, which is newer
+    than the boundary this matrix probes, while ``stable-core`` and
+    ``testing-core`` both floor well below it (see ``COMBOS``' channel
+    comment).
+    """
+    cell = resolve_cell(combo)
+    if cell is not None:
+        return axis_values(cell)["C"] == REFERENCE
+    if combo in CHANNEL_CELLS:
+        return combo.endswith("dev-core")
+    return None
+
+
+#: The core-side vintage of the running combo, or ``None`` when no combo is
+#: set (module import with the matrix skipped -- see ``pytestmark`` below).
+CORE_IS_NEW = _combo_core_is_new(COMBO) if COMBO else None
 
 pytestmark = pytest.mark.skipif(
     not COMBO or not SKILL_PYTHON,
@@ -397,34 +428,85 @@ def _expected_dispatch_topic(skill) -> str:
 
 
 @pytest.fixture(scope="module")
-def converse_service(stack):
-    """The real, per-combo ``ConverseService`` from ``driver.
-    make_converse_service``, running on the shared bus for the module's
-    converse/get_response tests.
+def intent_service(stack):
+    """The real, per-combo ``IntentService`` from ``driver.
+    make_intent_service``, with its real pipeline plugins loaded — used by
+    the converse/get_response tests below to give the fixture skill real
+    OVOS-CONVERSE-1 §3.1 converse eligibility through an actual dispatch
+    (``driver.dispatch_utterance``), which ``self.activate()`` alone never
+    produces on a core that keeps the two lists apart.
 
     A separate fixture (not folded into ``stack``) so the plain
     intent-dispatch tests above don't pay for it and aren't coupled to it —
     only the interactive-flow tests below ask for this.
 
-    Skips (own reason, never the #271 marker) when this core venv's
-    ``ConverseService`` predates the plugin-pipeline ``.match()`` API this
-    module's helpers are built on — real today only for the "stable"
-    distro channel's ``ovos-core==1.3.1`` pin. See
-    ``driver.core_has_pipeline_match_api``.
+    Skips (own reason, never the #271 marker) when this core venv predates
+    the plugin-pipeline architecture ``IntentService``'s own pipeline
+    loading assumes — real today only for the "stable" distro channel's
+    ``ovos-core==1.3.1`` pin. See ``driver.core_has_pipeline_match_api``.
+
+    ``driver.register_padatious_intents`` replays the fixture skill's
+    already-captured real registration onto this instance's own padatious
+    pipeline plugin (constructed after the skill registered, so it never
+    heard the original broadcast) and blocks until it is actually trained,
+    once, here — every test that asks for this fixture gets an
+    already-ready matcher.
     """
     if not core_has_pipeline_match_api():
         pytest.skip(
-            f"{COMBO}: this core venv's ConverseService predates the "
-            f"plugin-pipeline .match() API (pre ovos-core pipeline "
-            f"refactor) — converse/get_response routing here uses a "
-            f"different, older object model this suite does not adapt to "
-            f"yet; unrelated to the #271 canonical-topic gap")
-    _server, bus, _skill, _regs = stack
-    service = make_converse_service(bus)
+            f"{COMBO}: this core venv predates the plugin-pipeline "
+            f"architecture (pre ovos-core pipeline refactor) — "
+            f"converse/get_response routing here uses a different, older "
+            f"object model this suite does not adapt to yet; unrelated to "
+            f"the #271 canonical-topic gap")
+    _server, bus, _skill, regs = stack
+    service, teardown_intent_service = make_intent_service(bus)
+    register_padatious_intents(service, bus, regs)
     try:
         yield service
     finally:
-        service.shutdown()
+        teardown_intent_service()
+
+
+def test_make_intent_service_restores_session_manager_bus_on_teardown(stack):
+    """``IntentService.__init__`` binds the process-global
+    ``SessionManager.bus`` (via ``SessionManager.connect_to_bus``), and its
+    own ``shutdown()`` never unbinds it. Left alone, this module's
+    ``intent_service`` fixture would leave ``SessionManager.bus`` pointed at
+    this module's already-closed client for every later test module sharing
+    the same pytest process. ``driver.make_intent_service``'s returned
+    ``teardown`` callable is what restores it.
+    """
+    if not core_has_pipeline_match_api():
+        pytest.skip(
+            f"{COMBO}: this core venv predates the plugin-pipeline "
+            f"architecture; unrelated to what this test probes")
+    from ovos_bus_client.session import SessionManager
+    _server, bus, _skill, regs = stack
+    prior_bus = SessionManager.bus
+    service, teardown_intent_service = make_intent_service(bus)
+    try:
+        register_padatious_intents(service, bus, regs)
+        assert SessionManager.bus is bus
+    finally:
+        teardown_intent_service()
+    assert SessionManager.bus is prior_bus, (
+        f"{COMBO}: SessionManager.bus was not restored after "
+        f"make_intent_service's teardown; a later module in this process "
+        f"would inherit a dead bus client")
+
+
+@pytest.fixture(scope="module")
+def converse_service(intent_service):
+    """The real ``ConverseService`` instance ``intent_service``'s own
+    pipeline loading already constructed (``ovos-converse-pipeline-plugin``
+    — the exact entry point ``ovos-core`` registers ``ConverseService``
+    under, see ``driver.make_intent_service``), reused rather than built a
+    second time: two live ``ConverseService`` objects bound to the same bus
+    would each independently react to, and re-emit, the same
+    activation/converse traffic.
+    """
+    return intent_service.pipeline_plugins["ovos-converse-pipeline-plugin"]
 
 
 def test_pins_are_the_intended_vintage(stack):
@@ -862,7 +944,7 @@ def test_the_handler_runs_exactly_once(stack):
 #: dispatches `<skill_id>:<file>` only, so registered-intent names never line
 #: up. converse and get_response are routed through the real, per-combo
 #: `ovos_core.intent_services.converse_service.ConverseService` (see the
-#: `converse_service` fixture / `driver.make_converse_service`) — genuine
+#: `converse_service` fixture / `driver.make_intent_service`) — genuine
 #: core-side code decides the match, the driver only forwards
 #: `match.match_type` verbatim, same as `dispatch()` already does for
 #: intents. That match_type is a FIXED literal
@@ -879,6 +961,33 @@ def test_the_handler_runs_exactly_once(stack):
 #: reason instead of folding it into this one (see module docstring: "any PR
 #: that drops the compat must flip these deliberately" — a borrowed marker
 #: would hide the wrong signal).
+
+
+@pytest.mark.skipif(CORE_IS_NEW is None,
+                    reason=f"{COMBO!r}: not a recognized combo, no core "
+                           "vintage to check the probe against")
+def test_new_core_combos_support_utterance_dispatch():
+    """Asserts ``core_supports_utterance_dispatch()`` on a NEW-core combo,
+    the probe the two branching tests below key their converse/get_response
+    setup on but never themselves assert.
+
+    A refactor that moves the ``add_converse_handler`` bytecode probe behind
+    a helper, or otherwise breaks it, would silently flip the probe False on
+    a NEW-core combo -- both branching tests would then fall back to their
+    ``self.activate()``-only setup and keep passing for the wrong reason,
+    the same failure mode ``test_pins_are_the_intended_vintage`` exists to
+    catch on the S/M axes. This is the missing C-axis half of that net; an
+    OLD-core combo asserts nothing here, since the probe is genuinely
+    expected False there.
+    """
+    if not CORE_IS_NEW:
+        pytest.skip(f"{COMBO}: old-core combo, "
+                    "core_supports_utterance_dispatch() is expected False")
+    assert core_supports_utterance_dispatch(), (
+        f"{COMBO}: core_supports_utterance_dispatch() returned False on a "
+        "NEW-core combo -- the converse/get_response tests would silently "
+        "fall back to the self.activate()-only path instead of exercising "
+        "the real utterance dispatch")
 
 
 def _require_converse_api(skill) -> None:
@@ -907,21 +1016,38 @@ def test_converse_fires_before_a_followup_utterance_matches_an_intent(
     ahead of intent matching.
 
     This is the multi-turn-dialog contract every bus-only skill container
-    leans on: ``activate()`` puts the skill on the active list, and the
-    pipeline is supposed to try ``converse()`` before falling through to
+    leans on: a dispatch puts the skill on the converse-eligible list, and
+    the pipeline is supposed to try ``converse()`` before falling through to
     intent matching. Genuinely cross-version this time: the driver calls the
     real, per-combo ``ConverseService.match()`` (see ``converse_service``
-    fixture / ``driver.make_converse_service``) to decide whether and how to
+    fixture / ``driver.make_intent_service``) to decide whether and how to
     route the follow-up utterance, then forwards ``match.match_type``
     verbatim — the same shortcut ``dispatch()`` already takes for the
     food-order intent, except the topic now comes from real core code
     instead of a constant the driver assumes.
+
+    Converse eligibility (OVOS-CONVERSE-1 §2.1's ``session.
+    converse_handlers``) is earned the real way, on a core that can reach
+    it (``driver.core_supports_utterance_dispatch``): a real utterance is
+    sent to the real ``IntentService.handle_utterance`` (``driver.
+    dispatch_utterance``), whose real installed padatious pipeline plugin
+    matches it against the fixture skill's real registered intent and
+    dispatches — §3.1's automatic ``converse_handlers`` stamp is that
+    dispatch's own side effect, never something ``self.activate()`` alone
+    produces on this vintage; the dispatch message's own wire carrier is
+    what confirms it landed, needing no separate probe of the stamp
+    itself. A core old enough to predate the spec-side utterance-dispatch
+    surface entirely (this combo's ``old-core`` boundary pin,
+    ``ovos-core==2.5.5a2``, which also predates the ``converse_handlers``/
+    ``active_handlers`` split) has no such surface to dispatch through, so
+    it keeps the ``self.activate()``-only setup — ``ConverseService.
+    get_active_skills`` there reads whatever that push already wrote
+    directly.
     """
-    _server, bus, skill, _regs = stack
+    _server, bus, skill, regs = stack
     _require_converse_api(skill)
     token = uuid.uuid4().hex
     session_id = f"backcompat-converse-{token[:8]}"
-    activated = Capture(bus, ACTIVATED_TOPIC, token=token)
     # the real second hop: ConverseService.handle_converse (triggered by
     # dispatch_match below) re-emits to this exact skill-facing topic —
     # capturing it independently of the "converse_fired" marker proves the
@@ -930,25 +1056,34 @@ def test_converse_fires_before_a_followup_utterance_matches_an_intent(
     fired = Capture(bus, CONVERSE_FIRED_TOPIC)
     responded = Capture(bus, CONVERSE_RESPONSE_TOPIC)
     try:
-        # self.activate() (real workshop code, either vintage) emits the
-        # real "intent.service.skills.activate" message, which the real
-        # converse_service.handle_activate_skill_request (bound in its
-        # __init__) puts the skill on SessionManager's live active-skills
-        # list for this session_id.
-        bus.emit(Message(CONVERSE_TRIGGER_TOPIC, {"token": token},
-                         session_context(session_id)))
-        assert activated.wait(), (
-            f"{COMBO}: skill never confirmed activation:\n{skill.log}")
-        # activate_skill_request is itself async over the wire (our own
-        # "activated" marker races the real core-side session update it
-        # rides alongside); wait for the actual evidence — the skill_id
-        # showing up on the live session — rather than guessing a delay.
-        assert wait_for_active_skill(session_id, SKILL_ID), (
-            f"{COMBO}: skill confirmed activation but never showed up on "
-            f"the live session's active-skill list")
+        if core_supports_utterance_dispatch():
+            topic = dispatch_topic_for(_registered_name(regs))
+            session = dispatch_utterance(bus, topic, session_id,
+                                         "order some tacos")
+            assert session is not None, (
+                f"{COMBO}: the real utterance dispatch never reached "
+                f"{topic!r} on the wire\nskill process log:\n{skill.log}")
+        else:
+            activated = Capture(bus, ACTIVATED_TOPIC, token=token)
+            # subscribed before the trigger below fires it — this is the
+            # real wire evidence wait_for_active_skill reads.
+            activation = Capture(bus, "intent.service.skills.activated",
+                                 session_id=session_id)
+            try:
+                bus.emit(Message(CONVERSE_TRIGGER_TOPIC, {"token": token},
+                                 session_context(session_id)))
+                assert activated.wait(), (
+                    f"{COMBO}: skill never confirmed activation:\n{skill.log}")
+                session = wait_for_active_skill(activation, SKILL_ID)
+            finally:
+                activated.close()
+                activation.close()
+            assert session is not None, (
+                f"{COMBO}: skill confirmed activation but never showed up "
+                f"on the orchestrator's own activation emission")
 
         match = converse_match(converse_service, ["i changed my mind"],
-                               "en-us", session_id)
+                               "en-us", session_id, session=session)
         assert match is not None, (
             f"{COMBO}: ConverseService.match() found no active skill to "
             f"converse with — activation never reached the real core-side "
@@ -977,7 +1112,6 @@ def test_converse_fires_before_a_followup_utterance_matches_an_intent(
             "converse() claimed the utterance (returned True) but the "
             "pipeline-facing response says it did not consume it")
     finally:
-        activated.close()
         requested.close()
         fired.close()
         responded.close()
@@ -998,44 +1132,62 @@ def test_get_response_receives_the_answer_utterance(stack, converse_service):
     state, and forwards it verbatim, same as the converse test above.
 
     ``ConverseService.match()`` only considers a skill for
-    response-mode if it is ALSO on the session's active-skill list
-    (``_collect_converse_skills`` / ``get_active_skills`` gate — see
-    ``match()``'s ``gr_skills`` computation) — in a real deployment this is
-    implicit, since ``get_response`` is normally called from inside a
-    handler for an intent that was just dispatched to this skill, which
-    activates it as a side effect. This harness has no intent-dispatch
-    pipeline standing that context up, so the skill is activated explicitly
-    first, the same way the converse test above does.
+    response-mode if it is ALSO converse-eligible (``_collect_converse_
+    skills`` / ``get_active_skills`` gate, reading ``session.
+    converse_handlers`` — see ``match()``'s ``gr_skills`` computation) — in
+    a real deployment this is implicit, since ``get_response`` is normally
+    called from inside a handler for an intent that was just dispatched to
+    this skill, and OVOS-CONVERSE-1 §3.1 makes that dispatch itself what
+    stamps ``converse_handlers``. This harness earns that the same real
+    way, sending a real utterance through the real orchestrator first (see
+    the converse test above for why ``self.activate()`` alone is not
+    enough on a core that can reach it).
 
-    ``wait_for_response_mode`` proves the round trip by sampling
-    ``SessionManager.sessions`` from this test's own thread every 50ms. On a
-    starved runner that sampling can miss the whole thing: the skill's real
-    ``skill.converse.get_response.enable`` / ``.disable`` pair can both get
-    processed by the driver process's bus-handler thread in one scheduling
-    burst, entirely between two polls, even though the round trip genuinely
-    happened. A sampled miss is therefore ambiguous between "never happened"
-    and "happened, window missed" — so this also watches the real enable/
-    disable events directly. If the poll misses but the events prove the
-    round trip landed and the response-mode window has since closed, that is
-    not a failure — it is "proven once, sampled late" — so the trigger is
-    re-armed and retried rather than failed on a scheduler artifact.
+    ``wait_for_response_mode`` proves the round trip off the wire itself —
+    the real ``skill.converse.get_response.enable`` message the skill emits
+    — rather than polling ``SessionManager.sessions`` (OVOS-SESSION-2 §2.2:
+    the registry never holds a named session to poll). On a starved runner
+    the skill's real enable/disable pair can both get processed by the
+    driver process's bus-handler thread in one scheduling burst, so this
+    also watches the disable event directly: if the enable wait times out
+    but both events prove the round trip landed and the response-mode
+    window has since closed, that is not a failure — it is "proven once,
+    window since closed" — so the trigger is re-armed and retried rather
+    than failed on a scheduler artifact.
     """
-    _server, bus, skill, _regs = stack
+    _server, bus, skill, regs = stack
     _require_converse_api(skill)
     token = uuid.uuid4().hex
     session_id = f"backcompat-getresp-{token[:8]}"
-    activated = Capture(bus, ACTIVATED_TOPIC, token=token)
     done = Capture(bus, GET_RESPONSE_DONE_TOPIC, token=token)
     enabled = Capture(bus, GET_RESPONSE_ENABLE_TOPIC, session_id=session_id)
     disabled = Capture(bus, GET_RESPONSE_DISABLE_TOPIC, session_id=session_id)
     try:
-        bus.emit(Message(CONVERSE_TRIGGER_TOPIC, {"token": token},
-                         session_context(session_id)))
-        assert activated.wait(), (
-            f"{COMBO}: skill never confirmed activation:\n{skill.log}")
-        assert wait_for_active_skill(session_id, SKILL_ID), (
-            f"{COMBO}: skill confirmed activation but never showed up on "
-            f"the live session's active-skill list")
+        if core_supports_utterance_dispatch():
+            topic = dispatch_topic_for(_registered_name(regs))
+            session = dispatch_utterance(bus, topic, session_id,
+                                         "order some tacos")
+            assert session is not None, (
+                f"{COMBO}: the real utterance dispatch never reached "
+                f"{topic!r} on the wire\nskill process log:\n{skill.log}")
+        else:
+            activated = Capture(bus, ACTIVATED_TOPIC, token=token)
+            # subscribed before the trigger below fires it — this is the
+            # real wire evidence wait_for_active_skill reads.
+            activation = Capture(bus, "intent.service.skills.activated",
+                                 session_id=session_id)
+            try:
+                bus.emit(Message(CONVERSE_TRIGGER_TOPIC, {"token": token},
+                                 session_context(session_id)))
+                assert activated.wait(), (
+                    f"{COMBO}: skill never confirmed activation:\n{skill.log}")
+                session = wait_for_active_skill(activation, SKILL_ID)
+            finally:
+                activated.close()
+                activation.close()
+            assert session is not None, (
+                f"{COMBO}: skill confirmed activation but never showed up "
+                f"on the orchestrator's own activation emission")
 
         # Up to two attempts: the first is the normal path. The second only
         # runs if the first attempt's live sampling missed a round trip the
@@ -1043,17 +1195,19 @@ def test_get_response_receives_the_answer_utterance(stack, converse_service):
         match = None
         for attempt in range(2):
             bus.emit(Message(GET_RESPONSE_TRIGGER_TOPIC, {"token": token},
-                             session_context(session_id)))
+                             session_context(session_id, session)))
             # get_response's real "skill.converse.get_response.enable" round
             # trip is async over the wire; wait for the actual evidence — the
-            # live session's response-mode holder — rather than guessing a
-            # delay long enough.
-            if wait_for_response_mode(session_id, SKILL_ID):
+            # enable message itself — rather than guessing a delay long
+            # enough.
+            with_response_mode = wait_for_response_mode(enabled, SKILL_ID, session)
+            if with_response_mode is not None:
                 # Seen live: do the converse match immediately, before the
                 # skill's own get_response poll window can close underneath
                 # it and disable response-mode again.
                 match = converse_match(converse_service, ["tacos please"],
-                                       "en-us", session_id)
+                                       "en-us", session_id,
+                                       session=with_response_mode)
                 break
 
             if enabled.wait(timeout=0) and disabled.wait(timeout=0):
@@ -1062,9 +1216,9 @@ def test_get_response_receives_the_answer_utterance(stack, converse_service):
                 # never happened", just "happened, sampled late". Re-arm by
                 # triggering get_response again (the skill's previous call
                 # already returned, since disable fired) and retry once.
-                enabled.messages.clear()
-                disabled.messages.clear()
-                done.messages.clear()
+                enabled.reset()
+                disabled.reset()
+                done.reset()
                 continue
 
             # Neither seen live nor proven by the events: a genuine miss,
@@ -1072,11 +1226,10 @@ def test_get_response_receives_the_answer_utterance(stack, converse_service):
             break
 
         assert match is not None, (
-            f"{COMBO}: get_response() never showed up as the live "
-            f"session's response-mode holder, and the "
-            f"{GET_RESPONSE_ENABLE_TOPIC!r}/{GET_RESPONSE_DISABLE_TOPIC!r} "
-            f"events never proved a round trip either\nskill process "
-            f"log:\n{skill.log}")
+            f"{COMBO}: get_response() never showed up on the wire — "
+            f"neither {GET_RESPONSE_ENABLE_TOPIC!r} nor "
+            f"{GET_RESPONSE_DISABLE_TOPIC!r} ever proved a round trip"
+            f"\nskill process log:\n{skill.log}")
         assert match.match_type == GET_RESPONSE_ANSWER_TOPIC, (
             f"{COMBO}: real ConverseService.match() picked "
             f"{match.match_type!r}, not the expected "
@@ -1091,7 +1244,6 @@ def test_get_response_receives_the_answer_utterance(stack, converse_service):
             f"{done.messages[0].data['answer']!r} instead of the answer "
             f"utterance sent")
     finally:
-        activated.close()
         done.close()
         enabled.close()
         disabled.close()

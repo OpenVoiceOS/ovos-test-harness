@@ -32,7 +32,7 @@ CANONICAL_TOPIC = f"{SKILL_ID}:food.order"
 
 #: Interactive-flow topics. converse and get_response are genuinely routed
 #: through the CORE side's own ``ovos_core.intent_services.converse_service.
-#: ConverseService`` (see ``make_converse_service`` below) — real per-version
+#: ConverseService`` (see ``make_intent_service`` below) — real per-version
 #: core code decides the match and its topic, the same way ``dispatch()``
 #: already gets the intent topic from the real padatious module rather than
 #: assuming it. These constants are the *expected* topics, asserted against
@@ -183,12 +183,12 @@ DISPATCH_TIMEOUT = 10
 #: Raised from 2s to 6s (see test_get_response_receives_the_answer_utterance's
 #: event-based re-arm logic): a starved runner could get the skill's real
 #: enable->disable round trip processed back-to-back, in one scheduling burst
-#: of the driver process's bus handler thread, entirely between two of the
-#: test's 50ms polls of SessionManager.sessions -- a real round trip the
-#: sampled poll still never catches mid-flight. A wider window does not fix
-#: that (it is a scheduling race, not a slowness budget), but it does make it
-#: rarer, and the retry path below uses the enable/disable events themselves
-#: as the actual evidence for that remaining race.
+#: of the driver process's bus handler thread, entirely between when the
+#: enable wait times out and the disable check that follows it -- a real
+#: round trip the event wait still never catches mid-flight. A wider window
+#: does not fix that (it is a scheduling race, not a slowness budget), but it
+#: does make it rarer, and the retry path below uses the enable/disable
+#: events themselves as the actual evidence for that remaining race.
 GET_RESPONSE_TIMEOUT = 6
 
 
@@ -299,42 +299,6 @@ def dispatch_topic_for(registered_name: str) -> str:
     return opm._dealias_intent_name(registered_name)
 
 
-def make_converse_service(bus: MessageBusClient):
-    """Instantiate the CORE side's own converse pipeline plugin on ``bus``.
-
-    This is real, per-version ``ovos-core`` code — ``ConverseService`` is the
-    plugin ``ovos-core``'s ``IntentService`` actually asks to match converse
-    and get_response candidates — running in the driver process, i.e. under
-    whichever core venv this combo pins. Deciding the match and its topic is
-    left entirely to this object; the driver only forwards ``match.match_type``
-    verbatim afterwards, the same shortcut ``dispatch()`` already takes for
-    intents (``IntentService._dispatch_match`` also forwards verbatim).
-
-    An empty config is deliberate: every knob ``ConverseService`` reads has a
-    sane built-in default (see its own ``self.config.get(..., default)``
-    calls), and pulling a real ``ovos_config.Configuration()`` here would tie
-    this fixture to the driver process's ambient config instead of the
-    throwaway one this suite already builds per-run.
-
-    Imported lazily, like ``core_canonicalizes()`` imports ``ovos_padatious``
-    lazily: ``ovos-core`` is a core-venv-only dependency, and this keeps a
-    bare ``pytest --collect-only`` (no combo selected, no core venv) from
-    failing at collection.
-
-    The constructor signature itself is not stable across the vintages this
-    suite spans: ``ovos-core==1.3.1`` (the "stable" channel pin) takes only
-    ``bus`` and pulls a real ``Configuration()`` internally — no ``config``
-    kwarg exists yet (added later alongside the plugin-pipeline refactor).
-    Probe the real signature rather than assuming one, the same principle
-    ``core_canonicalizes()`` already applies to the padatious fold.
-    """
-    import inspect
-    from ovos_core.intent_services.converse_service import ConverseService
-    if "config" in inspect.signature(ConverseService.__init__).parameters:
-        return ConverseService(bus=bus, config={})
-    return ConverseService(bus=bus)
-
-
 def core_has_pipeline_match_api() -> bool:
     """Whether this core venv's ``ConverseService`` exposes the ``.match()``
     plugin-pipeline API the rest of this module's converse/get_response
@@ -359,114 +323,284 @@ def core_has_pipeline_match_api() -> bool:
     return hasattr(ConverseService, "match")
 
 
-def session_context(session_id: str) -> dict:
-    """Message context carrying the CURRENT live session's full state.
+def core_supports_utterance_dispatch() -> bool:
+    """Whether this core venv's real dispatch path stamps
+    ``session.converse_handlers`` (OVOS-CONVERSE-1 §3.1) on a matched
+    utterance, as opposed to only pushing the older
+    ``session.active_handlers`` recency list (OVOS-PIPELINE-1 §7.1) — the
+    boundary the converse/get_response tests need before they can rely on a
+    real intent dispatch instead of falling back to their
+    ``self.activate()``-only setup.
 
-    This is the fix for a real discovery, not cosmetic: ``SessionManager.
-    _store`` folds an incoming snapshot onto the live singleton by fully
-    rebuilding it from ``other.serialize()``
-    (``Session.update_from``) — a bare ``{"session_id": ...}`` context wipes
-    every other field (``active_skills``, ``response_mode``, ...) back to
-    defaults, it does not merge additively. In a real deployment this is
-    harmless: every message a skill forwards already carries the FULL
-    session forward, because the message that reached the skill in the
-    first place (an intent dispatch, a ``.converse.request``) was built by
-    core code that always serializes the live session onto it (see
-    ``ConverseService.handle_converse``: ``message.context["session"] =
-    session.serialize()`` before it ever reaches the skill). The driver has
-    to reproduce that same discipline for its own trigger messages, or it
-    would be testing an artifact of a thin fixture message, not the real
-    session contract.
+    ``ovos_bus_client.session.Session`` has carried both an
+    ``active_handlers`` and a ``converse_handlers`` field for as long as this
+    combo's venvs go back, so a Session-side ``hasattr`` cannot tell the two
+    apart — the split is enforced by whether the CORE side's real dispatch
+    code actually calls ``Session.add_converse_handler``, not by what the
+    session object it calls it on is capable of. That is a fact about
+    ``IntentService._dispatch_match`` (private, never called by this
+    driver), read directly off its own compiled bytecode's referenced names
+    (``__code__.co_names``) rather than assumed from a version pin or a
+    source-text grep (the latter is exactly what makes the pre-existing adapt
+    M-axis probe fragile) — a real installed-surface fact, just one that
+    lives on a private method instead of a public one.
     """
-    from ovos_bus_client.session import Session, SessionManager
-    session = SessionManager.sessions.get(session_id)
+    try:
+        _spec_message()
+    except RuntimeError:
+        return False
+    from ovos_core.intent_services.service import IntentService
+    return "add_converse_handler" in IntentService._dispatch_match.__code__.co_names
+
+
+def make_intent_service(bus: MessageBusClient):
+    """Instantiate the CORE side's own, real per-version ``IntentService``
+    (``ovos_core.intent_services.service.IntentService``) with its real
+    pipeline plugins (padatious, converse, fallback, stop) loaded — the
+    same installed plugin set a real deployment loads, discovered through
+    ``OVOSPipelineFactory`` exactly the way ``IntentService`` itself does.
+
+    Loading is forced synchronously via a direct call to
+    ``handle_reload_pipelines`` — a normal bus-handler method, public, just
+    invoked directly instead of round-tripping the
+    ``"intent.service.pipelines.reload"`` message it otherwise handles —
+    so every plugin (including the padatious one
+    :func:`dispatch_utterance`'s callers need) is guaranteed loaded by the
+    time this returns, rather than racing that message's own async
+    delivery.
+
+    ``IntentService.__init__`` calls ``SessionManager.connect_to_bus(bus)``,
+    which sets the process-global ``SessionManager.bus`` class attribute —
+    and ``IntentService.shutdown()`` only removes its own bus handlers, never
+    unbinds that class attribute. Left alone, a torn-down instance leaves
+    ``SessionManager.bus`` pointed at this module's already-closed client for
+    every later test module in the same pytest process. Returns
+    ``(service, teardown)``; the caller must call ``teardown()`` (instead of
+    ``service.shutdown()`` directly) once done with the service, which shuts
+    it down and then restores ``SessionManager.bus`` to what it was before
+    this call.
+    """
+    from ovos_bus_client.session import SessionManager
+    from ovos_core.intent_services.service import IntentService
+    prior_bus = SessionManager.bus
+    service = IntentService(bus=bus, config={}, preload_pipelines=False)
+    service.handle_reload_pipelines(Message('intent.service.pipelines.reload'))
+
+    def teardown():
+        service.shutdown()
+        SessionManager.bus = prior_bus
+
+    return service, teardown
+
+
+def register_padatious_intents(intent_service, bus: MessageBusClient,
+                               registrations: "Capture",
+                               timeout: float = SKILL_BOOT_TIMEOUT) -> None:
+    """Give ``intent_service``'s own real padatious pipeline plugin the
+    fixture skill's already-registered intent, and block until it has
+    actually compiled it.
+
+    The fixture skill registered over the wire during the ``stack``
+    fixture's own setup, before this (separately constructed)
+    ``intent_service`` existed to hear it — its real padatious pipeline
+    plugin's container never saw that original broadcast. Replaying the
+    exact real ``"padatious:register_intent"`` message(s) ``registrations``
+    already captured (the actual wire traffic the skill sent, not
+    reconstructed data) is what lets this instance's container learn about
+    it after the fact, the same way any late-joining pipeline consumer
+    would. ``PadatiousPipeline.wait_until_trained`` is the plugin's own
+    documented "test/tooling synchronization helper" for the async
+    compile step that follows — not a private method, and not a poll this
+    driver invented.
+
+    ``wait_until_trained`` itself is a later addition (the vintage this
+    combo's "old-core" boundary pin resolves, ``ovos-padatious==2.0.0a1``,
+    trains fully synchronously inside ``register_intent``'s own handler and
+    has no such method at all): where it is absent, the ``bus.emit`` loop
+    above has already blocked until training finished, so there is nothing
+    left to wait for.
+
+    A no-op if this core has no padatious pipeline plugin loaded (an
+    install gap unrelated to what these tests probe).
+    """
+    padatious = intent_service.pipeline_plugins.get("ovos-padatious-pipeline-plugin")
+    if padatious is None:
+        return
+    for message in registrations.messages:
+        bus.emit(message)
+    if hasattr(padatious, "wait_until_trained"):
+        padatious.wait_until_trained(timeout)
+
+
+def dispatch_utterance(bus: MessageBusClient, topic: str, session_id: str,
+                       utterance: str, lang: str = "en-us",
+                       session: Optional[dict] = None,
+                       timeout: float = DISPATCH_TIMEOUT) -> Optional[dict]:
+    """Send ``utterance`` through the real orchestrator exactly the way a
+    real recognizer would, then read the resulting dispatch off the wire.
+
+    This emits the real ``SpecMessage.UTTERANCE`` topic
+    (``"ovos.utterance.handle"``) that ``IntentService.handle_utterance``
+    — a real bus handler bound in :func:`make_intent_service`, never
+    called directly — already subscribes to, and lets its real installed
+    padatious pipeline plugin match the utterance against the fixture
+    skill's real registered intent (see :func:`register_padatious_intents`
+    for how that plugin's container learns about the registration at
+    all). ``IntentService._dispatch_match`` (private, never called by this
+    driver) is what then performs both OVOS-PIPELINE-1 §7.1's
+    ``active_handlers`` push and OVOS-CONVERSE-1 §3.1's
+    ``converse_handlers`` stamp, and its dispatch Message
+    (``context["session"]`` already carrying both) is what
+    ``IntentDispatcher.dispatch`` puts on ``topic`` verbatim — the same
+    message the real skill handler receives, so capturing it here is real
+    wire evidence that a stamping core's carrier shows ``converse_handlers``
+    directly, needing no separate vintage probe of its own.
+
+    Returns the observed session dict (for the caller to carry forward via
+    :func:`session_context`) on success, or ``None`` on timeout/mismatch
+    (no match, or the matcher picked a different topic than expected).
+    """
+    capture = Capture(bus, topic, session_id=session_id)
+    try:
+        message = Message(_spec_message().UTTERANCE,
+                          {"utterances": [utterance], "lang": lang},
+                          session_context(session_id, session))
+        bus.emit(message)
+        if not capture.wait(timeout):
+            return None
+        return (capture.messages[-1].context or {}).get("session") or {}
+    finally:
+        capture.close()
+
+
+def _handler_skill_ids(session: dict) -> list:
+    """The active skill ids a serialized session carries, spanning both
+    vintages this driver forwards.
+
+    OVOS-PIPELINE-1 §7.1 makes ``active_handlers`` (a list of dispatch
+    records) the canonical field. Older cores (e.g. ``ovos-core==2.5.5a2``,
+    which predates that spec) only ever serialized the legacy
+    ``active_skills`` projection — ``[skill_id, activated_at]`` pairs — so
+    that is read as a fallback, never assumed to be the primary shape.
+    """
+    handlers = session.get("active_handlers")
+    if handlers is not None:
+        return [h.get("skill_id") for h in handlers]
+    return [pair[0] for pair in session.get("active_skills") or []]
+
+
+def session_context(session_id: str, session: Optional[dict] = None) -> dict:
+    """Message context carrying the current session's full state.
+
+    OVOS-SESSION-2 §2.2: "the registry holds only the default session" — a
+    named session (``session_id != "default"``) is client-owned, and the
+    orchestrator keeps no live object for one that a later lookup could
+    recover. This driver plays that client role, so it is the one on the
+    hook for carrying a named session's state forward between messages:
+    ``session`` is whatever a caller last observed on the wire (e.g. via
+    :func:`wait_for_active_skill`), and gets serialized onto the next
+    message verbatim. With no prior state (the first message of a flow),
+    an empty ``Session`` is used instead — there is nothing to carry yet.
+    """
+    from ovos_bus_client.session import Session
     if session is None:
-        # first message of a flow: no state yet, just the id the flow will
-        # accumulate state under from here on.
-        session = Session(session_id=session_id)
-    return {"session": session.serialize()}
+        session = Session(session_id=session_id).serialize()
+    return {"session": session}
 
 
-def wait_for_active_skill(session_id: str, skill_id: str,
-                          timeout: float = DISPATCH_TIMEOUT) -> bool:
-    """Poll the live session until ``skill_id`` shows up as active.
+def wait_for_active_skill(activation: "Capture", skill_id: str,
+                          timeout: float = DISPATCH_TIMEOUT) -> Optional[dict]:
+    """Confirm ``skill_id`` shows up as active, from the wire evidence an
+    already-subscribed ``Capture`` on ``"intent.service.skills.activated"``
+    sees — never a poll of ``SessionManager.sessions``, which OVOS-SESSION-2
+    §2.2 never populates for a named ``session_id``.
 
-    A fixed sleep before calling ``converse_match`` was flaky under load
-    (this suite runs several combos back to back, and CI/dev-machine
-    scheduling jitter is real): ``intent.service.skills.activate`` is a bus
-    round trip like everything else here, so wait for the actual evidence
-    instead of guessing a delay long enough.
+    OVOS-PIPELINE-1 §7.1: "the activation push writes
+    session.active_handlers and that session rides the orchestrator's own
+    emissions" — concretely, ``ConverseService.activate_skill`` forwards the
+    triggering message onto this exact topic with a freshly serialized
+    session in its context (``ovos_core.intent_services.converse_service``).
+    That forwarded message is the real evidence; ``activation`` must already
+    be subscribed *before* the action that triggers it (same requirement as
+    every other ``Capture`` in this module), or the emission can be missed
+    entirely.
+
+    Returns the observed session dict (for the caller to carry forward via
+    :func:`session_context`) on success, or ``None`` on timeout/mismatch.
+
+    This is a dispatch-recency check only (``active_handlers``, OVOS-
+    PIPELINE-1 §7.1's own field). It says nothing about converse
+    eligibility (``converse_handlers``, OVOS-CONVERSE-1 §2.1) — that is a
+    genuinely separate list, stamped only by a real intent dispatch
+    (:func:`dispatch_utterance`), never by ``self.activate()`` alone. On a
+    core new enough to keep the two lists apart
+    (:func:`core_supports_utterance_dispatch`), this helper's
+    ``self.activate()``-only path is not sufficient converse-candidacy
+    setup by itself; see the two tests that use it for how each vintage is
+    set up.
     """
-    from ovos_bus_client.session import SessionManager
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        session = SessionManager.sessions.get(session_id)
-        if session is not None and skill_id in [s[0] for s in session.active_skills]:
-            return True
-        time.sleep(0.05)
-    return False
+    if not activation.wait(timeout):
+        return None
+    session = (activation.messages[-1].context or {}).get("session") or {}
+    if skill_id not in _handler_skill_ids(session):
+        return None
+    return session
 
 
-def wait_for_response_mode(session_id: str, skill_id: str,
-                           timeout: float = DISPATCH_TIMEOUT) -> bool:
-    """Poll the live session until ``skill_id`` is the response-mode holder.
+def wait_for_response_mode(enabled: "Capture", skill_id: str, session: dict,
+                           timeout: float = DISPATCH_TIMEOUT) -> Optional[dict]:
+    """Confirm ``skill_id`` entered response-mode, from the wire evidence an
+    already-subscribed ``Capture`` on ``GET_RESPONSE_ENABLE_TOPIC`` sees —
+    never a poll of ``SessionManager.sessions`` (OVOS-SESSION-2 §2.2: never
+    populated for a named ``session_id``). Returns the session dict with
+    response-mode applied (for the caller to carry forward via
+    :func:`session_context`/:func:`converse_match`), or ``None`` on
+    timeout/mismatch.
 
-    Same rationale as :func:`wait_for_active_skill`: real evidence instead
-    of a fixed sleep ahead of a real ``get_response`` enable round trip.
-
-    Session's response-mode storage is not the same shape across every
-    ``ovos-bus-client`` this suite pairs a core venv with: the structured
-    single-holder ``response_mode`` dict (OVOS-CONVERSE-1 §2.2) is a later
-    field. The "testing" distro channel's core pin resolves
-    ``ovos-bus-client==1.5.0``, old enough that ``Session`` has no
-    ``response_mode`` attribute at all — only the older ``utterance_states``
-    dict (``{skill_id: "RESPONSE"}``), which ``enable_response_mode`` still
-    writes on that vintage. Check for the real attribute rather than
-    assuming the new shape, same principle as
-    ``core_has_pipeline_match_api()``.
+    ``ConverseService.handle_get_response_enable``'s own mutation lands on a
+    transient ``Session`` built from whatever the enable message carried,
+    and is discarded once the handler returns — nothing derives a reply or
+    forward from it, so unlike activation (§7.1's ``active_handlers`` push,
+    which does ride a real forwarded message) there is no further wire
+    carrier proving what the mutated state became. Once the enable message
+    itself (the trigger for that mutation) is confirmed on the wire, this
+    driver — playing the session-owning client OVOS-SESSION-2 assumes —
+    applies the exact same real, per-version ``Session.enable_response_mode``
+    the handler just ran, onto its own already-observed copy of the session
+    (``session``, from :func:`wait_for_active_skill`), so the state carried
+    forward next is what the real handler would have produced, not a
+    codepath this driver invented independently.
     """
-    from ovos_bus_client.session import SessionManager
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        session = SessionManager.sessions.get(session_id)
-        if session is not None:
-            response_mode = getattr(session, "response_mode", None)
-            if response_mode and response_mode.get("skill_id") == skill_id:
-                return True
-            if not hasattr(session, "response_mode"):
-                # pre-OVOS-CONVERSE-1 Session: utterance_states is a plain
-                # dict, not the modern derived view. UtteranceState.RESPONSE
-                # serializes to the lowercase string "response" on this
-                # vintage (checked directly against ovos-bus-client==1.5.0's
-                # installed source) — not the class attribute name.
-                states = getattr(session, "utterance_states", {}) or {}
-                if states.get(skill_id) == "response":
-                    return True
-        time.sleep(0.05)
-    return False
+    from ovos_bus_client.session import Session
+    if not enabled.wait_for_count(1, timeout):
+        return None
+    if enabled.messages[-1].data.get("skill_id") != skill_id:
+        return None
+    updated = Session.deserialize(session)
+    updated.enable_response_mode(skill_id)
+    return updated.serialize()
 
 
-def converse_match(converse_service, utterances, lang: str, session_id: str):
+def converse_match(converse_service, utterances, lang: str, session_id: str,
+                   session: Optional[dict] = None):
     """Ask the real converse service to match, the way ``IntentService`` would
     before falling through to intent matching.
 
     Returns the ``IntentHandlerMatch`` (or ``None``) straight from the real
     per-version core code — nothing here decides the topic.
 
-    Deliberately does NOT build a message carrying only ``{"session_id":
-    session_id}``: ``SessionManager._store`` folds an incoming snapshot onto
-    the live singleton with *last-writer-wins* semantics
-    (``Session.update_from``), so a bare session_id snapshot — the same
-    shorthand ``dispatch()`` uses for the stateless intent-dispatch case —
-    would silently reset ``active_skills``/response-mode back to empty right
-    before ``.match()`` reads them. This pulls the live, already-mutated
-    session (the one ``handle_activate_skill_request`` /
-    ``handle_get_response_enable`` updated in place) and serializes ITS
-    current state onto the outbound message instead.
+    OVOS-SESSION-2 §2.2 gives the orchestrator no live named-session object
+    to read back, so ``session`` must be whatever the caller already
+    observed on the wire (see :func:`wait_for_active_skill`) — the same
+    discipline :func:`session_context` documents. A bare ``{"session_id":
+    session_id}`` snapshot — the shorthand ``dispatch()`` uses for the
+    stateless intent-dispatch case — would build a session with no active
+    skills/response-mode at all, and ``.match()`` would find nothing to
+    converse with.
     """
     message = Message("recognizer_loop:utterance",
                       {"utterances": utterances, "lang": lang},
-                      session_context(session_id))
+                      session_context(session_id, session))
     return converse_service.match(utterances, lang, message)
 
 
@@ -761,6 +895,16 @@ class Capture:
             return
         self.messages.append(message)
         self._seen.set()
+
+    def reset(self) -> None:
+        """Clear captured messages and rearm :meth:`wait` together.
+
+        Clearing ``messages`` alone leaves ``_seen`` set from whatever already
+        landed, so a caller retrying after this would see :meth:`wait` return
+        immediately without the new message it is actually waiting for.
+        """
+        self.messages = []
+        self._seen.clear()
 
     def wait(self, timeout: float = DISPATCH_TIMEOUT) -> bool:
         return self._seen.wait(timeout)
