@@ -334,10 +334,10 @@ mkvenv_channel() {
 # vintage needs the exact spec-tools release it was validated against, not
 # merely one that still has the names it references. A ceiling
 # (spec-tools<1.11.0a2, dodging spec-tools#138's removal of
-# SpecMessage.SESSION_SYNC in that release) still floats onto 1.11.0a1, whose
-# SessionManager dropped ``_store`` again independently -- confirmed:
-# ovos_spec_tools.session.SessionManager has no ``_store`` at 1.11.0a1 but
-# does at 1.10.0a1. ovos-utils and ovos-plugin-manager are unpinned
+# SpecMessage.SESSION_SYNC in that release) still floats onto 1.11.0a1, which
+# has no ``_store`` either: it was removed in 1.10.1a1, so 1.10.0a1 is the
+# last release that has it and no ceiling short of an exact pin is safe
+# here. ovos-utils and ovos-plugin-manager are unpinned
 # transitive deps of the same bus-client/core vintage and drift the same way
 # (uv resolved ovos-utils==0.14.2a1 and ovos-plugin-manager==2.12.0a1 here on
 # 2026-09-06, both newer than what the last green run of these cells
