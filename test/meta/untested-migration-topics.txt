@@ -19,7 +19,6 @@ mycroft.stop
 recognizer_loop:record_begin
 recognizer_loop:record_end
 recognizer_loop:sleep
-recognizer_loop:utterance
 skill.stop.pong
 speak:b64_audio
 speak:b64_audio.response
