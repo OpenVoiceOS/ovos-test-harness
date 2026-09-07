@@ -225,12 +225,17 @@ class TestE2EKeywordConstraints(TestCase):
             wait_ready(cls._mc, settle=1.0)
 
             # vocabularies
-            register_adapt_vocab(cls._mc.bus, "SetKeyword", ["set", "change"])
+            register_adapt_vocab(cls._mc.bus, "SetKeyword", ["set", "change"],
+                                 skill_id="intent3.skill")
             register_adapt_vocab(cls._mc.bus, "BrightnessKeyword",
-                                 ["brightness", "light level"])
-            register_adapt_vocab(cls._mc.bus, "UpKeyword", ["up", "higher"])
-            register_adapt_vocab(cls._mc.bus, "DownKeyword", ["down", "lower"])
-            register_adapt_vocab(cls._mc.bus, "QuestionKeyword", ["what is", "how"])
+                                 ["brightness", "light level"],
+                                 skill_id="intent3.skill")
+            register_adapt_vocab(cls._mc.bus, "UpKeyword", ["up", "higher"],
+                                 skill_id="intent3.skill")
+            register_adapt_vocab(cls._mc.bus, "DownKeyword", ["down", "lower"],
+                                 skill_id="intent3.skill")
+            register_adapt_vocab(cls._mc.bus, "QuestionKeyword", ["what is", "how"],
+                                 skill_id="intent3.skill")
 
             cls._intent = "set_brightness"
             builder = (IntentBuilder(cls._intent)
@@ -238,7 +243,7 @@ class TestE2EKeywordConstraints(TestCase):
                        .require("BrightnessKeyword")
                        .one_of("UpKeyword", "DownKeyword")
                        .exclude("QuestionKeyword"))
-            register_adapt_intent(cls._mc.bus, builder)
+            register_adapt_intent(cls._mc.bus, builder, skill_id="intent3.skill")
             time.sleep(1.5)
         except BaseException:
             reset_namespace()
@@ -325,7 +330,7 @@ class TestE2ETemplateGeneralizes(TestCase):
                 "play {query}",
                 "put on {query}",
                 "i want to listen to {query}",
-            ])
+            ], skill_id="intent3.skill")
             time.sleep(1.5)
         except BaseException:
             reset_namespace()

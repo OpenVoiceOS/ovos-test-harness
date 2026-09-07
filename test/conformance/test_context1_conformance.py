@@ -607,7 +607,8 @@ class TestSec7ContextSuppliedSlot(TestCase):
         names a slot is promoted into ``Match.slots`` on the dispatch, keyed
         unprefixed. MUST."""
         register_padatious_intent(_MC.bus, GATED_INTENT,
-                                  ["how tall is the person", "tell me about them"])
+                                  ["how tall is the person", "tell me about them"],
+                                  skill_id=GATED_INTENT.split(":")[0])
         time.sleep(1)
         ic = {"person": _entry("Bob", turns_remaining=3)}  # shared
         recs = capture(_MC, utterance("how tall is the person", "ic-slot",
