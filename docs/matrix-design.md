@@ -201,6 +201,18 @@ and axis pruning does not apply.
    mislabeled or unwired cell fails loudly instead of silently agreeing with
    whatever the fixture expects.
 
+A probe that decides whether a check runs — a `hasattr` gate, a version
+feature-detect, anything a test calls before deciding to skip — is asserted
+at the end of the vintage range where its answer is known, not left as a
+skip condition alone. The cell whose vintage guarantees the capability is
+present asserts the probe is `True`; the cells on the other side of the
+boundary keep skipping, since the probe is genuinely expected `False` there
+and asserting it would just restate the boundary. A probe with only a skip
+side and no assertion side goes wrong the same way a mislabeled cell does,
+except quieter: a renamed or dropped symbol turns every guarded cell into a
+skip instead of a failure, and a matrix that only ever skips more looks
+identical to one that is working.
+
 ## §2.6 — the audio axis uses a simulator, not real `ovos-audio`
 
 Standing up real `ovos-audio` needs a TTS plugin and a sound device.
