@@ -362,11 +362,24 @@ _NM = None
 
 
 def _gui_service():
-    """The shared module-level NamespaceManager, built once on a FakeBus."""
+    """The shared module-level NamespaceManager, built once on a FakeBus.
+
+    NamespaceManager binds the backend GUI websocket on construction. The port
+    is bound to 0 so the OS assigns a free one: the fixed configured port
+    collides with anything else already listening on this host (another test
+    run, a stray service), and the collision surfaces as an unrelated
+    ``OSError: [Errno 98]`` that stops these cells running at all.
+    """
     global _NM
     if _NM is None:
-        from ovos_gui.namespace import NamespaceManager
-        _NM = NamespaceManager(FakeBus())
+        from unittest import mock
+        from ovos_gui import bus as _gui_bus
+        cfg = dict(_gui_bus.get_gui_websocket_config())
+        cfg["base_port"] = 0
+        with mock.patch.object(_gui_bus, "get_gui_websocket_config",
+                               return_value=cfg):
+            from ovos_gui.namespace import NamespaceManager
+            _NM = NamespaceManager(FakeBus())
     return _NM
 
 
