@@ -1,0 +1,175 @@
+Using Python 3.14.6 environment at: .venv-conf
+   Updating https://github.com/TigreGotico/kw-template-matcher (dev)
+   Updating https://github.com/OpenVoiceOS/ovos-skill-parrot (dev)
+    Updated https://github.com/TigreGotico/kw-template-matcher (e798c789f21574f463be821b03bbdca120e72726)
+    Updated https://github.com/OpenVoiceOS/ovos-skill-parrot (a93ae87f08f728f4d3fc772646402b1206da21d4)
+Resolved 134 packages in 2.71s
+   Building ovos-skill-parrot @ git+https://github.com/OpenVoiceOS/ovos-skill-parrot@a93ae87f08f728f4d3fc772646402b1206da21d4
+      Built ovos-skill-parrot @ git+https://github.com/OpenVoiceOS/ovos-skill-parrot@a93ae87f08f728f4d3fc772646402b1206da21d4
+Prepared 1 package in 316ms
+Installed 134 packages in 594ms
+ + ahocorasick-ner==0.3.1a1 (from git+https://github.com/TigreGotico/ahocorasick-ner@eba34d778aa50e285fcf159daf5f4ade95a58472)
+ + annotated-types==0.8.0
+ + anyio==4.15.1
+ + audioop-lts==0.2.2
+ + certifi==2026.7.22
+ + charset-normalizer==3.5.1
+ + chronologia==0.29.11a2
+ + click==8.5.0
+ + cloudpickle==3.1.2
+ + combo-lock==0.3.1
+ + dateparser==1.4.3
+ + dbus-next==0.2.3
+ + filelock==3.32.6
+ + flatbuffers==25.12.19
+ + fsspec==2026.7.0
+ + ftfy==6.3.1
+ + h11==0.16.0
+ + hf-xet==1.6.1a0
+ + httpcore==1.0.9
+ + httpx==0.28.1
+ + huggingface-hub==1.30.0
+ + idna==3.19
+ + iniconfig==2.3.0
+ + jinja2==3.1.6
+ + joblib==1.6.0
+ + json-database==1.0.4a1
+ + keyword-template-matcher==0.1.7a2 (from git+https://github.com/TigreGotico/kw-template-matcher@e798c789f21574f463be821b03bbdca120e72726)
+ + kthread==0.2.3
+ + langcodes==3.5.1
+ + language-data==1.4.0
+ + linha-fina==0.4.1a3 (from git+https://github.com/OpenVoiceOS/linha-fina@3ebc5d0a01ebb9bc5d4d37a771d0a23667849565)
+ + marisa-trie==1.4.1
+ + markdown-it-py==4.2.0
+ + markovonnx==1.0.2a1
+ + markupsafe==3.0.3
+ + mdurl==0.1.2
+ + mediavocab==1.3.0a3
+ + memory-tempfile==2.2.3
+ + ml-dtypes==0.6.0
+ + model2vec==0.9.0
+ + narwhals==2.26.0
+ + nebulento==0.10.3a1 (from git+https://github.com/OpenVoiceOS/nebulento@afc4bf1a5be122f6f6ed7f4ea72993c59cbbb102)
+ + numpy==2.5.3
+ + onnx==1.23.0rc1
+ + onnxruntime==1.29.0
+ + ovos-adapt-parser==1.6.3a4 (from git+https://github.com/OpenVoiceOS/ovos-adapt-pipeline-plugin@515d9ed97d04d29f5785d30aa3db22f89dda001d)
+ + ovos-audio==2.2.5a1 (from git+https://github.com/OpenVoiceOS/ovos-audio@937294e602b9c77e8eb477179b95dc1df411e4db)
+ + ovos-bidirectional-translation-plugin==0.1.4a2
+ + ovos-bus-client==2.11.15a1
+ + ovos-color-parser==0.12.1a1
+ + ovos-common-query-pipeline-plugin==1.1.15a3 (from git+https://github.com/OpenVoiceOS/ovos-common-query-pipeline-plugin@c60b616b7cfa46203bf1b92e2822888de6ea7702)
+ + ovos-config==2.3.11a2
+ + ovos-core==3.5.2a1 (from git+https://github.com/OpenVoiceOS/ovos-core@31e42a63676d052ccae5524e8e7f3ea39c5e5e1b)
+ + ovos-date-parser==0.31.1a1
+ + ovos-dinkum-listener==0.10.1a1 (from git+https://github.com/OpenVoiceOS/ovos-dinkum-listener@65e2356d5ec53960d595deffc0db507566ee60dc)
+ + ovos-gui==1.5.0a1 (from git+https://github.com/OpenVoiceOS/ovos-gui@4cf9823efb1280a13a8a9270eaf757f967b7fe18)
+ + ovos-gui-api-client==0.1.0
+ + ovos-m2v-pipeline==0.12.4a1 (from git+https://github.com/OpenVoiceOS/ovos-m2v-pipeline@34bfcb27a8955ee89766de215c7d3a359bc3552d)
+ + ovos-markov-pipeline-plugin==0.5.1a1 (from git+https://github.com/OpenVoiceOS/ovos-markov-pipeline-plugin@702fb054066a9883489a2dd848e116d837b492a3)
+ + ovos-media==2.3.0a1
+ + ovos-media-classifier==0.2.1a1
+ + ovos-number-parser==0.20.0a1
+ + ovos-ocp-pipeline-plugin==1.5.0a1 (from git+https://github.com/OpenVoiceOS/ovos-ocp-pipeline-plugin@74ab820b4f75fb12c8484ab5fc2c4566e50343c1)
+ + ovos-openai-plugin==2.0.10a1
+ + ovos-option-matcher-fuzzy-plugin==0.0.2a1
+ + ovos-padatious==2.1.3a1 (from git+https://github.com/OpenVoiceOS/ovos-padatious-pipeline-plugin@01f406a118d3dd51e318cd82f3f2c5d4a5b0d4b0)
+ + ovos-persona==0.9.0a21
+ + ovos-plugin-manager==2.12.1a1
+ + ovos-skill-count==0.2.0a1 (from git+https://github.com/OpenVoiceOS/ovos-skill-count@693272d96966152da74819e7f14040d29c1602f6)
+ + ovos-skill-fallback-unknown==0.2.0a1 (from git+https://github.com/OpenVoiceOS/ovos-skill-fallback-unknown@3a7864f901e67f5f775b409fb6c0775f3cbbd040)
+ + ovos-skill-hello-world==0.2.8a2 (from git+https://github.com/OpenVoiceOS/ovos-skill-hello-world@2c31e2e0227571fd6885a802ecbda0cb87143c62)
+ + ovos-skill-parrot==0.4.0a1 (from git+https://github.com/OpenVoiceOS/ovos-skill-parrot@a93ae87f08f728f4d3fc772646402b1206da21d4)
+ + ovos-solver-failure-plugin==0.0.6a2 (from git+https://github.com/OpenVoiceOS/ovos-solver-failure-plugin@57a0918c3691185712508b253351626c9d695b05)
+ + ovos-spec-tools==1.12.0a1
+ + ovos-translate-server-plugin==0.0.8a3
+ + ovos-typed-slots-transformer==0.0.1a3
+ + ovos-utils==0.15.0a1
+ + ovos-utterance-corrections-plugin==0.1.3a6
+ + ovos-utterance-normalizer==0.2.5a2
+ + ovos-utterance-plugin-cancel==0.3.3a2 (from git+https://github.com/OpenVoiceOS/ovos-utterance-plugin-cancel@0abcebd2ef59839e4be794a3b01e0e50d65d804b)
+ + ovos-workshop==9.7.4a1 (from git+https://github.com/OpenVoiceOS/ovos-workshop@102c7112cd8554a09aa4c9fb1a24846c5d64a011)
+ + ovos-yes-no-plugin==0.4.0a1
+ + ovoscope==1.8.1a1
+ + packaging==26.3
+ + padacioso==2.3.4a1 (from git+https://github.com/OpenVoiceOS/padacioso@e063f0cb8b8e10f694b623b84c2dcd4e3dd89daf)
+ + palavreado==1.7.3a1 (from git+https://github.com/OpenVoiceOS/palavreado@b53541218c942ce7c6184cbcce74153f1e8b610d)
+ + pexpect==4.9.0
+ + pluggy==1.6.0
+ + prettytable==3.18.0
+ + protobuf==7.36.1
+ + ptyprocess==0.7.0
+ + pyahocorasick==2.3.1
+ + pydantic==2.14.0b1
+ + pydantic-core==2.48.0
+ + pyee==12.1.1
+ + pygments==2.21.0
+ + pystemmer==3.1.0
+ + pytest==9.1.1
+ + pytest-json-report==1.5.0
+ + pytest-metadata==3.1.1
+ + pytest-timeout==2.4.0
+ + python-dateutil==2.9.0.post0
+ + pytz==2026.3.post1
+ + pyyaml==6.0.3
+ + quebra-frases==0.3.8a1
+ + rapidfuzz==3.14.6
+ + regex==2026.9.3
+ + requests==2.34.2
+ + rich==13.9.4
+ + rich-click==1.9.9
+ + safetensors==0.8.0
+ + scikit-learn==1.9.0
+ + scipy==1.18.1
+ + sentence-stream==1.3.0
+ + setuptools==84.0.0
+ + simplematch==1.4
+ + six==1.17.0
+ + skops==0.14.0
+ + snowballstemmer==3.1.1
+ + standard-aifc==3.13.0
+ + standard-chunk==3.13.0
+ + threadpoolctl==3.6.0
+ + tokenizers==0.23.2
+ + tornado==6.5.8
+ + tqdm==4.70.0
+ + typing-extensions==4.16.0
+ + typing-inspection==0.4.4
+ + tzlocal==5.4.4
+ + unicode-rbnf==2.4.0
+ + urllib3==2.7.0
+ + watchdog==6.0.0
+ + wcwidth==0.8.3
+ + websocket-client==1.9.2
+ + xxhash==4.0.1
+warning: The package `ovos-core @ git+https://github.com/OpenVoiceOS/ovos-core@31e42a63676d052ccae5524e8e7f3ea39c5e5e1b` does not have an extra named `lgpl`
+    lang = standardize_lang_tag(lang)
+
+test/conformance/test_persona1_conformance.py: 28 warnings
+test/conformance/test_solvers_conformance.py: 28 warnings
+  /home/miro/tmp/bc-harness-051300/.venv-conf/lib/python3.14/site-packages/ovos_persona/__init__.py:204: DeprecationWarning: expand_template is deprecated; import 'expand' from 'ovos_spec_tools' instead
+    samples = flatten_list([expand_template(s) for s in samples])
+
+test/conformance/test_persona1_conformance.py: 20 warnings
+test/conformance/test_solvers_conformance.py: 2 warnings
+  /home/miro/tmp/bc-harness-051300/.venv-conf/lib/python3.14/site-packages/ovos_persona/__init__.py:413: DeprecationWarning: standardize_lang_tag is deprecated; use 'standardize_lang' from 'ovos_spec_tools' instead
+    lang = standardize_lang_tag(lang)
+
+test/conformance/test_persona1_conformance.py::TestSec3PersonaIdField::test_active_persona_id_is_claimed
+test/conformance/test_persona1_conformance.py::TestSec4NoPersonaMode::test_unsupported_persona_id_declines
+test/conformance/test_persona1_conformance.py::TestSec7MatchContract::test_active_persona_claims_neutral_utterance
+test/conformance/test_persona1_conformance.py::TestSec7MatchContract::test_match_lang_is_resolved
+test/conformance/test_persona1_conformance.py::TestSec7MatchContract::test_oneoff_ask_is_claimed_and_answered
+test/conformance/test_persona1_conformance.py::TestSec8Handler::test_handler_speaks_response
+test/conformance/test_persona1_conformance.py::TestSec8Handler::test_handler_terminates_once
+test/conformance/test_solvers_conformance.py::TestPersona1Solver_ovos_solver_failure_plugin::test_active_persona_claims
+test/conformance/test_solvers_conformance.py::TestPersona1Solver_ovos_solver_failure_plugin::test_active_persona_speaks
+  /home/miro/tmp/bc-harness-051300/.venv-conf/lib/python3.14/site-packages/ovos_persona/__init__.py:503: DeprecationWarning: standardize_lang_tag is deprecated; use 'standardize_lang' from 'ovos_spec_tools' instead
+    lang = standardize_lang_tag(lang)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED test/conformance/test_gui1_conformance.py::TestSec32ServiceTemplateGate::test_system_page_is_loaded
+FAILED test/conformance/test_gui1_conformance.py::TestSec83ServiceConformance::test_namespace_removed_emitted_on_clear
+FAILED test/conformance/test_gui1_conformance.py::TestSec83ServiceConformance::test_service_starts_with_zero_adapters
+3 failed, 363 passed, 10 skipped, 34 xfailed, 309 warnings in 413.43s (0:06:53)

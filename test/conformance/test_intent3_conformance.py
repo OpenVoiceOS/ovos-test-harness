@@ -50,6 +50,11 @@ from ovos_spec_tools import IntentBuilder, open_intent_envelope
 _HAS_STACK = importlib.util.find_spec("ovoscope") is not None and \
     importlib.util.find_spec("ovos_workshop") is not None
 
+#: Owner of the Adapt keyword vocabulary and the intent built from it. The
+#: registration helpers stamp it into ``message.context``, which is where the
+#: pipeline reads a registration's provenance from.
+_ADAPT_SKILL_ID = "intent3.skill"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # §3 — Skill and intent identity
@@ -225,12 +230,18 @@ class TestE2EKeywordConstraints(TestCase):
             wait_ready(cls._mc, settle=1.0)
 
             # vocabularies
-            register_adapt_vocab(cls._mc.bus, "SetKeyword", ["set", "change"])
+            register_adapt_vocab(cls._mc.bus, "SetKeyword", ["set", "change"],
+                                 skill_id=_ADAPT_SKILL_ID)
             register_adapt_vocab(cls._mc.bus, "BrightnessKeyword",
-                                 ["brightness", "light level"])
-            register_adapt_vocab(cls._mc.bus, "UpKeyword", ["up", "higher"])
-            register_adapt_vocab(cls._mc.bus, "DownKeyword", ["down", "lower"])
-            register_adapt_vocab(cls._mc.bus, "QuestionKeyword", ["what is", "how"])
+                                 ["brightness", "light level"],
+                                 skill_id=_ADAPT_SKILL_ID)
+            register_adapt_vocab(cls._mc.bus, "UpKeyword", ["up", "higher"],
+                                 skill_id=_ADAPT_SKILL_ID)
+            register_adapt_vocab(cls._mc.bus, "DownKeyword", ["down", "lower"],
+                                 skill_id=_ADAPT_SKILL_ID)
+            register_adapt_vocab(cls._mc.bus, "QuestionKeyword",
+                                 ["what is", "how"],
+                                 skill_id=_ADAPT_SKILL_ID)
 
             cls._intent = "set_brightness"
             builder = (IntentBuilder(cls._intent)
@@ -238,7 +249,8 @@ class TestE2EKeywordConstraints(TestCase):
                        .require("BrightnessKeyword")
                        .one_of("UpKeyword", "DownKeyword")
                        .exclude("QuestionKeyword"))
-            register_adapt_intent(cls._mc.bus, builder)
+            register_adapt_intent(cls._mc.bus, builder,
+                                  skill_id=_ADAPT_SKILL_ID)
             time.sleep(1.5)
         except BaseException:
             reset_namespace()
@@ -321,11 +333,12 @@ class TestE2ETemplateGeneralizes(TestCase):
             cls._mc = get_minicroft([])
             wait_ready(cls._mc, settle=1.0)
             cls._intent = "intent3.skill:play_music"
-            register_padatious_intent(cls._mc.bus, cls._intent, [
-                "play {query}",
-                "put on {query}",
-                "i want to listen to {query}",
-            ])
+            register_padatious_intent(
+                cls._mc.bus, cls._intent,
+                ["play {query}",
+                 "put on {query}",
+                 "i want to listen to {query}"],
+                skill_id=cls._intent.split(":")[0])
             time.sleep(1.5)
         except BaseException:
             reset_namespace()

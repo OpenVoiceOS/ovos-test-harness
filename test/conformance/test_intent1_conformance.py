@@ -423,7 +423,8 @@ class TestE2EExpansionDrivesMatch(TestCase):
             # utterance we will send (§4.2-style expansion → samples).
             cls._intent = "intent1.skill:lights"
             cls._samples = expand("(turn on|switch on) [the] lights")
-            register_padatious_intent(cls._mc.bus, cls._intent, cls._samples)
+            register_padatious_intent(cls._mc.bus, cls._intent, cls._samples,
+                                      skill_id=cls._intent.split(":")[0])
             time.sleep(1.5)
         except BaseException:
             reset_namespace()
