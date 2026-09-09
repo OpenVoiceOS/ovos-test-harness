@@ -102,7 +102,14 @@ class TestCoreFallbackEmitSpelling(unittest.TestCase):
 class TestCanonicalPingReachesLegacyOnlySubscriber(unittest.TestCase):
     """Bridge test — independent of core's current emit. Emits the canonical
     spelling explicitly and requires the wire twin to deliver it to a legacy-only
-    subscriber. HELD in the matrix pending the ovoscope keep-src fix."""
+    subscriber. HELD in the matrix pending the ovoscope keep-src fix.
+
+    A red from this test is FUTURE-DECISION EVIDENCE, NOT A LIVE OUTAGE: ovos-core
+    emits the legacy spelling today (see TestCoreFallbackEmitSpelling), so fallback
+    is live-safe now regardless of the flag. A zero-pong red means only that IF core
+    switches its emit to the canonical spelling, a flag-off deployment would lose
+    fallback for every legacy-only skill absent workshop dual-binding. Read it as
+    input to the core-emit-switch decision, never as an active fallback failure."""
 
     def setUp(self):
         self.bus = FakeBus()
@@ -130,8 +137,9 @@ class TestCanonicalPingReachesLegacyOnlySubscriber(unittest.TestCase):
         # legacy-only skill absent workshop dual-binding.
         self.assertEqual(
             len(self.pongs), 1,
-            f"[{position}] canonical ping produced {len(self.pongs)} pongs "
-            f"(expected exactly 1 via the wire twin); "
-            f"{'zero = the twin did not deliver, fallback silent' if not self.pongs else 'more than one = doubled'}")
+            f"[{position}] FUTURE-DECISION EVIDENCE, NOT A LIVE OUTAGE "
+            f"(core emits the legacy spelling today, so fallback is live-safe now): "
+            f"canonical ping produced {len(self.pongs)} pongs (expected 1 via the wire twin); "
+            f"{'zero means flag-off + core-canonical would break fallback for every legacy-only skill absent workshop dual-binding' if not self.pongs else 'more than one = doubled'}")
         self.assertEqual(self.pongs[0].data.get("skill_id"), "legacy.fallback.test")
         self.assertTrue(self.pongs[0].data.get("can_handle"))
