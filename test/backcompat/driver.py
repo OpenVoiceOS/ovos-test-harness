@@ -26,6 +26,7 @@ from ovos_bus_client.client import MessageBusClient
 from ovos_bus_client.message import Message
 
 SKILL_ID = "backcompat.mixed.test"
+FALLBACK_SKILL_ID = "backcompat.fallback.test"
 INTENT_FILE = "food.order.intent"
 LEGACY_TOPIC = f"{SKILL_ID}:{INTENT_FILE}"
 CANONICAL_TOPIC = f"{SKILL_ID}:food.order"
@@ -721,6 +722,58 @@ class BusServer:
                     os.environ.pop("OVOS_BUS_MODERNIZE", None)
                 else:
                     os.environ["OVOS_BUS_MODERNIZE"] = prev_modernize
+
+    def stop(self):
+        self.proc.terminate()
+        try:
+            self.proc.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+
+
+FALLBACK_SCRIPT = os.path.join(HERE, "fallback_process.py")
+
+
+class FallbackProcess:
+    """A real FallbackSkill running in another venv, on the shared bus.
+
+    Same shape as :class:`SkillProcess`: the venv decides the vintage, and the
+    child reports what it bound and what it resolved rather than being told.
+    """
+
+    def __init__(self, python: str, xdg: str, skill_id: str = FALLBACK_SKILL_ID):
+        env = dict(os.environ, XDG_CONFIG_HOME=xdg,
+                   BACKCOMPAT_SKILL_ID=skill_id, PYTHONUNBUFFERED="1")
+        self.skill_id = skill_id
+        self.lines = []
+        self.bound_topics = []
+        self.versions = {}
+        self.proc = subprocess.Popen(
+            [python, FALLBACK_SCRIPT], stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, env=env)
+        self._wait_ready()
+
+    def _wait_ready(self):
+        deadline = time.time() + SKILL_BOOT_TIMEOUT
+        while time.time() < deadline:
+            line = self.proc.stdout.readline()
+            if not line:
+                if self.proc.poll() is not None:
+                    raise RuntimeError(
+                        "fallback skill died before registering:\n" + self.log)
+                continue
+            self.lines.append(line.rstrip())
+            if line.startswith("BOUND_TOPICS "):
+                self.bound_topics = json.loads(line[len("BOUND_TOPICS "):])
+            if line.startswith("VERSIONS "):
+                self.versions = json.loads(line[len("VERSIONS "):])
+            if line.startswith("SKILL_READY"):
+                return
+        raise RuntimeError(f"fallback skill never reported ready:\n{self.log}")
+
+    @property
+    def log(self) -> str:
+        return "\n".join(self.lines)
 
     def stop(self):
         self.proc.terminate()
