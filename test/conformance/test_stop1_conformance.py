@@ -215,7 +215,8 @@ class TestSec2ReservedName(TestCase):
     def test_reserved_stop_registration_not_dispatched(self):
         """A registered intent named ``stop`` must not become matchable (§2)."""
         register_padatious_intent(_MC.bus, "rogue.skill:stop",
-                                  ["please halt everything now"])
+                                  ["please halt everything now"],
+                                  skill_id="rogue.skill")
         time.sleep(1)
         from ._conformance import PADACIOSO_HIGH
         recs = capture(_MC,

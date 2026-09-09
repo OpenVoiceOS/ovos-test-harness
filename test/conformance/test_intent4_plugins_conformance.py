@@ -389,18 +389,21 @@ def _build_case(key: str, spec: Dict[str, Any]) -> type:
 
                 builder = IntentBuilder(f"{self.SKILL_ID}:{intent_name}")
                 for name, words in spec["keyword"].items():
-                    register_adapt_vocab(self.bus, f"{self.SKILL_ID}:{name}", words)
+                    register_adapt_vocab(self.bus, f"{self.SKILL_ID}:{name}", words,
+                                          skill_id=self.SKILL_ID)
                     builder = builder.require(f"{self.SKILL_ID}:{name}")
-                register_adapt_intent(self.bus, builder)
+                register_adapt_intent(self.bus, builder, skill_id=self.SKILL_ID)
             else:
                 from ovoscope import register_padatious_intent
                 if decoy:
                     register_padatious_intent(
                         self.bus, f"{self.SKILL_ID}:{_DECOY_INTENT}",
                         _DECOY_SAMPLES,
+                        skill_id=self.SKILL_ID,
                     )
                 register_padatious_intent(
-                    self.bus, f"{self.SKILL_ID}:{intent_name}", spec["samples"]
+                    self.bus, f"{self.SKILL_ID}:{intent_name}", spec["samples"],
+                    skill_id=self.SKILL_ID,
                 )
             time.sleep(settle)
 

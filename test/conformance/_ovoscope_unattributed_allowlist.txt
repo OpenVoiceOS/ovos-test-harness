@@ -1,0 +1,3 @@
+# Deliberate unattributed ovoscope call-sites (rejection-path tests only).
+# Format: <path-relative-to-test/>:<lineno>  # reason
+# Empty: every ovoscope registration call-site under test/ passes skill_id.

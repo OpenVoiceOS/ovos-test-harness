@@ -124,7 +124,7 @@ class _IsolatedRegistrations(TestCase):
     def register_working(self):
         """Register the class's intent through the mechanism ovos-core already
         supports, so a removal clause has something real to remove."""
-        register_padatious_intent(_MC.bus, self.intent, self.samples)
+        register_padatious_intent(_MC.bus, self.intent, self.samples, skill_id=self.skill_id)
         time.sleep(1.5)
 
     def emit(self, topic: str, data: dict):
@@ -352,7 +352,7 @@ class TestSec83EntityDeregister(TestCase):
 
     def test_spec_entity_deregister_no_error(self):
         """A spec-topic entity deregister is consumed without an error event (§8.3)."""
-        register_padatious_entity(_MC.bus, ENTITY_NAME, ENTITY_SAMPLES)
+        register_padatious_entity(_MC.bus, ENTITY_NAME, ENTITY_SAMPLES, skill_id="intent4.skill")
         time.sleep(1.0)
         recs = capture(_MC, Message("ovos.entity.deregister", {
             "skill_id": ENTITY_NAME.split(":")[0],
