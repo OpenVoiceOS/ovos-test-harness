@@ -22,3 +22,13 @@ recognizer_loop:sleep
 skill.stop.pong
 speak:b64_audio
 speak:b64_audio.response
+
+# Pending back-compat coverage — owner: harness lane. Real fix is driven cells
+# under test/backcompat/, not this list. These four are the FALLBACK-1 wire
+# twins (backcompat owns that surface); ping and pong build on the wire twin in
+# ovos-test-harness#64. Each self-flips to a hard failure here the day a cell
+# names both spellings, which forces its removal.
+ovos.skills.fallback.register
+ovos.skills.fallback.deregister
+ovos.skills.fallback.ping
+ovos.skills.fallback.pong
