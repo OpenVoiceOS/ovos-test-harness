@@ -364,6 +364,56 @@ jobs:
           path: backcompat-findings-*.json
           if-no-files-found: warn
 
+  two-vintages:
+    # Two skill containers of different vintages on ONE bus. The cell matrix
+    # above crosses a single skill axis, so it can only ever have one skill
+    # container attached at a time; this job is the case where an old one and
+    # a new one are both there, which is the ordinary deployment shape.
+    #
+    # It needs no core venv: the test drives the dispatch onto the bus itself,
+    # which is what a core does, so the only venvs are the two skill
+    # containers plus a small driver venv holding the bus and pytest.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build the two skill containers
+        env:
+          BACKCOMPAT_PYTHON: "3.11"
+        run: |
+          chmod +x test/backcompat/build_venvs.sh
+          test/backcompat/build_venvs.sh "$RUNNER_TEMP/venvs" venv_skill_testing venv_skill_new
+
+      - name: Build the driver venv
+        run: |
+          uv venv --python 3.11 "$RUNNER_TEMP/driver"
+          VIRTUAL_ENV="$RUNNER_TEMP/driver" uv pip install --quiet --prerelease=allow \
+            ovos-messagebus ovos-bus-client pytest pytest-timeout
+
+      - name: Record the resolved versions
+        run: |
+          for v in "$RUNNER_TEMP"/venvs/venv_skill_new "$RUNNER_TEMP"/venvs/channel/venv_skill_testing; do
+            echo "== $(basename "$v")"
+            uv pip freeze --python "$v/bin/python" | grep -E '^ovos-(workshop|bus-client|spec-tools)='
+          done
+
+      - name: Run the two-vintage cells
+        run: |
+          export BACKCOMPAT_SKILL_PYTHON_OLD="$RUNNER_TEMP/venvs/channel/venv_skill_testing/bin/python"
+          export BACKCOMPAT_SKILL_PYTHON_NEW="$RUNNER_TEMP/venvs/venv_skill_new/bin/python"
+          "$RUNNER_TEMP/driver/bin/pytest" \
+            test/backcompat/test_two_skill_vintages.py -v --tb=short -rxX \
+            --timeout=300 --timeout-method=thread
+
   summarize:
     needs: [generate-matrix, matrix]
     if: always()
