@@ -107,7 +107,7 @@ if grep -qxF ovoscope "$PLAN/covered.txt"; then
   echo "==> [5/4] ovoscope: $CHANNEL pins its own (already installed under -c)"
 else
   echo "==> [5/4] ovoscope (unpinned on $CHANNEL — the harness's own driver, own floor)"
-  "${PIP[@]}" --no-deps --pre "ovoscope>=1.6.23a1"
+  "${PIP[@]}" --no-deps --pre "ovoscope>=1.8.1a1"
 fi
 
 echo
