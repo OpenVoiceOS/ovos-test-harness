@@ -88,7 +88,7 @@ class TestSec2Envelope(TestCase):
                "top-level keys it does not know MUST NOT reject the Message on "
                "that ground alone, and MUST ignore those keys. "
                "The reference envelope rejects unknown top-level keys.",
-        strict=False,
+        strict=True,
     )
     def test_unknown_top_level_key_ignored(self):
         """§2: "A consumer that receives a Message carrying top-level keys it
@@ -105,13 +105,14 @@ class TestSec2Envelope(TestCase):
         reason="OVOS-MSG-1 §2 MUST: a consumer MUST NOT reject a Message over "
                "an unknown top-level key and MUST ignore it. The reference "
                "envelope rejects unknown top-level keys.",
-        strict=False,
+        strict=True,
     )
     def test_reference_ignores_unknown_top_level_key(self):
         """§2 cross-check: the reference envelope MUST ignore an unknown
         top-level key rather than reject the Message. MUST."""
         m = RefMessage.deserialize(json.dumps({"type": "a.b", "extra": 1}))
         self.assertEqual(m.msg_type, "a.b")
+        self.assertNotIn("extra", json.loads(m.serialize()))
 
 
 class TestSec21Type(TestCase):
