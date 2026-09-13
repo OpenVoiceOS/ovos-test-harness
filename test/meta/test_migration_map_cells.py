@@ -26,16 +26,18 @@ ALLOWLIST = HERE / "untested-migration-topics.txt"
 _PENDING_NOTE = {
     "ovos.skills.fallback.register":
         "FALLBACK-1 registry twin (backcompat's wire surface); "
-        "real cell tracked with ovos-test-harness#64.",
+        "no back-compat cell drives it yet.",
     "ovos.skills.fallback.deregister":
         "FALLBACK-1 registry twin (backcompat's wire surface); "
-        "real cell tracked with ovos-test-harness#64.",
+        "no back-compat cell drives it yet.",
     "ovos.skills.fallback.ping":
-        "FALLBACK-1 ping twin (backcompat's wire surface); "
-        "builds on ovos-test-harness#64's fallback-ping wire twin.",
+        "FALLBACK-1 ping twin (backcompat's wire surface); no back-compat "
+        "cell drives it yet. ovos-test-harness#64 adds a conformance test "
+        "(test/conformance), which this meta test does not count.",
     "ovos.skills.fallback.pong":
-        "FALLBACK-1 pong twin (backcompat's wire surface); "
-        "builds on ovos-test-harness#64's fallback-ping wire twin.",
+        "FALLBACK-1 pong twin (backcompat's wire surface); no back-compat "
+        "cell drives it yet. ovos-test-harness#64 adds a conformance test "
+        "(test/conformance), which this meta test does not count.",
 }
 
 #: The pending-coverage set is pinned so it can only shrink. Raising this bound

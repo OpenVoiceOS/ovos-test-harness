@@ -127,8 +127,11 @@ ovoscope>=1.6.23a1
 git+https://github.com/OpenVoiceOS/ovos-gui@dev
 # published spec vocabulary. Floor bumped: the ovos-bus-client #324 fix needs
 # SessionManager.bind (landed 1.10.4a1) and the public resolve_session_id
-# (1.10.3a1+); see the ovos-bus-client pin above.
-ovos-spec-tools>=1.10.4a1
+# (1.10.3a1+); see the ovos-bus-client pin above. 1.12.0a1 is the first release
+# whose MIGRATION_MAP carries the four OVOS-FALLBACK-1 renames: test/meta's
+# pending-coverage list names them, and its stale guard fails on any older map.
+# No channel constraints file pins spec-tools, so this floor applies everywhere.
+ovos-spec-tools>=1.12.0a1
 # transformer runner services under test (TRANSFORM-1). Most of that suite
 # drives ovos_plugin_manager.transformer_services directly, so the floor is
 # explicit rather than left to transitive resolution: >=2.11.6a1 is the
