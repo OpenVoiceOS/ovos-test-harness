@@ -229,6 +229,23 @@ class TestSec43ControlRequests(TestCase):
 # §4.4 — State reports
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _wait_for(session, msg_type, timeout=5.0):
+    """Wait until *session* has captured *msg_type*, or *timeout* seconds pass.
+
+    ``OCPPlayerHarness.play`` returns after a fixed 50 ms sleep. The player's
+    first ``player.state`` report can arrive later than that when it is the
+    first play in the process (the player still loads), and the capture
+    session closes at the end of the ``with`` block. Without this wait the
+    report is missed and the assertion reads an empty capture. The assertion
+    itself is unchanged.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if any(m.msg_type == msg_type for m in session.messages):
+            return
+        time.sleep(0.02)
+
+
 @_requires_player
 class TestSec44StateReports(TestCase):
     """§4.4: the player MUST announce state transitions so consumers stay
@@ -242,6 +259,7 @@ class TestSec44StateReports(TestCase):
                 h.bus, track_prefixes=["ovos.common_play.player.state"]
             ) as s:
                 h.play(_entry())
+                _wait_for(s, "ovos.common_play.player.state")
             self.assertTrue(
                 any(m.msg_type == "ovos.common_play.player.state"
                     for m in s.messages),
@@ -254,6 +272,7 @@ class TestSec44StateReports(TestCase):
                 h.bus, track_prefixes=["ovos.common_play.player.state"]
             ) as s:
                 h.play(_entry())
+                _wait_for(s, "ovos.common_play.player.state")
             msg = next((m for m in s.messages
                         if m.msg_type == "ovos.common_play.player.state"), None)
             self.assertIsNotNone(msg)
