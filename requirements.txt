@@ -118,8 +118,12 @@ git+https://github.com/OpenVoiceOS/ovos-ocp-pipeline-plugin@dev
 # runs this same floor). The floor covers the extra_pipelines= lean-boot
 # opt-in (>=1.6.17a1, see test_common_query1_conformance.py /
 # test_persona1_conformance.py / test_solvers_conformance.py) plus the
-# None-iter-guard fix.
-ovoscope>=1.6.23a1
+# None-iter-guard fix. 1.8.1a1 is the first release whose e2e helpers
+# (register_padatious_intent/_entity, register_adapt_vocab/_intent) accept
+# the skill_id= keyword the conformance suite passes; below it every such
+# call raises TypeError. skill_id was required in 1.8.1a1, optional from
+# 1.8.2a1, and ovoscope says it becomes required again in 1.9.0.
+ovoscope>=1.8.1a1
 # GUI service (NamespaceManager) — drives the GUI-1 service-contract clauses
 # (SYSTEM_ prefix gating, per-session namespace stack, reserved-key stripping).
 # The producer-side GUI-1 clauses need only ovos-bus-client's GUIInterface; if

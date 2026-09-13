@@ -342,7 +342,8 @@ class TestE2EVocOccurrence(TestCase):
             # property is the same: a phrase present as contiguous whole words
             # matches. Register an intent whose sample is the phrase under test.
             cls._intent = "intent2.skill:greet"
-            register_padatious_intent(cls._mc.bus, cls._intent, ["good morning"])
+            register_padatious_intent(cls._mc.bus, cls._intent, ["good morning"],
+                                      skill_id="intent2.skill")
             time.sleep(1.5)
         except BaseException:
             reset_namespace()
