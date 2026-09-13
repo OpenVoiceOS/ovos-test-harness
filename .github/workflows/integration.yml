@@ -53,6 +53,9 @@ jobs:
           # release whose bus edge (ovos_media/bus/api.py) the
           # test/backcompat/test_ocp_common_play.py wire cells drive.
           pip install "ovos-media>=2.0.1a1"
+          # a real broker for test/backcompat/test_fallback_namespace_twin.py,
+          # which this job turns on with FALLBACK_TWIN_CELLS below
+          pip install --pre ovos-messagebus
 
       - name: Record the installed stack
         run: pip freeze > stack-freeze.txt
@@ -73,6 +76,9 @@ jobs:
           # runs test/backcompat/test_ocp_common_play.py. With the var set
           # those cells never skip: a broken ovos-media install fails them.
           OCP_WIRE_CELLS: "1"
+          # ovos-messagebus is installed above, so the fallback twin cells
+          # run here and never skip
+          FALLBACK_TWIN_CELLS: "1"
         run: >-
           pytest test/ -v --tb=short -rxX
           --ignore=test/skills_fleet
