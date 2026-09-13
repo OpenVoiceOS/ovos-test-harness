@@ -87,9 +87,7 @@ class TestSec2Envelope(TestCase):
         reason="OVOS-MSG-1 §2 MUST: a consumer that receives a Message carrying "
                "top-level keys it does not know MUST NOT reject the Message on "
                "that ground alone, and MUST ignore those keys. "
-               "ovos-bus-client's Message.deserialize (the MSG-1 reference "
-               "envelope, ovos_spec_tools/message.py) raises MalformedMessage "
-               "on any unknown top-level key.",
+               "The reference envelope rejects unknown top-level keys.",
         strict=True,
     )
     def test_unknown_top_level_key_ignored(self):
@@ -99,22 +97,22 @@ class TestSec2Envelope(TestCase):
         top-level key MUST succeed and yield the envelope without it. MUST."""
         payload = json.dumps({"type": "a.b", "data": {"x": 1}, "extra": 1})
         m = Message.deserialize(payload)
-        self.assertEqual(m.type, "a.b")
+        self.assertEqual(m.msg_type, "a.b")
         self.assertEqual(m.data, {"x": 1})
         self.assertNotIn("extra", json.loads(m.serialize()))
 
     @pytest.mark.xfail(
         reason="OVOS-MSG-1 §2 MUST: a consumer MUST NOT reject a Message over "
                "an unknown top-level key and MUST ignore it. The reference "
-               "envelope ovos_spec_tools.message.Message.deserialize raises "
-               "MalformedMessage instead of ignoring the key.",
+               "envelope rejects unknown top-level keys.",
         strict=True,
     )
     def test_reference_ignores_unknown_top_level_key(self):
         """§2 cross-check: the reference envelope MUST ignore an unknown
         top-level key rather than reject the Message. MUST."""
         m = RefMessage.deserialize(json.dumps({"type": "a.b", "extra": 1}))
-        self.assertEqual(m.type, "a.b")
+        self.assertEqual(m.msg_type, "a.b")
+        self.assertNotIn("extra", json.loads(m.serialize()))
 
 
 class TestSec21Type(TestCase):
