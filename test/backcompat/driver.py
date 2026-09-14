@@ -743,12 +743,14 @@ class SkillProcess:
     these tests currently do.
     """
 
-    def __init__(self, python: str, xdg: str, emit_legacy: bool = True):
+    def __init__(self, python: str, xdg: str, emit_legacy: bool = True,
+                 skill_id: str = SKILL_ID):
         env = dict(os.environ,
                    XDG_CONFIG_HOME=xdg,
                    OVOS_BUS_EMIT_LEGACY=str(emit_legacy).lower(),
-                   BACKCOMPAT_SKILL_ID=SKILL_ID,
+                   BACKCOMPAT_SKILL_ID=skill_id,
                    PYTHONUNBUFFERED="1")
+        self.skill_id = skill_id
         self.lines = []
         self.bound_topics = []
         #: versions resolved inside the skill venv, reported by the child
