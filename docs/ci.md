@@ -250,6 +250,13 @@ checked-in baseline:
 
 - [`test/channel_gaps/stable.txt`](../test/channel_gaps/stable.txt)
 - [`test/channel_gaps/testing.txt`](../test/channel_gaps/testing.txt)
+- [`test/channel_gaps/alpha.txt`](../test/channel_gaps/alpha.txt)
+- [`test/channel_gaps/alpha-session-graft.txt`](../test/channel_gaps/alpha-session-graft.txt)
+  — the baseline of the `session-graft` job, which runs ovos-spec-tools' own
+  `test/test_session_manager.py` (spec-tools at `dev`, checked out inside the
+  harness root) on the alpha channel stack with `ovos_bus_client.session`
+  loaded, so that bus-client's graft onto `ovos_spec_tools.session.SessionManager`
+  is the store under test. Neither upstream CI runs that combination.
 
 Each file has three sections:
 

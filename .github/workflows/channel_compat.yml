@@ -134,3 +134,85 @@ jobs:
           name: regenerated-gaps-${{ matrix.channel }}
           path: ${{ runner.temp }}/regenerated-${{ matrix.channel }}.txt
           if-no-files-found: ignore
+
+  # One more alpha cell, for a store neither upstream CI ever sees.
+  #
+  # ovos-bus-client grafts itself onto ovos_spec_tools.session.SessionManager
+  # at import time: ovos_bus_client/session.py setattr()s about thirty methods
+  # onto the spec-tools class and sets its session_cls to bus-client's own
+  # Session subclass. Any process that imports ovos_bus_client.session (every
+  # ovos-core process does) runs bus-client's store on spec-tools' class.
+  # ovos-spec-tools CI installs only its own test extra, so the graft never
+  # loads there; ovos-bus-client CI tests its own store. A defect in the
+  # grafted store is therefore invisible to both.
+  #
+  # This job installs the alpha channel stack exactly as the `alpha` cell
+  # above does, puts ovos-spec-tools@dev on top of it, loads the graft
+  # explicitly (`-p ovos_bus_client.session`, so the run does not depend on
+  # ovoscope's pytest plugin importing it as a side effect) and runs
+  # spec-tools' OWN session-store suite against the grafted store. Its
+  # known-gaps baseline is test/channel_gaps/alpha-session-graft.txt, under the
+  # same strict-xfail rules as the channel baselines: a new breakage is red,
+  # and a listed gap that closes is red until its line is deleted.
+  session-graft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    name: alpha bus-client session graft vs SESSION-1
+    steps:
+      - uses: actions/checkout@v4
+
+      # The suite under test is spec-tools' own, at its dev edge. The
+      # checkout sits inside this repo's root so the harness conftest.py (and
+      # with it the known-gaps baseline) applies, and so the node ids in the
+      # baseline are stable: ovos-spec-tools/test/test_session_manager.py::...
+      - uses: actions/checkout@v4
+        with:
+          repository: OpenVoiceOS/ovos-spec-tools
+          ref: dev
+          path: ovos-spec-tools
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install system deps (padatious needs swig + libfann)
+        run: sudo apt-get update && sudo apt-get install -y swig libfann-dev
+
+      - name: Install the alpha channel stack
+        run: |
+          chmod +x test/channel_compat/install_channel.sh
+          test/channel_compat/install_channel.sh alpha \
+            "$RUNNER_TEMP/channel-compat"
+
+      # --no-deps is exact here: ovos-spec-tools declares no dependencies, and
+      # the channel stack already installed underneath must not move.
+      - name: Put ovos-spec-tools@dev on top of the channel stack
+        run: python3 -m pip install --disable-pip-version-check --no-deps ./ovos-spec-tools
+
+      - name: Record the installed stack
+        run: pip freeze > stack-freeze-session-graft.txt
+
+      - name: Upload the installed-stack freeze
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stack-freeze-session-graft
+          path: stack-freeze-session-graft.txt
+
+      - name: Upload the fetched constraints file
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: constraints-session-graft
+          path: ${{ runner.temp }}/channel-compat/constraints-alpha.txt
+
+      - name: Run the spec-tools session-store suite under the bus-client graft
+        env:
+          # Selects test/channel_gaps/alpha-session-graft.txt in conftest.py.
+          OVOS_CHANNEL: alpha-session-graft
+        run: >-
+          pytest ovos-spec-tools/test/test_session_manager.py -v --tb=short -rxX
+          --timeout=180 --timeout-method=thread
+          -p ovos_bus_client.session
