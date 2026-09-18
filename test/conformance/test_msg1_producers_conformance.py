@@ -6,8 +6,10 @@ A run of producers used to put a one-element list where a string belongs
 ovos-gui-api-client#7, HiveMind-baresip-bridge#37, T-2650). Each fix was
 proven with an ad hoc script on a real ``ovos-messagebus``. These cells make
 that check a harness run: one cell per producer family in the pinned stack,
-each reading the literal frame a raw websocket reader saw, never a Python
-object after a round trip.
+each reading the literal frame a raw websocket reader saw. Two cells,
+labelled below, read the producer's own context object instead: the
+enclosure source message and the transformers default context. They check
+the stamp at its source; the wire cell of the same family checks the frame.
 
 Families and the producer each cell drives:
 
@@ -26,9 +28,11 @@ is not pinned here, so its cell belongs to hivemind-test-harness.
 
 Gates. ``MSG1_PRODUCER_CELLS=1`` turns the bus cells on; the integration job
 sets it where ``ovos-messagebus`` is installed, so a broken install fails the
-cells instead of skipping them. The docker cell also needs
+cells instead of skipping them. The docker cells also need
 ``OVOS_DOCKER_HC`` naming the healthcheck script, which the job checks out
-from ovos-docker@dev. The script opens its own raw websocket at ``--url``, so
+from ovos-docker@dev. Under the gate a missing script is a failure, not a
+skip, so a moved or renamed script in ovos-docker reddens the job instead
+of thinning it. The script opens its own raw websocket at ``--url``, so
 the cell hands it the server's private port.
 """
 import json
@@ -127,12 +131,25 @@ def _assert_string_destination(frame: dict, expected: str):
 # enclosure API (ovos-bus-client#368)
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _enclosure_api():
+    """The producer under test is the bus-client copy, the one #368 fixed.
+    ovos-bus-client 3.0.0 removes it (DeprecationWarning at import today);
+    ovos-gui-api-client carries the same class from then on (#7 fixed it
+    there)."""
+    try:
+        from ovos_bus_client.apis.enclosure import EnclosureAPI
+    except ImportError:
+        from ovos_gui_api_client.enclosure import EnclosureAPI
+    return EnclosureAPI
+
+
 class TestEnclosureAPI:
 
     def test_source_message_destination_is_a_string(self, producer_bus):
-        """``EnclosureAPI._get_source_message`` stamps the context every
-        enclosure command inherits. Off the bus, no inbound message to reuse."""
-        from ovos_bus_client.apis.enclosure import EnclosureAPI
+        """Context object, not a frame: ``EnclosureAPI._get_source_message``
+        stamps the context every enclosure command inherits. Off the bus, no
+        inbound message to reuse."""
+        EnclosureAPI = _enclosure_api()
         api = EnclosureAPI(producer_bus, skill_id="msg1.producer.harness")
         ctx = api._get_source_message().context
         assert isinstance(ctx.get("destination"), str), ctx
@@ -141,7 +158,7 @@ class TestEnclosureAPI:
     def test_register_frame_destination_is_a_string(self, bus_server, producer_bus):
         """``register()`` puts ``enclosure.active_skill`` on the wire with the
         source message's context."""
-        from ovos_bus_client.apis.enclosure import EnclosureAPI
+        EnclosureAPI = _enclosure_api()
         _, wire = bus_server
         api = EnclosureAPI(producer_bus, skill_id="msg1.enclosure.harness")
         api.register()
@@ -170,6 +187,8 @@ def _listener_service(bus):
 class TestListenerContext:
 
     def test_transformers_default_context_destination_is_a_string(self, producer_bus):
+        """Context object, not a frame: the default context every audio
+        transformer stamps on what it emits."""
         from ovos_dinkum_listener.transformers import AudioTransformersService
         ctx = AudioTransformersService(bus=producer_bus).default_context
         assert isinstance(ctx.get("destination"), str), ctx
@@ -215,10 +234,14 @@ class TestDockerHealthcheck:
 
     @pytest.fixture(autouse=True)
     def _script(self):
+        # the gate is on (module skipif passed), so a missing script is a
+        # broken checkout, not an opt-out: fail, never skip
         self.script = os.environ.get("OVOS_DOCKER_HC")
-        if not self.script or not os.path.exists(self.script):
-            pytest.skip("OVOS_DOCKER_HC does not name the ovos-docker "
-                        "healthcheck script (base/files/ovos-hc.py)")
+        assert self.script, ("MSG1_PRODUCER_CELLS=1 but OVOS_DOCKER_HC is unset; "
+                             "the job must name ovos-docker's base/files/ovos-hc.py")
+        assert os.path.isfile(self.script), (
+            f"OVOS_DOCKER_HC names {self.script!r}, which is not a file; the "
+            "ovos-docker checkout moved or lost base/files/ovos-hc.py")
 
     def _responder(self, bus, topic):
         def answer(message):

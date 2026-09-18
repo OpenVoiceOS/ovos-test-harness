@@ -61,6 +61,7 @@ jobs:
           git clone --depth 1 --branch dev --filter=blob:none --sparse \
             https://github.com/OpenVoiceOS/ovos-docker "$RUNNER_TEMP/ovos-docker"
           git -C "$RUNNER_TEMP/ovos-docker" sparse-checkout set base/files
+          test -f "$RUNNER_TEMP/ovos-docker/base/files/ovos-hc.py"
 
       - name: Record the installed stack
         run: pip freeze > stack-freeze.txt

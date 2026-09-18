@@ -290,7 +290,8 @@ string belongs until ovos-bus-client#368, ovos-dinkum-listener#258 and
 ovos-docker#189 (T-2650).
 
 The cells run only where `MSG1_PRODUCER_CELLS=1` (the integration job). The
-docker cell also needs `OVOS_DOCKER_HC` naming the healthcheck script. The
+docker cells also need `OVOS_DOCKER_HC` naming the healthcheck script, and
+under the gate a missing script fails them instead of skipping. The
 HiveMind bridge family needs a hivemind-core between the producer and this
 bus and lives in hivemind-test-harness.
 
