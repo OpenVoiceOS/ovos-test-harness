@@ -27,6 +27,11 @@ Coverage map (clause -> status against the installed stack):
 - SESSION-1 §2    wrong-typed session_id logged once per consumer act ..... green
 - SESSION-2 §2.6  the arrival hook does not mutate the carrier .............. green
 - SESSION-1 §3.2.7 lang is not written into the inbound carrier ............. green
+
+On the release channels the counts read 0 (stable's bus-client 1.3.7 and
+testing's 1.5.0 predate the SESSION-1 record), and testing's client still
+folds lang into the carrier on arrival; those node ids are listed in
+test/channel_gaps/<channel>.txt.
 """
 import copy
 import json
@@ -116,10 +121,16 @@ class TestSession1ArrivalHook(TestCase):
         self.assertEqual(len(records), 2, records)
         self.assertEqual(seen["resolved"], "default")
 
-    def test_inbound_carrier_is_the_dict_that_was_sent(self):
-        for topic in (PLAIN_TOPIC, MIGRATED_TOPIC):
-            with self.subTest(topic=topic):
-                seen, _ = self._deliver(topic)
-                self.assertEqual(seen["carrier"], WIRE_CARRIER)
-                self.assertEqual(seen["carrier_after_get"], WIRE_CARRIER)
-                self.assertNotIn("lang", seen["carrier"])
+    def _assert_carrier_untouched(self, topic):
+        # One node id per topic, no subTest: the channel gaps files list node
+        # ids, and a subtest failure has none of its own.
+        seen, _ = self._deliver(topic)
+        self.assertEqual(seen["carrier"], WIRE_CARRIER)
+        self.assertEqual(seen["carrier_after_get"], WIRE_CARRIER)
+        self.assertNotIn("lang", seen["carrier"])
+
+    def test_inbound_carrier_untouched_on_plain_topic(self):
+        self._assert_carrier_untouched(PLAIN_TOPIC)
+
+    def test_inbound_carrier_untouched_on_migrated_topic(self):
+        self._assert_carrier_untouched(MIGRATED_TOPIC)
