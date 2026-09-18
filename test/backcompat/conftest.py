@@ -40,7 +40,7 @@ import os
 
 import pytest
 
-from .cells import is_redundant, resolve_cell
+from .cells import is_redundant, known_red_reason, resolve_cell
 
 COMBO = os.environ.get("BACKCOMPAT_COMBO", "")
 
@@ -100,6 +100,18 @@ def pytest_collection_modifyitems(config, items):
             deselected.append(item)
         else:
             keep.append(item)
+
+    # A known-red cell (cells.KNOWN_RED_CELLS) runs every scenario under
+    # xfail(strict=False) with the recorded reason: the cell stays in the
+    # matrix and the log still shows which scenarios fail, but the job is
+    # green so a new red elsewhere in the matrix is not lost in it. The
+    # tripwire test (marked known_red_tripwire) runs plain, so it fails
+    # loudly the day the reason stops being true.
+    reason = known_red_reason(cell)
+    if reason is not None:
+        for item in keep:
+            if item.get_closest_marker("known_red_tripwire") is None:
+                item.add_marker(pytest.mark.xfail(strict=False, reason=reason))
 
     if not deselected:
         _LAST_PRUNE_SUMMARY = (
