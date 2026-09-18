@@ -266,10 +266,13 @@ test/conformance/test_stop1_conformance.py::TestSec5GlobalStop::test_global_stop
 test/conformance/test_stop1_dual_emit_off_conformance.py::test_global_stop_broadcast_topic_native_only
 test/conformance/test_stop1_dual_emit_off_conformance.py::test_utterance_handled_fires_natively_with_bridge_disabled
 
-# stable's ovos-bus-client 1.3.7 predates the OVOS-SESSION-1 §2 record: a
+# stable's ovos-bus-client 1.3.7 predates the OVOS-SESSION-1 §2 record (a
 # wrong-typed session_id is read silently, so the per-consumer-act counts
-# read 0 (the carrier itself is left untouched, so those two cases pass).
+# read 0) and folds lang into the inbound carrier on arrival, the write
+# ovos-bus-client#370 retires (SESSION-2 §2.6, SESSION-1 §3.2.7).
 test/conformance/test_session1_arrival_hook_conformance.py::TestSession1ArrivalHook::test_migrated_topic_two_records_forward_and_handler
 test/conformance/test_session1_arrival_hook_conformance.py::TestSession1ArrivalHook::test_plain_topic_one_record_per_consumer_act
+test/conformance/test_session1_arrival_hook_conformance.py::TestSession1ArrivalHook::test_inbound_carrier_untouched_on_plain_topic
+test/conformance/test_session1_arrival_hook_conformance.py::TestSession1ArrivalHook::test_inbound_carrier_untouched_on_migrated_topic
 
 [xpass]

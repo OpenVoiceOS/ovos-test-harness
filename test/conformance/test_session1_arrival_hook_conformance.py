@@ -29,8 +29,8 @@ Coverage map (clause -> status against the installed stack):
 - SESSION-1 §3.2.7 lang is not written into the inbound carrier ............. green
 
 On the release channels the counts read 0 (stable's bus-client 1.3.7 and
-testing's 1.5.0 predate the SESSION-1 record), and testing's client still
-folds lang into the carrier on arrival; those node ids are listed in
+testing's 1.5.0 predate the SESSION-1 record), and both clients still
+fold lang into the carrier on arrival; those node ids are listed in
 test/channel_gaps/<channel>.txt.
 """
 import copy
