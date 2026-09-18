@@ -39,7 +39,7 @@ suite coverage against.
 | Fallback Pipeline Plugin | OVOS-FALLBACK-1 | `test_fallback1_conformance.py` | implemented |
 | Session Specification | OVOS-SESSION-1 | `test_session_conformance.py` | implemented |
 | Session Lifecycle & State Ownership | OVOS-SESSION-2 | `test_session_conformance.py` | implemented |
-| Bus Message | OVOS-MSG-1 | `test_msg1_conformance.py` | implemented |
+| Bus Message | OVOS-MSG-1 | `test_msg1_conformance.py` (envelope) + `test_msg1_producers_conformance.py` (§3.3 producers on a real bus) | implemented |
 | Audio Input Service | OVOS-AUDIO-IN-1 | `test_audio_in_conformance.py` | implemented |
 | Audio Output Service | OVOS-AUDIO-1 | `test_audio_out_conformance.py` | implemented |
 | Bus Bridge & Opaque Relay | OVOS-BRIDGE-1 | `test_bridge1_conformance.py` | implemented |
@@ -280,6 +280,25 @@ either envelope.
 | `TestSec53Response` | §5.3 | `response(D')` is equivalent to `reply(T + '.response', D')`, delegating to the §5.2 routing swap. | green |
 | `TestSec6Serialization` | §6 | A Message serializes to a single top-level UTF-8 JSON object; key order is not significant; a non-finite `data` number rejects rather than serializing; an unparseable payload is treated as malformed. | green |
 | `TestSec7Conformance` | §7 | Producer MUST give `data`/`context` JSON-object values when present; consumer MUST NOT require `source`, `destination`, or other optional context keys. | green |
+
+### §3.3 producer cells, `test_msg1_producers_conformance.py`
+
+One cell per producer family that stamps `destination`, read from the literal
+frame a raw websocket reader saw on a real `ovos-messagebus`. §3.3 allows a
+string or an array. These producers each put a one-element list where a
+string belongs until ovos-bus-client#368, ovos-dinkum-listener#258 and
+ovos-docker#189 (T-2650).
+
+The cells run only where `MSG1_PRODUCER_CELLS=1` (the integration job). The
+docker cell also needs `OVOS_DOCKER_HC` naming the healthcheck script. The
+HiveMind bridge family needs a hivemind-core between the producer and this
+bus and lives in hivemind-test-harness.
+
+| Class | Clause(s) | Asserts | Status |
+|-------|-----------|---------|--------|
+| `TestEnclosureAPI` | §3.3 | `EnclosureAPI._get_source_message` stamps `destination` `"enclosure"` as a string. `register()` puts that string on the wire in `enclosure.active_skill`. | green |
+| `TestListenerContext` | §3.3 | `AudioTransformersService.default_context` and the hotword path's `recognizer_loop:utterance` carry `destination` `"skills"` as a string. The listen-sound `mycroft.audio.play_sound` carries `"audio"`. | green |
+| `TestDockerHealthcheck` | §3.3 | `ovos-hc.py -s <svc>` puts `mycroft.<svc>.is_ready` on the wire with `destination` `<svc>` as a string. It exits 0 when answered and non-zero when not. | green |
 
 ## OVOS-AUDIO-IN-1 — `test_audio_in_conformance.py`
 
