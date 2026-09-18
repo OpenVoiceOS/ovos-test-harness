@@ -44,6 +44,12 @@ git+https://github.com/OpenVoiceOS/ovos-workshop@dev
 # only, never an unheld named session) so SESSION-2 §5.1 / §2.7 hold at a
 # current core even while the push itself is retiring.
 ovos-bus-client>=2.11.13a1
+# A real ovos-messagebus for the cells that need a wire, not a FakeBus: the
+# SESSION-1 arrival-hook cell counts records on a real client subscribed to a
+# real broker (test/backcompat/driver.py BusServer starts `python -m
+# ovos_messagebus`). The back-compat venvs install it themselves; the
+# conformance stack did not, and the cell died at startup on every channel.
+ovos-messagebus
 # pipeline engines (workshop-9-compatible)
 # adapt @dev carries the None-blacklist guard (#47): the INTENT-3 e2e registers a
 # keyword intent for a session whose blacklisted_intents/blacklisted_skills are
