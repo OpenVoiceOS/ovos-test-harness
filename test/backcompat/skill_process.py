@@ -60,6 +60,16 @@ SPEAK_WAIT_TRIGGER_TOPIC = f"{SKILL_ID}:speak_wait.trigger"
 #: ``register_intent_file`` refuses to register a resource it cannot read.
 SAMPLES = ["order some tacos", "i am hungry", "grab some food"]
 
+#: A second resource carrying an OVOS-INTENT-1 §3.4 typed placeholder. The
+#: skill writes it the way a current skill author would; what each workshop
+#: vintage puts on the wire for it, and what each matcher vintage does with
+#: that, is what ``test_typed_slot_degrade.py`` observes. Registered after
+#: ``INTENT_FILE`` so the food.order registration stays the first one seen.
+TYPED_INTENT_FILE = "alarm.set.intent"
+TYPED_STEM = "alarm.set"
+TYPED_SAMPLES = ["set an alarm in {number:offset} minutes",
+                 "wake me in {number:offset} minutes"]
+
 
 def _dist_version(name: str) -> str:
     from importlib.metadata import version
@@ -73,6 +83,8 @@ def _make_skill_dir() -> str:
     os.makedirs(locale)
     with open(join(locale, INTENT_FILE), "w") as f:
         f.write("\n".join(SAMPLES) + "\n")
+    with open(join(locale, TYPED_INTENT_FILE), "w") as f:
+        f.write("\n".join(TYPED_SAMPLES) + "\n")
     return root
 
 
@@ -95,6 +107,7 @@ class BackCompatSkill(_SkillBase):
 
     def initialize(self):
         self.register_intent_file(INTENT_FILE, self.handle_order)
+        self.register_intent_file(TYPED_INTENT_FILE, self.handle_alarm)
         self.add_event(CONVERSE_TRIGGER_TOPIC, self.handle_converse_trigger)
         self.add_event(GET_RESPONSE_TRIGGER_TOPIC,
                        self.handle_get_response_trigger)
@@ -117,7 +130,8 @@ class BackCompatSkill(_SkillBase):
         """
         bound = sorted(t for t in getattr(self.bus.emitter, "_events", {})
                        if t.startswith(f"{SKILL_ID}:")
-                       and not t.endswith(".trigger"))
+                       and not t.endswith(".trigger")
+                       and TYPED_STEM not in t)
         self.bus.emit(message.forward(
             "backcompat.report_intent_state.done",
             {"bound_topics": bound,
@@ -131,6 +145,13 @@ class BackCompatSkill(_SkillBase):
              "skill_id": SKILL_ID,
              "data": message.data}))
         self.speak("ordering tacos")
+
+    def handle_alarm(self, message: Message):
+        self.bus.emit(message.forward(
+            "backcompat.skill.alarm",
+            {"topic": message.msg_type,
+             "skill_id": SKILL_ID,
+             "data": message.data}))
 
     # -- converse -----------------------------------------------------
     def can_converse(self, message: Message) -> bool:
@@ -224,8 +245,11 @@ def main():
     # the suffixed-vs-canonical drift this list exists to catch, so they're
     # filtered out here rather than turning test_pins_are_the_intended_
     # vintage's exact-match assertion into a superset check.
+    # the food.order bindings only: the typed alarm.set resource is observed
+    # through the registration frames it puts on the wire, not its bindings
     bound = sorted(t for t in getattr(bus.emitter, "_events", {})
-                   if t.startswith(f"{SKILL_ID}:") and not t.endswith(".trigger"))
+                   if t.startswith(f"{SKILL_ID}:") and not t.endswith(".trigger")
+                   and TYPED_STEM not in t)
     print("BOUND_TOPICS " + json.dumps(bound), flush=True)
 
     # The versions actually resolved inside THIS venv, and whether the
