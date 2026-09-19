@@ -140,7 +140,10 @@ one of those 29 gaps had since closed upstream (see "Coverage-gap
 correction, CI-confirmed" below), moving the current count to **552
 correct, 6 conflicts, 28 gaps** out of 582 rows exercised. That count has
 since dropped further to **553 correct, 5 conflicts, 28 gaps**: see the
-"begin downtime" correction below.
+"begin downtime" correction below. Since 2026-09-19 the four French
+`ovos-skill-fuster-quotes` rows are quarantined rather than counted as
+gaps, which leaves **24 gaps out of 578 rows exercised**. See "A row of
+another language" below.
 
 An earlier pass of this triage over-counted conflicts: the first routing
 heuristic treated ANY message in a captured window naming a fleet
@@ -357,10 +360,12 @@ qualification going forward, it means `ovoscope.DEFAULT_TEST_PIPELINE`
 unless stated otherwise; `ovos-skill-alerts`#145 separately re-confirms its
 fix against the real device default too.
 
-### Coverage gaps (`coverage-gap`) — 28 rows (see correction note below)
+### Coverage gaps (`coverage-gap`) — 24 rows (see correction note below)
 
-28 reasonable paraphrases matched no fleet skill at all
-(`ovos.intent.unmatched` on the bus, error tone played):
+24 reasonable paraphrases matched no fleet skill at all
+(`ovos.intent.unmatched` on the bus, error tone played). The four French
+`ovos-skill-fuster-quotes` rows that this section used to hold are now
+quarantined. The reason is under "A row of another language" below.
 
 | skill that should have matched | utterance |
 |---|---|
@@ -373,10 +378,6 @@ fix against the real device default too.
 | `ovos-skill-alerts.openvoiceos` | audible adjourn |
 | `ovos-skill-alerts.openvoiceos` | audible adjourn next |
 | `ovos-skill-alerts.openvoiceos` | download |
-| `ovos-skill-fuster-quotes.openvoiceos` | qui est Fuster |
-| `ovos-skill-fuster-quotes.openvoiceos` | qui est Joan Fuster |
-| `ovos-skill-fuster-quotes.openvoiceos` | qui était Fuster |
-| `ovos-skill-fuster-quotes.openvoiceos` | qui était Joan Fuster |
 | `ovos-skill-icanhazdadjokes.openvoiceos` | make me laugh |
 | `ovos-skill-weather.openvoiceos` | any weather alerts for tomorrow in here |
 | `ovos-skill-weather.openvoiceos` | any weather alerts for after tomorrow in here |
@@ -395,20 +396,58 @@ fix against the real device default too.
 - **`ovos-skill-weather.openvoiceos`** (9 rows): "high/low temperature
   <day> night/morning" phrasing and weather-alert / umbrella-advice
   phrasing the skill's vocabulary does not cover.
-- **`ovos-skill-fuster-quotes.openvoiceos`** (4 rows): the French and
-  Catalan phrasings of "who was Fuster" do not match — the skill's samples
-  are English-only despite Joan Fuster being a Catalan writer, a real
-  localization gap.
 - **`ovos-skill-icanhazdadjokes.openvoiceos`** (1 row): "make me laugh"
-  does not match despite being a near-paraphrase of the skill's own
-  registered sample "Make me laugh."
+  matched no skill at fleet scale, and the resource is present and right.
+  The skill ships `locale/en-US/joke.intent` with
+  `make me laugh [with a [dad] joke]]`. Measured on a MiniCroft holding
+  this skill alone at `en-US`, the same utterance dispatches
+  `ovos-skill-icanhazdadjokes.openvoiceos:joke`. The row is the same
+  language as the fleet boot, so the language default cannot explain it.
+  What the row measures is cross-skill scoring once ~31 skills share the
+  matchers, which is the intent engine's territory and not this skill's
+  vocabulary. Re-classified 2026-09-19 (T-3308). The earlier reading, "a
+  near-paraphrase the skill does not cover", was wrong about the resource.
 
-### Quarantined corpus rows — 82 rows
+### A row of another language — 4 rows, quarantined 2026-09-19 (T-3308)
+
+This section used to read the four French `ovos-skill-fuster-quotes` rows
+("qui est Fuster", "qui est Joan Fuster", "qui était Fuster", "qui était
+Joan Fuster") as "a real localization gap: the skill's samples are
+English-only". That was wrong. The skill ships `locale/fr-FR/who.intent`
+with `qui est [Joan] Fuster` and `qui était [Joan] Fuster`.
+
+What the rows really hit is this harness. The suite boots ONE MiniCroft, in
+`FLEET_LANG` (`en-US`), and a skill loads the resource container of the
+language its MiniCroft was built with.
+
+The dispatch language does not select that container. Measured on the skill
+at dev, one MiniCroft per case:
+
+| MiniCroft language | session and message language | utterance | result |
+|---|---|---|---|
+| en-US | fr-FR | qui est Fuster | `ovos.intent.unmatched` |
+| fr-FR | fr-FR | qui est Fuster | `ovos-skill-fuster-quotes.openvoiceos:who` |
+| en-US | en-US | who was Fuster | `ovos-skill-fuster-quotes.openvoiceos:who` (control) |
+
+So passing each row's own language into the dispatch, which is what the
+first reading of this defect asked for, moves nothing. The en-US row and
+the fr-FR row both reach the en-US container. A French row needs a French
+fleet boot, which is a second fleet of its own and is not in this change.
+
+The four rows are quarantined with `"lang": "fr-FR"` recorded.
+`test_every_live_row_is_in_the_language_the_fleet_booted` now fails if a
+row of another language enters the live corpus. No future row can be
+silently dispatched as `en-US` and read as a coverage gap of its skill.
+### Quarantined corpus rows — 86 rows
 
 - **15 `ovos-skill-boot-finished.openvoiceos` rows** and **47
   `ovos-skill-mark1-ctrl.openvoiceos` rows**: real device-boot / real-hardware
   gate skills that cannot instantiate on any synthetic MiniCroft — see "Boot
   population" above. Not a routing verdict on either skill.
+- **4 `ovos-skill-fuster-quotes.openvoiceos` French rows**: the suite boots
+  one MiniCroft in `FLEET_LANG`, so a French row cannot load its own
+  resource container. See "A row of another language" above. Each carries
+  `"lang": "fr-FR"`. Not a routing verdict on the skill.
 - **10 rows for `ovos-skill-wolfie.openvoiceos` / `ovos-skill-wordnet.openvoiceos`**:
   both register a fallback handler without overriding `can_answer()`, so the
   base class's `NotImplementedError` stalled the fleet driver's
@@ -428,7 +467,7 @@ fix against the real device default too.
 `load_corpus()` skips them directly as a corpus-declared scope exclusion,
 and they are never written to `quarantine.jsonl`.)
 
-None of these 82 rows were deleted; every one is in `quarantine.jsonl` with
+None of these 86 rows were deleted; every one is in `quarantine.jsonl` with
 a `_quarantine_reason`.
 
 **Corpus re-curation, post-triage**: after this triage pass ran, the golden
