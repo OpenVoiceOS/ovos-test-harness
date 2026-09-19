@@ -13,8 +13,8 @@ is still reported.
 import pytest
 from ovos_bus_client.message import Message
 
-from .test_fleet_routing import (_capture, _claimant, _own_session,
-                                 _session_of)
+from .test_fleet_routing import (FLEET_LANG, _ROWS, _capture, _claimant,
+                                 _own_session, _session_of)
 
 ROW = "fleet-00042"
 OTHER = "default"
@@ -148,3 +148,21 @@ class TestPerRowSession:
         assert turn.context["session"]["session_id"] == session_id
         # per-message carriage only: the harness pushes no session anywhere
         assert [m.msg_type for m in bus.emitted] == ["recognizer_loop:utterance"]
+
+
+def test_every_live_row_is_in_the_language_the_fleet_booted():
+    """A row of another language cannot be asserted on this MiniCroft.
+
+    Without this check a row carrying its own ``lang`` is dispatched into
+    the ``FLEET_LANG`` container anyway and reads as a coverage gap of the
+    skill, which is a verdict about a resource the suite never loaded. Such
+    a row belongs in ``quarantine.jsonl`` with its language recorded.
+    """
+    foreign = sorted(
+        {(r["skill_id"], r["utterance"], r["lang"]) for r in _ROWS
+         if r.get("lang", FLEET_LANG) != FLEET_LANG})
+    assert not foreign, (
+        f"{len(foreign)} live corpus row(s) are not {FLEET_LANG}: {foreign}. "
+        f"This suite boots one MiniCroft in {FLEET_LANG}, so those rows "
+        f"cannot load their own resource container; quarantine them "
+        f"(quarantine.jsonl) or boot a MiniCroft per language.")

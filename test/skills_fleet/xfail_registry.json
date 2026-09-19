@@ -47,25 +47,9 @@
     "category": "conflict",
     "reason": "cross-skill intent theft: 'ovos-skill-date-time.openvoiceos' claims this utterance instead of 'ovos-skill-diagnostics.openvoiceos' in the full fleet population."
   },
-  "ovos-skill-fuster-quotes.openvoiceos::qui est Fuster": {
-    "category": "coverage-gap",
-    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-fuster-quotes.openvoiceos' should have matched it."
-  },
-  "ovos-skill-fuster-quotes.openvoiceos::qui est Joan Fuster": {
-    "category": "coverage-gap",
-    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-fuster-quotes.openvoiceos' should have matched it."
-  },
-  "ovos-skill-fuster-quotes.openvoiceos::qui \u00e9tait Fuster": {
-    "category": "coverage-gap",
-    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-fuster-quotes.openvoiceos' should have matched it."
-  },
-  "ovos-skill-fuster-quotes.openvoiceos::qui \u00e9tait Joan Fuster": {
-    "category": "coverage-gap",
-    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-fuster-quotes.openvoiceos' should have matched it."
-  },
   "ovos-skill-icanhazdadjokes.openvoiceos::make me laugh": {
     "category": "coverage-gap",
-    "reason": "no fleet skill claimed this reasonable paraphrase; 'ovos-skill-icanhazdadjokes.openvoiceos' should have matched it."
+    "reason": "no fleet skill claimed 'make me laugh' at fleet scale, and the resource is present: ovos-skill-icanhazdadjokes ships locale/en-US/joke.intent with 'make me laugh [with a [dad] joke]]'. Measured on a MiniCroft holding this skill alone at en-US: the same utterance dispatches ovos-skill-icanhazdadjokes.openvoiceos:joke. Same language as the fleet boot, so the language default cannot explain it. What the row measures is cross-skill scoring once ~31 skills share the matchers, which belongs to the intent engine, not to this skill's vocabulary."
   },
   "ovos-skill-naptime.openvoiceos::wake up": {
     "category": "conflict",
