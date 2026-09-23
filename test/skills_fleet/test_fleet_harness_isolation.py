@@ -157,6 +157,16 @@ def test_every_live_row_is_in_the_language_the_fleet_booted():
     the ``FLEET_LANG`` container anyway and reads as a coverage gap of the
     skill, which is a verdict about a resource the suite never loaded. Such
     a row belongs in ``quarantine.jsonl`` with its language recorded.
+
+    The comparison against ``FLEET_LANG`` is an exact string compare, and
+    that is deliberate. A regional variant such as ``en-GB``, and a
+    different spelling of the same tag such as ``en-us``, are both refused
+    rather than accepted as equivalent. This suite boots ONE MiniCroft and
+    it holds the ``en-US`` resource container only, so a row of any other
+    tag would be asserted against resources that were never loaded. Refusing
+    it names the problem at the corpus; accepting it would hide the problem
+    in a skill verdict. A row that really is ``en-US`` must say so with that
+    exact tag, or carry no ``lang`` key at all.
     """
     foreign = sorted(
         {(r["skill_id"], r["utterance"], r["lang"]) for r in _ROWS
