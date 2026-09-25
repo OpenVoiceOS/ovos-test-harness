@@ -134,19 +134,19 @@ jobs:
           # push still run them; they are not duplicated in this list).
           ALL_CELLS = [
               {"combo": "old-skill/old-core", "skill": "venv_skill_old",
-               "core": "venv_core_old", "audio": "venv_audio",
+               "core": "venv_core_old", "audio": "venv_audio", "wire_twin": "venv_wire_twin_old",
                "skill_dir": "venvs", "core_dir": "venvs",
                "tiers": ["pr-fast", "boundary"]},
               {"combo": "old-skill/new-core", "skill": "venv_skill_old",
-               "core": "venv_core_new", "audio": "venv_audio",
+               "core": "venv_core_new", "audio": "venv_audio", "wire_twin": "venv_wire_twin_old",
                "skill_dir": "venvs", "core_dir": "venvs",
                "tiers": ["pr-fast", "boundary"]},
               {"combo": "new-skill/old-core", "skill": "venv_skill_new",
-               "core": "venv_core_old", "audio": "venv_audio",
+               "core": "venv_core_old", "audio": "venv_audio", "wire_twin": "venv_wire_twin_old",
                "skill_dir": "venvs", "core_dir": "venvs",
                "tiers": ["pr-fast", "boundary"]},
               {"combo": "new-skill/new-core", "skill": "venv_skill_new",
-               "core": "venv_core_new", "audio": "venv_audio",
+               "core": "venv_core_new", "audio": "venv_audio", "wire_twin": "venv_wire_twin_old",
                "skill_dir": "venvs", "core_dir": "venvs",
                "tiers": ["pr-fast", "boundary"]},
               # T2.5 -- the M (matcher) axis. ovos-core declares neither
@@ -285,7 +285,9 @@ jobs:
           BACKCOMPAT_PYTHON: "3.11"
         run: |
           chmod +x test/backcompat/build_venvs.sh
-          test/backcompat/build_venvs.sh "$RUNNER_TEMP/venvs" "${{ matrix.skill }}" "${{ matrix.core }}" ${{ matrix.audio }}
+          # `audio` and `wire_twin` are unquoted on purpose: a cell that omits
+          # the key renders as empty and must expand to no argument at all.
+          test/backcompat/build_venvs.sh "$RUNNER_TEMP/venvs" "${{ matrix.skill }}" "${{ matrix.core }}" ${{ matrix.audio }} ${{ matrix.wire_twin }}
 
       - name: Record the resolved versions
         run: |
@@ -346,6 +348,16 @@ jobs:
           # above.
           if [ -n "${{ matrix.audio }}" ]; then
             export BACKCOMPAT_AUDIO_PYTHON="$RUNNER_TEMP/venvs/${{ matrix.audio }}/bin/python"
+          fi
+          # The pre-spec-tools client. Two files gate on this name and both
+          # skipped in every job before it was exported:
+          # test_wire_twin_old_listener.py (three cells) and
+          # test_fallback_poll_two_vintages.py (four). Their premise is a
+          # subscriber carrying no ovos_spec_tools at all, which venv_skill_old
+          # does not satisfy (it pins ovos-spec-tools==1.10.0a1); only
+          # venv_wire_twin_old does. See build_venvs.sh's venv_wire_twin_old.
+          if [ -n "${{ matrix.wire_twin }}" ]; then
+            export BACKCOMPAT_WIRE_TWIN_PYTHON="$RUNNER_TEMP/venvs/${{ matrix.wire_twin }}/bin/python"
           fi
           "$RUNNER_TEMP/${{ matrix.core_dir }}/${{ matrix.core }}/bin/pytest" \
             test/backcompat/ -v --tb=short -rxX \

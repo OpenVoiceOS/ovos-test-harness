@@ -15,6 +15,12 @@ so the asymmetry is real.
 
 The subscriber comes from `build_venvs.sh`'s `venv_skill_testing`, the distro
 testing channel's ovos-workshop.
+
+The answer travelling BACK is the other half, and it is where this rig found a
+real defect. The old subscriber replies with the ping's context, so its pong
+inherited `_namespace_compat_twin` and a modern receiver read a genuine answer
+as a duplicate. ovos-bus-client#377 fixed that by believing the marker only
+when the canonical frame was witnessed. Both directions are asserted below.
 """
 import json
 import os
@@ -31,11 +37,23 @@ CANONICAL_PING = "ovos.fallback.ping"
 LEGACY_PING = "ovos.skills.fallback.ping"
 LEGACY_PONG = "ovos.skills.fallback.pong"
 
-OLD_SKILL_PYTHON = os.environ.get("BACKCOMPAT_SKILL_PYTHON_OLD")
+# This file read BACKCOMPAT_SKILL_PYTHON_OLD, a name nothing exported, so the
+# skipif below was always true: all four cells skipped in every matrix job and
+# the job still reported green.
+#
+# The name it needs is BACKCOMPAT_WIRE_TWIN_PYTHON, not BACKCOMPAT_SKILL_PYTHON.
+# The premise below is a subscriber carrying NO ovos_spec_tools, and
+# venv_skill_old pins ovos-spec-tools==1.10.0a1 (build_venvs.sh), so pointing
+# here at the cell's own skill venv makes the premise false: the assertion reads
+# '1.10.0a1' where it requires 'absent'. Only venv_wire_twin_old is genuinely
+# pre-spec-tools (bus-client==1.5.0, no NamespaceTranslator), and it is the venv
+# test_wire_twin_old_listener.py gates on under this same name.
+OLD_SKILL_PYTHON = os.environ.get("BACKCOMPAT_WIRE_TWIN_PYTHON")
 
 pytestmark = pytest.mark.skipif(
     not OLD_SKILL_PYTHON,
-    reason="set BACKCOMPAT_SKILL_PYTHON_OLD to a skill venv from build_venvs.sh")
+    reason="set BACKCOMPAT_WIRE_TWIN_PYTHON to venv_wire_twin_old from "
+           "build_venvs.sh")
 
 
 @pytest.fixture(scope="module")
@@ -92,15 +110,21 @@ def test_a_canonical_ping_reaches_the_legacy_only_subscriber(legacy_subscriber):
         wire.close()
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "the old subscriber copies the ping's context into its reply, marker "
-    "included, so the pong carries _namespace_compat_twin; a modern receiver "
-    "reads that marker as 'a canonical frame already came' and suppresses the "
-    "frame, but no canonical pong exists because the old skill cannot emit "
-    "one. The answer is on the wire and is dropped on the receive side"))
 def test_a_modern_listener_is_delivered_the_pong(legacy_subscriber):
-    """What a modern caller actually gets. Red until the receive-side marker
-    rule stops suppressing a frame that has no canonical predecessor."""
+    """What a modern caller actually gets.
+
+    This cell was `xfail(strict=True)` while the receive rule suppressed any
+    frame carrying `_namespace_compat_twin`. The old subscriber copies the
+    ping's context into its reply, marker included (OVOS-MSG-1 5.2 preserves
+    every other context key), so a genuine answer looked like a duplicate of
+    a canonical frame that never existed.
+
+    ovos-bus-client#377 makes the marker believable only when the canonical
+    frame was actually witnessed, so an inherited marker no longer suppresses
+    anything. The cell turned XPASS the moment that landed, which is what a
+    strict xfail is for; the marker is gone and the assertion stands on its
+    own.
+    """
     bus_server, skill = legacy_subscriber
     bus = bus_server.client()
     token = uuid.uuid4().hex
