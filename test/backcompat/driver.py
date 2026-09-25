@@ -638,6 +638,35 @@ def make_shared_config(port: int) -> str:
     return root
 
 
+def _stop_child(proc: subprocess.Popen, timeout: int = 15):
+    """Terminate a child process and close the stdout pipe it was given.
+
+    Every child in this module is started with ``stdout=subprocess.PIPE``,
+    which makes ``Popen.stdout`` a file object owned by THIS process. Killing
+    the child closes the write end, not the read end: without an explicit
+    close the reader stays open until the garbage collector takes it, and
+    under ``-W default`` the run reports ``ResourceWarning: unclosed file
+    <_io.TextIOWrapper ...>`` against whichever test happened to be running
+    at that moment. First seen at
+    ``test_fallback_namespace_twin.py::test_positive_control_flags_off`` in
+    the #74 merged-tree run.
+
+    ``kill()`` is followed by a second ``wait()`` so the child is reaped
+    rather than left as a zombie, and the close runs in a ``finally`` so a
+    child that refuses to die still does not leak the pipe.
+    """
+    try:
+        proc.terminate()
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=timeout)
+    finally:
+        if proc.stdout is not None:
+            proc.stdout.close()
+
+
 class BusServer:
     """A real ``ovos-messagebus`` on a private port."""
 
@@ -723,11 +752,7 @@ class BusServer:
                     os.environ["OVOS_BUS_MODERNIZE"] = prev_modernize
 
     def stop(self):
-        self.proc.terminate()
-        try:
-            self.proc.wait(timeout=15)
-        except subprocess.TimeoutExpired:
-            self.proc.kill()
+        _stop_child(self.proc)
 
 
 class SkillProcess:
@@ -782,11 +807,7 @@ class SkillProcess:
         return "\n".join(self.lines)
 
     def stop(self):
-        self.proc.terminate()
-        try:
-            self.proc.wait(timeout=15)
-        except subprocess.TimeoutExpired:
-            self.proc.kill()
+        _stop_child(self.proc)
 
 
 AUDIO_SCRIPT = os.path.join(HERE, "audio_process.py")
@@ -868,11 +889,7 @@ class AudioProcess:
         return "\n".join(self.lines)
 
     def stop(self):
-        self.proc.terminate()
-        try:
-            self.proc.wait(timeout=15)
-        except subprocess.TimeoutExpired:
-            self.proc.kill()
+        _stop_child(self.proc)
 
 
 class Capture:
@@ -1046,11 +1063,18 @@ class WireTwinListener:
         return "\n".join(self.lines)
 
     def stop(self):
-        self.proc.terminate()
+        # The background reader is still blocked in ``readline()`` on this
+        # same pipe. Terminate the child first (that is what makes the
+        # reader see EOF and return), join it, and only then let
+        # ``_stop_child`` close the pipe -- closing it underneath a live
+        # reader raises ``ValueError: readline of closed file`` in that
+        # thread. ``join`` is bounded: the thread is a daemon, so a reader
+        # that somehow never reaches EOF must not hang the suite.
         try:
-            self.proc.wait(timeout=15)
-        except subprocess.TimeoutExpired:
-            self.proc.kill()
+            self.proc.terminate()
+            self._reader_thread.join(timeout=15)
+        finally:
+            _stop_child(self.proc)
 #: T2.8 Cell C -- the topic pair ``skill_process.py``'s
 #: ``_report_intent_state`` binds. A dedicated round trip rather than
 #: reusing ``mycroft.skill.disable_intent``/``enable_intent`` themselves:

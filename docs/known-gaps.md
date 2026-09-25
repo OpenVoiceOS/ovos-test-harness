@@ -500,6 +500,56 @@ the `misfire` handling of §4.3, the persist-before-answer ordering of §5.1 and
 the legacy `mycroft.scheduler.*` adapter of §8. Nothing here is asserted, and
 nothing about the shipped scheduler should be read as conformant until it is.
 
+## Back-compat matrix: known-red cells
+
+The mixed-version matrix (`test/backcompat/`) has a second kind of gap: a
+cell that is a real deployment shape, builds, and cannot run. The record is
+`KNOWN_RED_CELLS` in `test/backcompat/cells.py`. `conftest.py` runs every
+scenario in such a cell under `xfail(strict=False)` with the recorded
+reason, so the job is green and the log still names each scenario that
+fails. One test per entry, marked `known_red_tripwire` in
+`test/backcompat/test_known_red_cells.py`, runs plain and asserts the
+reason is still true against the packages the core venv resolved. The day
+a release closes the gap, that test fails, which is the signal to drop the
+entry and run the cell plain.
+
+### C=old, M=new: the ovos-core 2.5.5a2 cohort cannot run current matchers
+
+- **Cells:** `old-skill/old-core-new-matchers`, `new-skill/old-core-new-matchers`
+  (venv `venv_core_old_matchers_new`).
+
+- **The two sets:** the core cohort is ovos-core 2.5.5a2 with
+  ovos-bus-client 2.7.0a1. That bus client emits `SpecMessage.SESSION_SYNC`
+  on connect (removed in ovos-spec-tools 1.11.0a2, spec-tools#138) and calls
+  `SessionManager._store` (removed in 1.10.1a1, spec-tools#116), so it needs
+  ovos-spec-tools<=1.10.0a1. The matcher side is ovos-padatious 2.2.0a1
+  (ovos-padatious-pipeline-plugin#158), which imports `REGISTERED_TYPES`,
+  present from ovos-spec-tools 1.11.0a1 (spec-tools#137). No release
+  satisfies both.
+
+- **What the cell shows:** `build_venvs.sh` floors ovos-spec-tools with the
+  matchers on this venv (`>=1.11.0a1`) and pins only the core packages to the
+  cohort, so the venv resolves (2026-09-18: padatious 2.2.0a1, spec-tools
+  1.13.0a1, bus-client 2.7.0a1). At run time the core's bus client raises
+  `AttributeError('SESSION_SYNC')` on connect and reconnect-loops. Measured
+  with the cell run plain: 13 failed, 2 errors, 58 passed. Under the entry:
+  1 passed (the tripwire), 20 xfailed, 58 xpassed.
+
+- **Why no pin fixes it:** an upper bound on padatious (`<2.2.0a1`) keeps the
+  cell green and hides the break; the fleet ships floor pins only. Moving the
+  spec-tools pin alone breaks the bus client. Before 2026-09-17 the cell was
+  green because padatious 2.1.5a1 and below imported nothing above 1.10.0a1.
+
+- **What closes it:** an ovos-core cohort whose bus client runs on
+  ovos-spec-tools>=1.11.0a1 becomes the C=old vintage (which moves every
+  venv that pins 2.5.5a2), or a padatious release that imports nothing above
+  1.10.0a1. Until then ovos-padatious's own floor (declared `>=1.5.0a1`
+  through 2.2.0a1) makes uv resolve the pair; the floor bump in
+  ovos-padatious-pipeline-plugin makes uv refuse it at resolve time instead.
+
+- **`reason`:** see `KNOWN_RED_CELLS` in `test/backcompat/cells.py`; the
+  string is the canonical record.
+
 ## Follow-up: MUST-clause enumeration (INTENT-1/2/3/4, SESSION-1/2)
 
 A spot-enumeration of each spec's MUST / MUST NOT clauses against its
