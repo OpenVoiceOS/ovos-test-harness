@@ -32,17 +32,23 @@ Coverage map (clause -> status against the pinned stack):
 - §11  dismiss broadcasts `ovos.persona.dismissed` ................. green
 - §8.5 out-of-band `ovos.persona.query` -> `ovos.persona.answer` ... green
 - §8.7 `ovos.persona.list` -> `ovos.persona.list.response` ......... green
+
+One cell in this file is not a spec clause: TestEmptyUtteranceList is a
+regression cell for an entry message with an empty `utterances` list, the
+shape that raised IndexError inside the persona stages.
 """
 import time
 from unittest import TestCase
 
 import pytest
 from ovos_bus_client.message import Message
+from ovos_bus_client.session import Session
 from ovos_utils.log import LOG
 
 from ovoscope import PERSONA_PIPELINE, get_minicroft
 
 from ._conformance import (
+    ENTRY_TOPIC,
     capture,
     first,
     reset_namespace,
@@ -367,3 +373,50 @@ class TestSec11DismissBroadcast(TestCase):
         recs = capture(_MC, utterance("stop talking to alice", "p-dismiss-bc",
                                       PIPELINE), 5.0)
         self.assertIn("ovos.persona.dismissed", types(recs))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Regression cell — an utterance message that carries no utterance
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestEmptyUtteranceList(TestCase):
+    """An entry message with an empty ``utterances`` list is nothing to answer.
+
+    Not a spec clause: a regression cell for the shape the ovos-e2e shard saw
+    as ``persona.openvoiceos - ERROR - list index out of range``. The persona
+    stages read ``utterances[0]``, so an empty list raised IndexError inside
+    ``match`` and the turn was lost. The stage must decline and the pipeline
+    must go on to the next stage.
+
+    Fixed by OpenVoiceOS/ovos-persona#229.
+    """
+
+    def _empty(self, session_id, utterances):
+        sess = Session(session_id)
+        sess.lang = "en-US"
+        sess.pipeline = PIPELINE
+        sess.persona_id = ALICE
+        return Message(ENTRY_TOPIC,
+                       {"utterances": utterances, "lang": "en-US"},
+                       {"session": sess.serialize(),
+                        "source": "A", "destination": "B"})
+
+    def test_empty_list_is_declined_not_raised(self):
+        """An empty ``utterances`` list with an active persona: no persona
+        dispatch, and the turn still terminates."""
+        recs = capture(_MC, self._empty("p-empty-list", []), 6.0)
+        self.assertFalse(any(t.startswith("persona:") for t in types(recs)),
+                         f"persona stage claimed an empty utterance: {types(recs)}")
+        self.assertTrue(
+            any(t in ("ovos.utterance.handled", "complete_intent_failure")
+                for t in types(recs)),
+            f"the turn did not terminate: {types(recs)}")
+
+    def test_empty_list_speaks_no_error(self):
+        """The IndexError surfaced to the user as a spoken error dialog. No
+        ``speak`` of ``skill.error`` may leave the stack for this shape."""
+        recs = capture(_MC, self._empty("p-empty-speak", []), 6.0)
+        spoken = [m.data.get("utterance") for m in recs
+                  if m.msg_type in ("speak", "ovos.utterance.speak")]
+        self.assertNotIn("skill.error", spoken,
+                         f"an empty utterance produced a spoken error: {spoken}")
