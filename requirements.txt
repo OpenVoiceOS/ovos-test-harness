@@ -73,6 +73,18 @@ git+https://github.com/OpenVoiceOS/ovos-padatious-pipeline-plugin@dev
 git+https://github.com/OpenVoiceOS/nebulento@dev
 git+https://github.com/OpenVoiceOS/palavreado@dev
 git+https://github.com/OpenVoiceOS/ovos-m2v-pipeline@dev
+# tokenizers comes in transitively through model2vec, and it is bounded here
+# because this job installs with `pip install --pre`. --pre is global in pip,
+# so it offers prereleases for every package in the graph, transitive ones
+# included. tokenizers 1.0.0rc2 ships a wheel with no system-regex backend
+# compiled, and the m2v model's Split pre-tokenizer needs one: the model fails
+# to load with "no system-regex backend compiled: enable the `fancy-regex`
+# feature", and both TestIntent4Registration_m2v cells report no match. That is
+# what reddened the #80 integration run at 12:21 on 2026-09-23 while the same
+# head passed at 13:41 on tokenizers 0.23.2. 1.0.0rc2 is not yanked, so the
+# resolution can pick it again on any run. Lift the ceiling when a 1.0.0 wheel
+# carries the feature.
+tokenizers<1.0.0
 git+https://github.com/OpenVoiceOS/linha-fina@dev
 git+https://github.com/OpenVoiceOS/ovos-markov-pipeline-plugin@dev
 # fixture skills (ovos-workshop cap lifted to <10)
