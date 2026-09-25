@@ -39,7 +39,7 @@ Coverage map (MUST clause -> status against the installed stack):
 - §3.2  template name begins with reserved ``SYSTEM_`` prefix ..... xfail (mixed-case frame names)
 - §3.2/§4.2 service MUST NOT dispatch a non-``SYSTEM_`` page ...... xfail (dispatches any)
 - §3.3  producer omits absent optional keys, never JSON null ...... xfail (emits __idle: null + None keys)
-- §3.5  producer never places a bare filesystem path on the wire .. xfail (show_image resolves to fs path)
+- §3.5  producer never places a bare filesystem path on the wire .. xfail (no _to_wire_image; green where installed)
 - §4.1  every GUI Message carries ``__from`` ...................... green
 - §4.1  service strips reserved ``__``-prefixed keys .............. green (RESERVED_KEYS)
 - §4.2  ``gui.page.show`` first page is a ``SYSTEM_*`` template ... xfail (frame names)
@@ -88,6 +88,19 @@ SKILL_ID = "weather.openvoiceos"
 # ─────────────────────────────────────────────────────────────────────────────
 # Producer-side capture helper
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _producer_resolves_local_assets() -> bool:
+    """Whether the installed producer puts a ``data:`` URI on the wire.
+
+    A probe on the real symbol rather than a version compare, which is what
+    ``docs/writing-conformance-tests.md`` asks for: the capability arrived in
+    ovos-bus-client 2.11.21a1 as ``GUIInterface._to_wire_image``, and the
+    channels do not move together. The stable channel still resolves 1.3.7
+    and emits the filesystem path, so the clause below stays xfail there and
+    is a plain assertion wherever the capability is installed.
+    """
+    return hasattr(GUIInterface, "_to_wire_image")
+
 
 def _capture_producer(emit):
     """Run ``emit(gui)`` against a fresh FakeBus + real GUIInterface and return
@@ -213,15 +226,30 @@ class TestSec35ImageDelivery(TestCase):
         self.assertIsNotNone(vals)
         self.assertEqual(vals.data.get("image"), "https://example.org/cat.png")
 
-    @pytest.mark.xfail(strict=True,
+    @pytest.mark.xfail(condition=not _producer_resolves_local_assets(),
+                       strict=True,
                        reason="GUI-1 §3.5 MUST resolve a local asset to a "
                               "data: URI and MUST NOT place a filesystem path "
-                              "on the wire; GUIInterface.show_image resolves a "
-                              "local file to its absolute filesystem path and "
-                              "emits that path verbatim on 'image'")
+                              "on the wire; this GUIInterface carries no "
+                              "_to_wire_image and emits the absolute path "
+                              "verbatim on 'image'. The capability arrived in "
+                              "ovos-bus-client 2.11.21a1; a channel still on "
+                              "an older client does not have it")
     def test_local_image_resolved_to_data_uri(self):
         """§3.5 MUST: a local asset is resolved to a ``data:`` URI; no
-        ``image`` value is a bare filesystem path."""
+        ``image`` value is a bare filesystem path.
+
+        The mark is conditional on the probe above rather than removed.
+        ovos-bus-client 2.11.21a1 added ``GUIInterface._to_wire_image`` and
+        cites the clause at the call site, so the alpha and integration
+        stacks conform; the stable channel still resolves 1.3.7 and emits
+        the path. Removing the mark reddened stable, which is the channels
+        disagreeing rather than the gap being open or closed fleet-wide.
+
+        The assertion is the clause rather than the weaker "http or data:"
+        it carried before: a local asset has no http reading, so that form
+        passed any path that happened to begin with those four letters.
+        """
         # a producer holding a local asset
         recs = _capture_producer(
             lambda g: g.show_image(__file__))  # an existing local file
@@ -229,8 +257,12 @@ class TestSec35ImageDelivery(TestCase):
         self.assertIsNotNone(vals)
         img = vals.data.get("image", "")
         self.assertTrue(
-            img.startswith("http") or img.startswith("data:"),
-            f"image key carried a non-URL/non-data value: {img!r}")
+            img.startswith("data:"),
+            f"§3.5 MUST resolve a local asset to a data: URI; 'image' "
+            f"carried {img[:120]!r}")
+        self.assertNotIn(
+            __file__, img,
+            "§3.5 MUST NOT place a bare filesystem path on the wire")
 
 
 # =============================================================================

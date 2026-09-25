@@ -241,9 +241,11 @@ for _combo, _cell in BOUNDARY_ALIASES.items():
         f", but cells.py's alias {_cell!r} pins M={_values['M']!r}")
 del _combo, _cell, _want_suffixed_only, _want_canon, _values, _want_S, _want_M
 
-#: Combos expected to fail today because the skill side is suffixed-only and
-#: the core side canonicalizes — the same gap ``old-skill/new-core`` marks,
-#: reached via a distro constraints pin instead of a boundary pin.
+#: The live-fleet combos whose skill side is suffixed-only and whose core
+#: side canonicalizes — the same shape ``old-skill/new-core`` marks, reached
+#: through a distro constraints pin instead of a boundary pin. They are not
+#: xfail: ovos-bus-client#271's emit-side twin carries them, and
+#: ``test_the_channel_cells_ride_the_emitter_side_twin`` holds that reason.
 _BROKEN_CHANNEL_COMBOS = {"stable-skill/dev-core", "testing-skill/dev-core"}
 
 COMBO = os.environ.get("BACKCOMPAT_COMBO", "")
@@ -303,44 +305,54 @@ pytestmark = pytest.mark.skipif(
 #: shape so an unset combo never claims a gap.
 IS_BROKEN_CELL = COMBOS.get(COMBO, (False, False, True)) == (True, True, False)
 
-#: ovos-bus-client#271 (the wire-twin bridge) has shipped: the boundary-pinned
-#: old-skill/new-core cell now hears a canonical dispatch and passes for real,
-#: per the docstring's own kill-switch instruction ("the day #271 releases,
-#: old skill/new core starts passing ... the marker comes off — the guard is
-#: then permanent"). Two other cells still reach this same (suffixed-only
-#: skill, canonicalizing matcher) shape for reasons #271 never touched, so
-#: they keep the guard:
+#: ovos-bus-client#271 (the wire-twin bridge) has shipped, and it closes this
+#: shape through BOTH of its rules, not one:
 #:
-#: * the two live-fleet channel combos, through a distro constraints pin
-#:   that has not moved past the 9.3.2a1 canonical-binding boundary yet;
-#: * ``old-skill/old-core-new-matchers``, where the canonicalization comes
-#:   from an old core resolving a current ``ovos-padatious`` (COMBOS' own
-#:   comment: "pins the blame on padatious") -- #271 is a bus-client wire
-#:   fix and has no bearing on a matcher-side canonicalization decision, so
-#:   this cell is independently still broken.
-_STILL_XFAIL_COMBOS = _BROKEN_CHANNEL_COMBOS | {"old-skill/old-core-new-matchers"}
+#: * the RECEIVE-side rule canonicalizes unmarked suffixed traffic inside a
+#:   modern client, which is what carried the boundary-pinned
+#:   ``old-skill/new-core`` cell: that venv floats its bus-client, so a
+#:   frozen workshop still resolves a current client;
+#: * the EMIT-side rule sends a marked ``.intent``-suffixed twin frame for
+#:   every canonical intent topic, from whichever process calls ``emit()``.
+#:   In this suite that is the driver/core side, never the skill subprocess.
+#:
+#: The two live-fleet channel combos were kept under the guard on the
+#: reasoning that their distro constraints pin the bus-client at 1.3.7, below
+#: where #271 lands, so the receive-side rule cannot reach them. That is true
+#: and it is not the whole fix: the emit-side twin fires from the dev core's
+#: own client and does not care what the skill resolved, which is exactly the
+#: frozen-image case it was written for. Measured at dev 1f5ee23 (T-4536),
+#: stable-skill/dev-core, with every clause of the old reason still true
+#: (ovos-workshop 3.4.0, ovos-bus-client 1.3.7, ovos-padatious 2.2.5a1 still
+#: carrying ``_dealias_intent_name``):
+#:
+#:     #271 mirror present (skill-side, receive-side probe)=False
+#:     #271 mirror present (driver-side, emitter-side probe)=True
+#:     OVOS_BUS_EMIT_LEGACY unset -> both handler tests XPASS
+#:     OVOS_BUS_EMIT_LEGACY=0     -> both handler tests XFAIL
+#:
+#: The kill switch is the proof: the emit-side twin is the whole of what
+#: carries these cells, so the guard comes off and
+#: ``test_the_channel_cells_ride_the_emitter_side_twin`` keeps the reason.
+#:
+#: ``old-skill/old-core-new-matchers`` keeps the guard. Its canonicalization
+#: comes from an OLD core resolving a current ``ovos-padatious`` (COMBOS' own
+#: comment: "pins the blame on padatious"), and that old core's own client
+#: predates #271, so no twin is emitted there to rescue it.
+_STILL_XFAIL_COMBOS = {"old-skill/old-core-new-matchers"}
 IS_XFAIL_CELL = IS_BROKEN_CELL and COMBO in _STILL_XFAIL_COMBOS
 
-if COMBO == "old-skill/old-core-new-matchers":
-    _XFAIL_REASON = (
-        f"{COMBO}: an OLD ovos-core resolving a CURRENT ovos-padatious "
-        "canonicalizes at registration (the fold lives in the matcher "
-        "package, not ovos-core -- see COMBOS' own probe comment above), so "
-        "the suffixed-only old skill still never hears a bound handler; "
-        "unrelated to ovos-bus-client#271, which is a bus wire-twin fix "
-        "with no bearing on this matcher-side canonicalization decision. "
-        "XPASS here means either this core pin stopped resolving that "
-        "padatious vintage or padatious itself changed the fold — check "
-        "which, then drop the marker.")
-else:
-    _XFAIL_REASON = (
-        f"{COMBO}: the OVOS distro constraints file pins an ovos-workshop below "
-        "the 9.3.2a1 canonical-binding boundary, so this channel's skill side is "
-        "suffixed-only against a dev core that canonicalizes at registration; "
-        "same gap as old-skill/new-core used to be before ovos-bus-client#271 "
-        "shipped, reached via a live fleet pin instead of a boundary pin. XPASS "
-        "here means the channel moved its pin past the boundary — check that, "
-        "then drop the marker.")
+_XFAIL_REASON = (
+    f"{COMBO}: an OLD ovos-core resolving a CURRENT ovos-padatious "
+    "canonicalizes at registration (the fold lives in the matcher "
+    "package, not ovos-core -- see COMBOS' own probe comment above), so "
+    "the suffixed-only old skill still never hears a bound handler. "
+    "ovos-bus-client#271's emit-side twin does not reach this cell either: "
+    "the emitting process here is the OLD core, whose own client predates "
+    "#271. XPASS here means either this core pin stopped resolving that "
+    "padatious vintage, or padatious changed the fold, or this cell's core "
+    "started resolving a client that emits the twin — check which, then "
+    "drop the marker.")
 
 
 @pytest.fixture(scope="module")
@@ -597,6 +609,47 @@ def test_pins_are_the_intended_vintage(stack):
 #: assumption.
 _CHANNEL_COMBOS = {"stable-skill/dev-core", "dev-skill/stable-core",
                     "testing-skill/dev-core", "dev-skill/testing-core"}
+
+
+def test_the_channel_cells_ride_the_emitter_side_twin(stack):
+    """T-4536: name the rule that carries a channel cell, not the version.
+
+    These two cells were ``xfail(strict=True)`` on the reasoning that their
+    distro constraints pin the bus-client below #271, so its receive-side
+    canonicalization cannot reach the skill. That is true, and it is not the
+    whole of #271: the emit-side twin fires from the process that calls
+    ``emit()``, which here is the dev core, and it does not care what the
+    skill resolved. That is the frozen-image case the twin exists for.
+
+    Every clause of the retired reason is still true, so a version compare
+    would still predict a break. This asserts the two facts that actually
+    decide it, and the suffixed dispatch the skill really hears.
+    """
+    if COMBO not in _BROKEN_CHANNEL_COMBOS:
+        pytest.skip(f"{COMBO} is not a suffixed-only channel cell")
+    _server, _bus, skill, _regs = stack
+
+    client = skill.versions.get("ovos_bus_client", "")
+    assert int(client.split(".")[0]) < 2, (
+        f"{COMBO}: the channel now resolves ovos-bus-client {client}; the "
+        f"receive-side rule reaches it, so this cell no longer isolates the "
+        f"emit-side twin and this test's premise needs rewriting")
+    assert skill.versions.get("has_reemit_hook") in (False, "False"), (
+        f"{COMBO}: the skill side reports #271's receive-side hook; see above")
+
+    assert emitter_side_has_reemit_hook(), (
+        f"{COMBO}: the driver's own client carries no emit-side twin, so "
+        f"nothing puts a suffixed frame on the wire for this skill. The "
+        f"cell is broken again and the guard has to come back.")
+
+    assert core_canonicalizes(), (
+        f"{COMBO}: the matcher no longer folds at registration, so the "
+        f"primary dispatch is already suffixed and this cell would pass "
+        f"without the twin. The reason above is then wrong.")
+
+    assert LEGACY_TOPIC in skill.bound_topics, (
+        f"{COMBO}: the skill binds {skill.bound_topics}, not the suffixed "
+        f"topic this cell is about")
 
 
 def test_old_container_resolves_a_current_bus_client(stack):
