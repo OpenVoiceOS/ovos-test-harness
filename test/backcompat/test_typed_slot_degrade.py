@@ -28,6 +28,19 @@ from .test_mixed_version_matrix import stack  # noqa: F401  the shared bus + ski
 from .skill_process import SKILL_ID, TYPED_STEM
 
 COMBO = os.environ.get("BACKCOMPAT_COMBO", "")
+SKILL_PYTHON = os.environ.get("BACKCOMPAT_SKILL_PYTHON", "")
+
+#: The same guard the shared matrix module carries. ``pytestmark`` is a
+#: per-module name: importing the ``stack`` fixture from
+#: ``test_mixed_version_matrix`` does NOT bring that module's skipif with
+#: it. Without this line the fixture reaches its own ``pytest.fail``
+#: ("unknown BACKCOMPAT_COMBO ''") in any job that sets no combo, which is
+#: what the integration job does, so this file errored at setup there while
+#: passing in every cell run.
+pytestmark = pytest.mark.skipif(
+    not COMBO or not SKILL_PYTHON,
+    reason="mixed-version matrix needs BACKCOMPAT_COMBO and "
+           "BACKCOMPAT_SKILL_PYTHON; see test/backcompat/build_venvs.sh")
 UTTERANCE = "set an alarm in 5 minutes"
 #: ovos_workshop.intents._drop_malformed_samples's log line, the S-side
 #: failure mode a typed line meets on a workshop that validates slot names
