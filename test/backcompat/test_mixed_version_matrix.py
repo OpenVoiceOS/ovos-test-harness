@@ -378,8 +378,11 @@ def stack():
 
 
 def _registered_name(registrations) -> str:
+    # the food.order registration only: the skill also registers a typed
+    # resource (test_typed_slot_degrade.py), which is not the one dispatched
     names = [m.data.get("name") for m in registrations.messages
-             if str(m.data.get("name", "")).startswith(f"{SKILL_ID}:")]
+             if str(m.data.get("name", "")).startswith(f"{SKILL_ID}:")
+             and "food.order" in str(m.data.get("name", ""))]
     assert names, ("the skill never registered an intent with the padatious "
                    "contract; nothing to dispatch")
     return names[0]
