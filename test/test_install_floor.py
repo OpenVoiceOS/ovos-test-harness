@@ -29,6 +29,12 @@ GATED_MODULES = {
     "ovos_media.player": "OVOS-OCP-1 Virtual Media Player clauses "
                          "(test_ocp1_conformance.py)",
     "ovos_gui.namespace": "GUI-1 service clauses (test_gui1_conformance.py)",
+    # T-3973: both TestIntent4Registration_m2v cases skipped on the stable
+    # channel for months because model2vec was missing, and nothing turned
+    # that skip into a failure. This file exists for exactly that, and the
+    # module was not listed in it.
+    "ovos_m2v_pipeline": "INTENT-4 registration clauses for the m2v pipeline "
+                         "(test_intent4_plugins_conformance.py)",
 }
 
 

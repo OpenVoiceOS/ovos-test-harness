@@ -90,6 +90,22 @@ else
   "${PIP[@]}" -c "$CFILE" ovos-gui-api-client dbus_next json-database
 fi
 
+# ovos-m2v-pipeline, on a channel that does not pin it. It is then a git
+# leftover from step [3/4], installed --no-deps, so the model2vec its
+# __init__ imports at line 11 is missing and both TestIntent4Registration_m2v
+# cases skip. Measured on run 36025727125: stable skips them, and alpha and
+# testing do not, because their constraints files DO name ovos-m2v-pipeline,
+# which makes resolve.py put it in covered.txt and pip install it with its
+# dependencies (T-3973).
+#
+# The cure is the one ovos-media gets above: install the leaf deps the package
+# actually imports. None of them is an OVOS package, so -c cannot pull the
+# channel stack up or down through them.
+if ! grep -qxF ovos-m2v-pipeline "$PLAN/covered.txt" 2>/dev/null; then
+  echo "==> [4b/4] ovos-m2v-pipeline leaf deps (unpinned on $CHANNEL)"
+  "${PIP[@]}" -c "$CFILE" "model2vec>=0.9.0" "tokenizers<1.0.0" scikit-learn skops
+fi
+
 # ovoscope is this harness's OWN test driver, not a member of the device
 # stack a channel's constraints file describes — but it is not version-free
 # either: ovoscope calls accessors (e.g. SessionManager.get_default_session)
