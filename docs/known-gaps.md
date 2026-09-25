@@ -266,15 +266,41 @@ per-session-routing model of GUI-1.
 
 - **Test:** `TestSec33TypingRules.test_absent_optional_keys_are_omitted_not_null`
 
-### §3.5: local image resolved to a `data:` URI
+### §3.5: local image resolved to a `data:` URI (closed on alpha, open on stable)
 
 - **Spec mandates:** a producer resolves a local asset to a `data:` URI and
   MUST NOT place a bare filesystem path on the wire.
 
-- **Current impl:** `GUIInterface.show_image` resolves a local file to its
-  absolute filesystem path and emits that path verbatim on `image`.
+- **What closed it:** ovos-bus-client 2.11.21a1 added
+  `GUIInterface._to_wire_image` and calls it from `show_image`, citing the
+  clause at the call site. 2.11.20a1 still emitted the absolute path.
 
-- **Test:** `TestSec35ImageDelivery.test_local_image_resolved_to_data_uri`
+      2.11.19a1  no _to_wire_image   uploaded 2026-09-23T23:44:59
+      2.11.20a1  no _to_wire_image   uploaded 2026-09-24T14:38:07
+      2.11.21a1  _to_wire_image      uploaded 2026-09-24T23:25:23
+
+  Driven both ways against the real package: on 2.11.21a1 the `image` key
+  carries a `data:` URI and the test passes; on 2.11.20a1 it carries the
+  absolute path of the test file and the test fails.
+
+- **Why it reddened CI rather than passing quietly:** the marker was
+  `xfail(strict=True)`, so the day the gap closed the cell turned red. dev's
+  last green `integration` run was 2026-09-24 16:12, between the two
+  releases, which is why dev looked healthy while the next push would not
+  have been.
+
+- **Still open on the stable channel.** The channels do not move together:
+  the stable stack resolves ovos-bus-client 1.3.7 and emits the path.
+  Removing the mark outright reddened the `stable` job, which is the
+  channels disagreeing rather than the gap being open or closed fleet-wide.
+
+- **Test:** `TestSec35ImageDelivery.test_local_image_resolved_to_data_uri`.
+  The mark is conditional on `_producer_resolves_local_assets()`, a probe on
+  `GUIInterface._to_wire_image` rather than a version compare, so the clause
+  is a plain assertion wherever the capability is installed and stays xfail
+  where it is not. The assertion itself is now the clause rather than the
+  weaker "http or data:" it carried before: a local asset has no http
+  reading, so that form passed any path beginning with those four letters.
 
 ### §3.2 / §4.2 / §8.3: service dispatches only `SYSTEM_*` templates
 
@@ -512,6 +538,55 @@ fails. One test per entry, marked `known_red_tripwire` in
 reason is still true against the packages the core venv resolved. The day
 a release closes the gap, that test fails, which is the signal to drop the
 entry and run the cell plain.
+
+### Retired 2026-09-25: the two channel cells are carried by #271's emit-side twin
+
+- **Cells:** `stable-skill/dev-core`, `testing-skill/dev-core`.
+
+- **What the guard said:** the OVOS distro constraints file pins an
+  ovos-workshop below the 9.3.2a1 canonical-binding boundary, so the skill
+  side is suffixed-only against a dev core that canonicalizes at
+  registration. `xfail(strict=True)`, with "XPASS here means the channel
+  moved its pin past the boundary".
+
+- **Why it went red:** the cells started passing, through four pushes at dev
+  1f5ee23, and strict xfail turns a pass into a failure. The channel had
+  not moved its pin. Every clause of the reason was still true at the head
+  that reported the XPASS: ovos-workshop 3.4.0, ovos-bus-client 1.3.7, and
+  ovos-padatious 2.2.5a1 still carrying `_dealias_intent_name`, so the
+  matcher still folds and the primary dispatch is still canonical.
+
+- **What actually carries them:** ovos-bus-client#271 has two rules, and the
+  guard was retired against one of them. The receive-side rule
+  canonicalizes suffixed traffic inside a modern client, and it cannot reach
+  these cells, because the constraints file pins their client at 1.3.7. The
+  emit-side rule sends a marked `.intent`-suffixed twin for every canonical
+  intent topic, from whichever process calls `emit()` — here the dev core,
+  whose client is 2.11.x. The skill's suffixed-only binding hears the twin.
+  That is the frozen-image case the twin was written for.
+
+- **Measured (T-4536, dev 1f5ee23, the venv pair built locally):**
+
+      #271 mirror present (skill-side, receive-side probe)=False
+      #271 mirror present (driver-side, emitter-side probe)=True
+      OVOS_BUS_EMIT_LEGACY unset -> both handler tests XPASS
+      OVOS_BUS_EMIT_LEGACY=0     -> both handler tests XFAIL
+
+  The kill switch is the proof: with the twin off the gap comes straight
+  back, so the twin is the whole of what closes it.
+
+- **What replaces the guard:**
+  `test_the_channel_cells_ride_the_emitter_side_twin` in
+  `test_mixed_version_matrix.py`. It asserts the client is still below #271
+  on the skill side, that the driver still emits the twin, that the matcher
+  still folds, and that the skill still binds the suffixed topic — so the
+  day any of those four moves, the reason is re-read rather than silently
+  outlived.
+
+- **The fleet finding stands:** a real stable or testing channel container
+  still resolves ovos-bus-client 1.3.7, which is below #271. It is carried
+  by the core it talks to, not by anything in its own image. A deployment
+  that sets `OVOS_BUS_EMIT_LEGACY=0` breaks every such skill.
 
 ### C=old, M=new: the ovos-core 2.5.5a2 cohort cannot run current matchers
 
