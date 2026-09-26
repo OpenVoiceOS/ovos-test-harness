@@ -5,21 +5,12 @@ This page catalogues the clauses where the
 specs mandate one behavior but the current ovos-core stack still does the
 legacy thing.
 
-Each is recorded in the suite as `@pytest.mark.xfail(reason=...)`,
-asserting the spec behavior, with a `reason` that cites the legacy topic and
-the spec clause.
+Each is recorded in the suite as
+`@pytest.mark.xfail(strict=False, reason=...)`, asserting the spec behavior,
+with a `reason` that cites the legacy topic and the spec clause.
 
-Most markers are **strict**. The tree currently holds 62 `strict=True`
-markers against 5 `strict=False`, so this page's default is strict and the
-non-strict ones are the exception. A strict marker turns a pass into a
-failure, so the day a gap closes the cell goes red and names itself for
-retirement. That is the intended signal and it is loud, not a defect: two
-of them reddened dev in September 2026, and both were real closures upstream
-rather than regressions here.
-
-A `strict=False` marker is used where the installed stack decides the
-answer, so the cell may legitimately pass or xfail on the same code. Such a
-gap xpasses quietly instead of reddening. See
+Because the markers are `strict=False`, a gap xpasses (and so flags itself
+for marker removal) the moment the implementation catches up. See
 [ci.md](ci.md#interpreting-results).
 
 The framing for every gap is the same: the spec mandates X, current core
