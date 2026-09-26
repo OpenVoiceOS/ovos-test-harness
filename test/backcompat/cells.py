@@ -214,6 +214,50 @@ CHANNEL_CELLS: FrozenSet[str] = frozenset({
 })
 
 
+#: Cells the matrix builds and runs, and that are red for a reason the
+#: matrix records instead of hides (docs/known-gaps.md, "Back-compat
+#: matrix: known-red cells"). Keyed by the (C, M) pair that makes the cell
+#: red, value is the ``reason`` every scenario in the cell is xfailed with.
+#: ``conftest.py`` applies it at collection; ``test_known_red_cells.py``
+#: carries the tripwire that fails the day the reason stops being true.
+#:
+#: C=old, M=new: the ovos-core 2.5.5a2 cohort (ovos-bus-client 2.7.0a1)
+#: needs ovos-spec-tools<=1.10.0a1 (``SessionManager._store``, removed in
+#: 1.10.1a1, spec-tools#116; ``SpecMessage.SESSION_SYNC``, removed in
+#: 1.11.0a2, spec-tools#138). Current ovos-padatious (2.2.0a1, plugin#158)
+#: imports ``REGISTERED_TYPES``, present from 1.11.0a1 (spec-tools#137).
+#: The two sets never meet, so an old core cannot run current matchers.
+#: build_venvs.sh floors spec-tools with the matchers on this venv, so the
+#: venv resolves and the cell shows the break instead of an upper bound.
+KNOWN_RED_CELLS: Dict[FrozenSet[str], str] = {
+    frozenset({"C" + OTHER, "M" + REFERENCE}): (
+        "known-red cell (C=old, M=new): the ovos-core 2.5.5a2 cohort cannot "
+        "run current matchers. ovos-bus-client 2.7.0a1 emits "
+        "SpecMessage.SESSION_SYNC on connect (removed in ovos-spec-tools "
+        "1.11.0a2, spec-tools#138) and calls SessionManager._store (removed "
+        "in 1.10.1a1, spec-tools#116); ovos-padatious 2.2.0a1 imports "
+        "REGISTERED_TYPES (present from 1.11.0a1, spec-tools#137). No "
+        "ovos-spec-tools release satisfies both, so the core's bus client "
+        "reconnect-loops on AttributeError('SESSION_SYNC'). Closed by an "
+        "ovos-core cohort whose bus-client runs on spec-tools>=1.11.0a1, or "
+        "by a padatious release that imports nothing above 1.10.0a1; "
+        "test_known_red_cells.py fails the day either lands, which is the "
+        "signal to drop this entry."),
+}
+
+
+def known_red_reason(cell: Optional[CellId]) -> Optional[str]:
+    """The ``KNOWN_RED_CELLS`` reason for ``cell``, or ``None`` when the
+    cell is not known red (or is a channel/unknown cell)."""
+    if cell is None:
+        return None
+    values = axis_values(cell)
+    for key, reason in KNOWN_RED_CELLS.items():
+        if all(values[axis_val[0]] == axis_val[1:] for axis_val in key):
+            return reason
+    return None
+
+
 def resolve_cell(combo: str) -> Optional[CellId]:
     """The 4-tuple cell id ``combo`` resolves to, or ``None`` when ``combo``
     is a channel combo (see ``CHANNEL_CELLS``) or unrecognized -- callers

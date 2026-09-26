@@ -229,6 +229,20 @@ class TestSec43ControlRequests(TestCase):
 # §4.4 — State reports
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _wait_for_type(session, msg_type, timeout=2.0):
+    """Wait until ``session`` captured a ``msg_type`` message, or ``timeout``.
+
+    ``OCPPlayerHarness.play`` returns after 0.05 s, and the state report is
+    emitted after that on a loaded runner. A capture that closes at once
+    misses it.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if any(m.msg_type == msg_type for m in list(session.messages)):
+            return
+        time.sleep(0.02)
+
+
 @_requires_player
 class TestSec44StateReports(TestCase):
     """§4.4: the player MUST announce state transitions so consumers stay
@@ -242,6 +256,7 @@ class TestSec44StateReports(TestCase):
                 h.bus, track_prefixes=["ovos.common_play.player.state"]
             ) as s:
                 h.play(_entry())
+                _wait_for_type(s, "ovos.common_play.player.state")
             self.assertTrue(
                 any(m.msg_type == "ovos.common_play.player.state"
                     for m in s.messages),
@@ -254,6 +269,7 @@ class TestSec44StateReports(TestCase):
                 h.bus, track_prefixes=["ovos.common_play.player.state"]
             ) as s:
                 h.play(_entry())
+                _wait_for_type(s, "ovos.common_play.player.state")
             msg = next((m for m in s.messages
                         if m.msg_type == "ovos.common_play.player.state"), None)
             self.assertIsNotNone(msg)

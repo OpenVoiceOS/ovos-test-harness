@@ -224,13 +224,18 @@ class TestE2EKeywordConstraints(TestCase):
             cls._mc = get_minicroft([])
             wait_ready(cls._mc, settle=1.0)
 
+            # A legacy skill stamps context["skill_id"] on every emission
+            # (OVOS-INTENT-4 §3.1); adapt rejects a legacy registration
+            # without it, and every negative cell below then passes on an
+            # empty engine.
+            sid = "intent3.skill"
             # vocabularies
-            register_adapt_vocab(cls._mc.bus, "SetKeyword", ["set", "change"])
+            register_adapt_vocab(cls._mc.bus, "SetKeyword", ["set", "change"], skill_id=sid)
             register_adapt_vocab(cls._mc.bus, "BrightnessKeyword",
-                                 ["brightness", "light level"])
-            register_adapt_vocab(cls._mc.bus, "UpKeyword", ["up", "higher"])
-            register_adapt_vocab(cls._mc.bus, "DownKeyword", ["down", "lower"])
-            register_adapt_vocab(cls._mc.bus, "QuestionKeyword", ["what is", "how"])
+                                 ["brightness", "light level"], skill_id=sid)
+            register_adapt_vocab(cls._mc.bus, "UpKeyword", ["up", "higher"], skill_id=sid)
+            register_adapt_vocab(cls._mc.bus, "DownKeyword", ["down", "lower"], skill_id=sid)
+            register_adapt_vocab(cls._mc.bus, "QuestionKeyword", ["what is", "how"], skill_id=sid)
 
             cls._intent = "set_brightness"
             builder = (IntentBuilder(cls._intent)
@@ -238,7 +243,7 @@ class TestE2EKeywordConstraints(TestCase):
                        .require("BrightnessKeyword")
                        .one_of("UpKeyword", "DownKeyword")
                        .exclude("QuestionKeyword"))
-            register_adapt_intent(cls._mc.bus, builder)
+            register_adapt_intent(cls._mc.bus, builder, skill_id=sid)
             time.sleep(1.5)
         except BaseException:
             reset_namespace()

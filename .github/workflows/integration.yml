@@ -53,6 +53,15 @@ jobs:
           # release whose bus edge (ovos_media/bus/api.py) the
           # test/backcompat/test_ocp_common_play.py wire cells drive.
           pip install "ovos-media>=2.0.1a1"
+          # a real broker for test/backcompat/test_fallback_namespace_twin.py,
+          # which this job turns on with FALLBACK_TWIN_CELLS below
+          pip install --pre ovos-messagebus
+          # the ovos-docker healthcheck script, for the MSG-1 §3.3 docker
+          # producer cell in test/conformance/test_msg1_producers_conformance.py
+          git clone --depth 1 --branch dev --filter=blob:none --sparse \
+            https://github.com/OpenVoiceOS/ovos-docker "$RUNNER_TEMP/ovos-docker"
+          git -C "$RUNNER_TEMP/ovos-docker" sparse-checkout set base/files
+          test -f "$RUNNER_TEMP/ovos-docker/base/files/ovos-hc.py"
 
       - name: Record the installed stack
         run: pip freeze > stack-freeze.txt
@@ -73,6 +82,12 @@ jobs:
           # runs test/backcompat/test_ocp_common_play.py. With the var set
           # those cells never skip: a broken ovos-media install fails them.
           OCP_WIRE_CELLS: "1"
+          # ovos-messagebus is installed above, so the fallback twin cells
+          # run here and never skip
+          FALLBACK_TWIN_CELLS: "1"
+          # the same broker serves the MSG-1 §3.3 producer cells
+          MSG1_PRODUCER_CELLS: "1"
+          OVOS_DOCKER_HC: ${{ runner.temp }}/ovos-docker/base/files/ovos-hc.py
         run: >-
           pytest test/ -v --tb=short -rxX
           --ignore=test/skills_fleet
