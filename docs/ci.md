@@ -71,14 +71,17 @@ A conformance run is read per clause, not just pass or fail overall.
 |----------------|-------------------------|
 | **passed** | The pinned stack satisfies that spec clause. |
 | **xfailed** | A documented conformance gap: the test asserts the spec behavior, the implementation still does the legacy thing. Expected, not a failure. Catalogued in [known-gaps.md](known-gaps.md). |
-| **xpassed** | A clause marked `xfail` now passes. The implementation caught up. **Action:** remove the `xfail` marker (once the impl branch merges) so the clause becomes a plain green requirement. |
-| **failed** | An undocumented violation: a regression of a clause the stack previously satisfied, or a genuinely broken combination. This is the signal that fails the gate. |
+| **xpassed** | A clause marked `xfail(strict=False)` passes: the implementation has caught up. **Action:** remove the `xfail` marker (once the impl branch merges) so the clause becomes a plain green requirement. Only a non-strict marker can reach this outcome; a strict one reports the same event as **failed** (see below). |
+| **failed** | Either an undocumented violation — a regression of a clause the stack previously satisfied, or a genuinely broken combination — or a gap that has CLOSED, because `xfail(strict=True)` turns a pass into a failure and nearly every marker is strict ([known-gaps.md](known-gaps.md)). Both fail the gate, and they are told apart by asking whether the cell's gap still exists. |
 | **skipped** | A skip-guarded clause whose producer or session field is absent in the installed stack (probed at runtime). It runs once that piece is pinned in. |
 
 So the healthy steady state of a run is all green except the known
-`xfail`s. A combo PR that closes a gap shows up as xpassed on the relevant
-clauses, the cue to drop the markers. A red **failed** is the only true
-alarm.
+`xfail`s. A combo PR that closes a gap shows up as **failed** on the relevant
+clauses, because their markers are strict, and as xpassed only where the
+marker is non-strict; either way it is the cue to drop the markers, not a
+regression. A **failed** cell is therefore the only true alarm AND the way a
+closed gap announces itself, so read the cell's `reason` before calling it a
+regression.
 
 `pytest-json-report` is installed so a machine-readable `report.json` can be
 produced (`pytest test/ --json-report`) for downstream tooling.
