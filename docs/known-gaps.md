@@ -526,6 +526,44 @@ the `misfire` handling of §4.3, the persist-before-answer ordering of §5.1 and
 the legacy `mycroft.scheduler.*` adapter of §8. Nothing here is asserted, and
 nothing about the shipped scheduler should be read as conformant until it is.
 
+## OVOS-INTENT-1: typed slots, new at pin d68ed80
+
+The architecture pin moved from `13b5e11` to `d68ed80`. INTENT-1 §5.6, typed
+slots, is new in that range: a type prefix on a placeholder, paired with typed
+values computed from the utterance before matching. It is a hint, which an
+engine MAY ignore. No suite asserts it.
+
+## OVOS-INTENT-2: the `.required` file, new at pin d68ed80
+
+INTENT-2 §4.5, the `.required` file, is new in the same range: the required
+slots of an intent, one bare slot name per line. No suite asserts it.
+
+## OVOS-PIPELINE-1: the candidate poll, new at pin d68ed80
+
+PIPELINE-1 §4.5, the candidate poll, is new in the same range: one exchange by
+which a plugin asks a set of candidates whether one claims the utterance. No
+suite asserts it.
+
+## OVOS-TRANSFORM-1: typed-slots transformers, new at pin d68ed80
+
+`transformer.md` §3.7, typed-slots transformers, is new in the same range:
+injected after the utterance and metadata chains, before the first matcher. No
+suite asserts it.
+
+## OVOS-INTENT-4: the identity rule reversed at pin d68ed80
+
+`d68ed80` amends INTENT-4 §3.2, and the registration rules of OVOS-FALLBACK-1
+with it. Before, a consumer MUST reject a registration or deregistration whose
+payload `skill_id` differs from `context.skill_id`. Now "A consumer — plugin or
+orchestrator — **MUST** act on the payload value, **MUST NOT** substitute
+`context.skill_id` for it, and **MUST NOT** treat a difference between the two
+as grounds for rejection", and a missing `context.skill_id` is not malformed.
+
+No cell in this harness asserted the old rule, so no expectation changes. The
+one cell that cites §3.2, `TestSec53MalformedRejection`, sends equal payload
+and context `skill_id` values and tests malformed payload shape only. No cell
+asserts the new rule either: a registration with a different or absent
+`context.skill_id` is indexed under the payload `skill_id`. That is open.
 ## Back-compat matrix: known-red cells
 
 The mixed-version matrix (`test/backcompat/`) has a second kind of gap: a
