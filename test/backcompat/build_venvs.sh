@@ -387,7 +387,17 @@ wants venv_audio      && mkvenv venv_audio    ovos-bus-client "setuptools<81"
 # venv_wire_twin_old: a genuinely pre-spec-tools client (no NamespaceTranslator
 # at all), the frozen-satellite shape ovos-bus-client#286's send-side wire
 # twin exists to reach. See the pins block above for the version archaeology.
-wants venv_wire_twin_old && mkvenv venv_wire_twin_old "ovos-bus-client==1.5.0" "setuptools<81"
+#
+# ovos-utils is pinned as well, and it has to be: pinning ovos-bus-client alone
+# left ovos-utils to float, and every release from 0.10.0a1 onward requires
+# ovos-spec-tools (0.15.3a3 asks for >=1.10.7a2). Resolving this venv today
+# therefore installed ovos-spec-tools 1.13.1a3 WITH NamespaceTranslator, so the
+# one venv the suite keeps as pre-spec-tools was not pre-spec-tools at all.
+# 0.9.0a1 is the newest ovos-utils that declares no ovos-spec-tools dependency.
+# Nothing caught the drift because both files that assert this venv's vintage
+# were gated on an environment name the matrix never exported, so they skipped
+# in every job (T-5775).
+wants venv_wire_twin_old && mkvenv venv_wire_twin_old "ovos-bus-client==1.5.0" "ovos-utils==0.9.0a1" "setuptools<81"
 
 wants venv_skill_stable  && mkvenv_channel venv_skill_stable  "$STABLE_CONSTRAINTS_URL"  ovos-workshop "setuptools<81"
 wants venv_skill_testing && mkvenv_channel venv_skill_testing "$TESTING_CONSTRAINTS_URL" ovos-workshop "setuptools<81"
