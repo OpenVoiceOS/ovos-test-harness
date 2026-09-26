@@ -33,13 +33,38 @@ from ovos_bus_client.message import Message
 
 LEGACY_SPEAK_TOPIC = "speak"
 
+#: Which legacy topics this process subscribes to. ``speak`` alone by
+#: default, so the ovos-bus-client#286 cell that owns this script is
+#: unchanged. ``WIRE_TWIN_TOPICS`` is a comma-separated list, used by the
+#: FALLBACK-1 quadrant cells to put the same genuinely-old client on the four
+#: ``ovos.skills.fallback.*`` legacy names. The topics are reported back in
+#: VERSIONS so a cell asserts what the live process subscribed to rather than
+#: what it meant to ask for.
+TOPICS = [t.strip() for t in
+          os.environ.get("WIRE_TWIN_TOPICS", LEGACY_SPEAK_TOPIC).split(",")
+          if t.strip()]
+
 _received = []
 
 
-def _handle_speak(message: Message):
+def _handle(message: Message):
+    """Report the token AND the topic the frame arrived on.
+
+    The topic matters once more than one is subscribed: a cell that asserts
+    "the old client heard the legacy spelling" must be able to tell which
+    legacy spelling, or a bridge that delivered the wrong twin would pass.
+    The context session travels too, because FALLBACK-1 §3.2/§3.4 key the
+    registry by ``context.session.session_id`` and a twin that drops the
+    context breaks that clause without changing any payload.
+    """
     data = message.data or {}
-    token = data.get("token")
-    print("RECEIVED " + json.dumps({"token": token}), flush=True)
+    session = ((message.context or {}).get("session") or {}).get("session_id")
+    print("RECEIVED " + json.dumps({
+        "token": data.get("token"),
+        "topic": message.msg_type,
+        "data": data,
+        "session_id": session,
+    }), flush=True)
 
 
 def main():
@@ -49,7 +74,8 @@ def main():
         print("ERROR could not connect to messagebus", flush=True)
         sys.exit(1)
 
-    bus.on(LEGACY_SPEAK_TOPIC, _handle_speak)
+    for topic in TOPICS:
+        bus.on(topic, _handle)
 
     # VERSIONS reports what this process actually resolved, live -- not an
     # assumption from the vintage this script was told to run under. A drift
@@ -81,6 +107,7 @@ def main():
         "ovos_spec_tools_importable": has_spec_tools_importable,
         "client_has_namespace_translator": has_namespace_translator,
         "speak_topic": LEGACY_SPEAK_TOPIC,
+        "subscribed_topics": TOPICS,
     }), flush=True)
     print("READY", flush=True)
 
