@@ -117,16 +117,57 @@ def _msg(topic, data, session_id):
                    {"session": {"session_id": session_id}})
 
 
+def _spec_tools_version() -> str:
+    """The ``ovos-spec-tools`` this cohort actually resolved, or ``absent``.
+
+    Read from installed metadata rather than assumed from the cohort's name: a
+    channel venv may carry no ovos-spec-tools at all, which is the point of a
+    V0 cell.
+    """
+    try:
+        from importlib.metadata import version
+        return version("ovos-spec-tools")
+    except Exception:
+        return "absent"
+
+
 def test_map_still_pairs_these_four():
-    """Everything below is only about MIGRATION_MAP while the map still
-    pairs these spellings. Without this, a rename would turn every cell in
-    this module into a silent timeout instead of a named failure."""
+    """The four spellings are paired in MIGRATION_MAP, where the map has them.
+
+    This cell exists so a rename becomes a named failure instead of a silent
+    timeout in every cell below. It must not become a failure in a cohort whose
+    ``ovos-spec-tools`` predates the entries: the four arrived in 1.12.0a1, and
+    a cohort on 1.10.0a1 legitimately has none of them. That absence is the
+    same state Q3's marker calls correct behaviour rather than a defect, so
+    asserting the opposite here contradicted this module's own premise and
+    reddened the old-cohort legs of the matrix (reviewer's FINDING 0 on
+    ovos-test-harness#85, jobs 108353641052 and 108353641033).
+
+    The gate is the map itself, not a version comparison: "does this cohort
+    know these twins" is exactly what the following cells need, and a version
+    string is a proxy for it. The resolved version is named in the skip reason
+    so a reader can tell an old cohort from a rename. In a CURRENT cohort — one
+    whose map has any of the four — a rename still fails loudly, which is the
+    whole purpose of the cell.
+    """
     from ovos_spec_tools.messages import MIGRATION_MAP
+    present = [legacy for legacy in FALLBACK_TWINS if legacy in MIGRATION_MAP]
+    if not present:
+        pytest.skip(
+            f"ovos-spec-tools {_spec_tools_version()} carries none of the four "
+            f"fallback MIGRATION_MAP entries; they arrived in 1.12.0a1, so this "
+            f"cohort predates them and their absence is the correct state "
+            f"(see Q3's marker in this module). Nothing below can run here "
+            f"either.")
     for legacy, spec in FALLBACK_TWINS.items():
-        assert legacy in MIGRATION_MAP, f"{legacy} left MIGRATION_MAP"
+        assert legacy in MIGRATION_MAP, (
+            f"{legacy} left MIGRATION_MAP while {present} remain, on "
+            f"ovos-spec-tools {_spec_tools_version()}: a partial set is a "
+            f"rename or a removal, not an old vintage")
         assert MIGRATION_MAP[legacy].value == spec, (
             f"MIGRATION_MAP now pairs {legacy} with "
-            f"{MIGRATION_MAP[legacy].value}, not {spec}")
+            f"{MIGRATION_MAP[legacy].value}, not {spec}, on ovos-spec-tools "
+            f"{_spec_tools_version()}")
 
 
 # ---------------------------------------------------------------------------
