@@ -115,6 +115,8 @@
 #   venv_core_new_matchers_old / venv_core_old_matchers_new  (T2.5, the M axis)
 #              ovos-core @ dev      + ovos-padatious==2.0.0a1
 #              ovos-core==2.5.5a2   + ovos-padatious>=2.0.1a2 + ovos-adapt-parser>=1.4.0a1
+#                                   + ovos-spec-tools>=1.11.0a1 (spec-tools rides
+#                                   the M axis on this venv; see the call site)
 #              The matcher plugins are DEPLOYER-installed: ovos-core's runtime
 #              `dependencies` list names neither package (only its [test] extra
 #              mentions them), so both of these mixes are reachable by real
@@ -369,10 +371,25 @@ wants venv_core_new  && mkvenv venv_core_new  "$CORE_SPEC" "ovos-padatious>=2.0.
 wants venv_core_new_matchers_old && mkvenv venv_core_new_matchers_old \
   "$CORE_SPEC" "ovos-padatious==2.0.0a1" \
   ovos-messagebus pytest pytest-timeout ovos-common-query-pipeline-plugin "setuptools<81"
+# venv_core_old_matchers_new: ovos-spec-tools rides the M axis here. M=new
+# means current matcher plugins, and ovos-padatious 2.2.0a1 (2026-09-17,
+# ovos-padatious-pipeline-plugin#158) imports REGISTERED_TYPES from
+# ovos_spec_tools, a name that exists from ovos-spec-tools 1.11.0a1
+# (spec-tools#137). A deployer who installs a current matcher on an old core
+# gets the spec-tools that matcher needs, so this venv floors spec-tools
+# with the matchers and pins only the core packages to the C=old cohort.
+# The fleet ships floor pins only, so there is no ceiling on padatious
+# here. (The release declares ovos-spec-tools>=1.5.0a1, a floor below the
+# name it imports; that floor is raised in ovos-padatious itself.) Before
+# this, the C=old spec-tools==1.10.0a1 pin sat on this venv too, and dev
+# runs 35166148940 and 35199803886 failed both old-core-new-matchers cells
+# with 4 ImportErrors each. The cell is a KNOWN_RED_CELLS entry
+# (test/backcompat/cells.py, docs/known-gaps.md): the resolved set runs,
+# and the old bus client breaks on the spec-tools the matcher needs.
 wants venv_core_old_matchers_new && mkvenv venv_core_old_matchers_new \
-  "ovos-core==2.5.5a2" "ovos-padatious>=2.0.1a2" "ovos-adapt-parser>=1.4.0a1" \
+  "ovos-core==2.5.5a2" "ovos-padatious>=2.0.1a2" "ovos-adapt-parser>=1.4.0a1" "ovos-spec-tools>=1.11.0a1" \
   "ovos-workshop==9.2.3a1" "ovos-bus-client==2.7.0a1" \
-  "ovos-spec-tools==1.10.0a1" "ovos-config==2.3.11a2" "ovos-plugin-manager==2.11.6a1" "ovos-utils==0.14.0a1" \
+  "ovos-config==2.3.11a2" "ovos-plugin-manager==2.11.6a1" "ovos-utils==0.14.0a1" \
   ovos-messagebus pytest pytest-timeout ovos-common-query-pipeline-plugin "setuptools<81"
 wants venv_core_skew_padatious_old_adapt_new && mkvenv venv_core_skew_padatious_old_adapt_new \
   "$CORE_SPEC" "ovos-padatious==2.0.0a1" "ovos-adapt-parser>=1.4.0a1" \
