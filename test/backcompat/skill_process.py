@@ -99,6 +99,30 @@ class BackCompatSkill(_SkillBase):
         self.add_event(GET_RESPONSE_TRIGGER_TOPIC,
                        self.handle_get_response_trigger)
         self.add_event(SPEAK_WAIT_TRIGGER_TOPIC, self.handle_speak_wait_trigger)
+        self.add_event("backcompat.report_intent_state.trigger",
+                       self.handle_report_intent_state)
+
+    # -- T2.8 Cell C: enable/disable-intent round trip --------------------
+    def handle_report_intent_state(self, message: Message):
+        """Report this skill's LIVE ``IntentServiceInterface`` bookkeeping.
+
+        A dedicated round trip (its own trigger/done topic pair, not a
+        second listener bound to ``mycroft.skill.disable_intent`` /
+        ``enable_intent`` themselves) so the driver never has to depend on
+        listener registration order against workshop's own built-in
+        handlers for those two topics: this skill's bus reader processes
+        one message at a time in arrival order, so by the time THIS
+        message is handled, any disable/enable call the driver sent before
+        it has already fully run.
+        """
+        bound = sorted(t for t in getattr(self.bus.emitter, "_events", {})
+                       if t.startswith(f"{SKILL_ID}:")
+                       and not t.endswith(".trigger"))
+        self.bus.emit(message.forward(
+            "backcompat.report_intent_state.done",
+            {"bound_topics": bound,
+             "registered": [n for n, _ in self.intent_service.registered_intents],
+             "detached": [n for n, _ in self.intent_service.detached_intents]}))
 
     def handle_order(self, message: Message):
         self.bus.emit(message.forward(

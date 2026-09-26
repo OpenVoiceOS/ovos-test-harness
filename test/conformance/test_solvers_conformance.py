@@ -63,7 +63,7 @@ import pytest
 from ovos_bus_client.message import Message
 from ovos_utils.log import LOG
 
-from ovoscope import get_minicroft
+from ovoscope import PERSONA_PIPELINE, get_minicroft
 
 from ._conformance import (
     DEFAULT_EOF_TYPES,
@@ -147,6 +147,7 @@ def setUpModule():
             [UNKNOWN_ID],
             pipeline_config={"persona": {"personas_path": _PERSONAS_DIR,
                                          "handle_fallback": False}},
+            extra_pipelines=PERSONA_PIPELINE,
         )
         wait_ready(_MC)
     except BaseException:

@@ -37,7 +37,7 @@ Coverage map (clause -> status against ovos-audio @dev):
 - §3   subscribe ``ovos.utterance.speak``, render+play .......... green
 - §5.1  emit ``ovos.audio.output.started`` on playback start .... green
 - §5.2  emit ``ovos.audio.output.ended`` on playback end ........ green
-- §4.4  emit ``ovos.mic.listen`` after listen:true playback ..... green
+- §4.4  emit ``ovos.mic.listen`` after listen:true playback ..... xfail (the service reads only the legacy expect_response key)
 - §4.1  queue is FIFO + sequential .............................. green
 - §6   subscribe ``ovos.stop`` (universal stop) ................. green
 - §3.4  subscribe ``ovos.utterance.speak.b64`` ................. green
@@ -94,6 +94,23 @@ def _no_bridge():
     return PlaybackServiceHarness(modernize=False, emit_legacy=False)
 
 
+def _speak_with_listen(harness, utterance, listen, timeout=8.0):
+    """Speak ``utterance`` carrying the SPEC ``listen`` flag (§4.4).
+
+    ``PlaybackServiceHarness.speak`` builds the payload with the legacy
+    ``expect_response`` key, which is the very divergence §4.4 is about, so the
+    speak Message is emitted here instead."""
+    harness._audio_output_start.clear()
+    harness._audio_output_end.clear()
+    harness._mic_listen.clear()
+    harness.bus.emit(Message(SPEAK.value, {"utterance": utterance,
+                                           "lang": "en-US",
+                                           "listen": listen}))
+    if not harness._audio_output_end.wait(timeout):
+        raise TimeoutError(f"playback for {utterance!r} did not finish "
+                           f"within {timeout}s")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # §3 — Local rendering pipeline (ovos.utterance.speak)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -147,11 +164,21 @@ class TestSec44ListenFlag(TestCase):
     service MUST emit ``ovos.mic.listen`` after all audio ... has completed and
     after ``ovos.audio.output.ended``"."""
 
+    @pytest.mark.xfail(
+        reason="OVOS-AUDIO-1 §4.4 MUST: when a received ovos.utterance.speak "
+               "carries listen: true, the audio output service MUST emit "
+               "ovos.mic.listen after playback and after "
+               "ovos.audio.output.ended. ovos_audio/service.py reads only the "
+               "legacy expect_response key on that path, so the spec field "
+               "never re-opens the microphone.",
+        strict=True,
+    )
     def test_mic_listen_after_listen_true(self):
-        """"MUST emit ``ovos.mic.listen`` after ... playback" when listen:true
-        (§4.4, MUST)."""
+        """"MUST emit ``ovos.mic.listen`` after ... playback" when the received
+        Message carries ``listen: true`` — the spec field, not the legacy
+        ``expect_response`` key (§4.4, MUST)."""
         with _no_bridge() as h:
-            h.speak("answer me", expect_response=True, timeout=8.0)
+            _speak_with_listen(h, "answer me", True)
             h.assert_mic_listen()
 
     def test_no_mic_listen_without_listen_flag(self):
@@ -160,7 +187,7 @@ class TestSec44ListenFlag(TestCase):
         with _no_bridge() as h:
             seen = []
             h.bus.on(MIC_LISTEN.value, lambda m: seen.append(m))
-            h.speak("no response wanted", expect_response=False, timeout=8.0)
+            _speak_with_listen(h, "no response wanted", False)
             time.sleep(0.5)
             self.assertEqual(seen, [])
 

@@ -14,9 +14,7 @@ session back on its responses:
 The installed bus-client carries the spec session fields (``active_handlers``,
 ``converse_handlers``, ``fallback_handlers``, ``response_mode``) and, per
 SESSION-1 §3.4, omits them from the serialized form when empty (empty ≡
-omission), so presence is only asserted on populated sessions. The one clause
-the stack does not yet populate — ``converse_handlers`` — is tracked as a
-a strict expected-fail so it flips loudly when the orchestrator starts draining it.
+omission), so presence is only asserted on populated sessions.
 Drivers are described in ``_conformance.py``.
 
 Coverage map (clause -> status against the installed stack):
@@ -24,17 +22,41 @@ Coverage map (clause -> status against the installed stack):
 - PIPELINE-1 §7.1 re-activation dedups head-first ................ green
 - PIPELINE-1 §7.1 session.active_handlers carries the skill ...... green
 - CONVERSE-1 §2.1 owners ordered most-recently-activated first ... green
-- CONVERSE-1 §2.1 session.converse_handlers mirrors the ordering .. xfail (not drained yet)
+- CONVERSE-1 §2.1 session.converse_handlers mirrors the ordering .. green
 - CONVERSE-1 §2.2 get-response sets the response state ........... green
 - CONVERSE-1 §2.2 session.response_mode carries the state ........ green
 - FALLBACK-1 §4   session.fallback_handlers carries the pool ..... green
 - SESSION-2       session_id preserved on the response ........... green
 - SESSION-2       a session mutation rides the forward ........... green
+- SESSION-2 §2.6  a handler-boundary write rides forward/reply/response  green
+- SESSION-2 §2.6  the same write on CollectionMessage/GUIMessage . green
+- SESSION-2 §2.6  no derived Message means no bus-visible effect . green
+- SESSION-2 §2.6  SessionManager.bind pins the round session for get/derive  green
+- SESSION-2 §2.6  bind refuses a non-store default / an id mismatch  green
 - SESSION-1 §2.1  an omitted field resolves to the deployment default ... green
 - SESSION-1 §2.1  an explicit null is treated as omitted (not deferral) . green
 - SESSION-1 §3.1  empty/absent session resolves to session_id default ... xfail (bus-client mints a random uuid)
 - SESSION-1 §3.1  per-session state keyed on session_id (A not in B) .... green
 - SESSION-2 §2.1  the bus leaves session untouched in transit .......... green
+- SESSION-2 §5.1  ovos.session.sync default-session push folds field-by-field  green
+- SESSION-2 §5.1  the push folds identically via data or context carrier  green
+- SESSION-2 §5.1  a data carrier wins over a decoy context carrier ...... green
+- SESSION-2 §5.1  the push merges intent_context entry-by-entry ......... green
+- SESSION-2 §2.2/§2.7  a named-session push never touches an open round . green
+- SESSION-2 §2.2  an unheld named-session push is ignored everywhere .... green
+- location/timezone: ``location`` round-trips byte-stable ............... green (implementation-contract)
+- location/timezone: ``Session.timezone`` reads the location code ....... green (implementation-contract)
+- location/timezone: a per-session zone wins over the configured one .... green (implementation-contract)
+- location/timezone: an absent session zone falls back to config ....... green (implementation-contract)
+
+``location`` (``Session.location_preferences`` / ``.timezone``) is not a
+SESSION-1 §3 registry field — the spec's closed field set (§3, §2.4) has no
+`location`/`timezone` entry, so nothing here is a spec clause. It is pure
+``ovos-bus-client`` implementation contract that ``ovos-skill-alerts``' DST
+differential (PR #183) already depends on end-to-end
+(``SessionManager.get(message).timezone`` -> ``dateutil.tz.gettz``); these
+cells catch a breaking rename or precedence change at the producing repo
+instead of only downstream in that skill's tests.
 
 SESSION-1 §2.1 / §3.1 are asserted at the consumer (``Session`` deserialize)
 level, the same way the recency/ordering clauses above assert against the
@@ -49,10 +71,12 @@ encoded, because a blind strict expected-fail could XPASS on the CI stack.
 import time
 from typing import Optional
 from unittest import TestCase
+from unittest.mock import patch
 
 import pytest
-from ovos_bus_client.message import Message
-from ovos_bus_client.session import Session, UtteranceState
+from ovos_bus_client.message import CollectionMessage, GUIMessage, Message
+from ovos_bus_client.session import Session, SessionManager, UtteranceState
+import ovos_bus_client.session as bus_client_session
 from ovos_utils.log import LOG
 
 from ovoscope import get_minicroft
@@ -171,14 +195,9 @@ class TestConverseOwnerOrdering(TestCase):
         sess.activate_skill("b.skill")
         self.assertEqual(sess.active_skills[0][0], "b.skill")
 
-    @pytest.mark.xfail(
-        reason="the stack does not yet drain the converse owner ordering into "
-               "session.converse_handlers (CONVERSE-1 §2.1)",
-        strict=True,
-    )
     def test_converse_handlers_spec_field(self):
         """``session.converse_handlers`` mirrors the converse owner ordering
-        (§2.1). Strict-xfailed until the orchestrator populates the field."""
+        (§2.1)."""
         recs = capture(_MC, utterance("start parrot mode", "se-cv-spec",
                                       CONVERSE_PIPELINE), 4.0)
         sess = _require_session(self, recs)
@@ -286,6 +305,314 @@ class TestUpdatedSessionEcho(TestCase):
         sess = _last_session(recs)
         self.assertIsNotNone(sess)
         self.assertIn(PARROT_ID, [s[0] for s in sess.active_skills])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SESSION-2 §2.6 — handler-boundary mutation, propagated via SessionManager
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSec26HandlerBoundaryMutation(TestCase):
+    """SESSION-2 §2.6: "a dispatched handler … MAY mutate session in-place;
+    its emissions via ``forward``/``reply``/``response`` … carry the mutated
+    session forward. A handler that emits no Message has no bus-visible way
+    to propagate its session mutations." Exercised directly against
+    ``ovos_bus_client``'s ``SessionManager``/``Message`` carrier — the
+    handler-boundary write-then-derive round-trip is a property of those
+    classes, not of the orchestrator, so no minicroft boot is needed. MUST
+    (carrier)."""
+
+    def test_handler_write_rides_forward_reply_response(self):
+        """§2.6: a handler that reads its session off the dispatch Message
+        via ``SessionManager.get``, mutates it in place, and derives
+        ``forward``/``reply``/``response`` sees the mutation on all three.
+        MUST."""
+        msg = Message("skill.dispatch", {}, {"session": Session("se-26-a").serialize()})
+        sess = SessionManager.get(msg)
+        sess.activate_skill("probe.skill")
+        for derived in (msg.forward("probe.skill.activate"),
+                       msg.reply("skill.dispatch.response"),
+                       msg.response({})):
+            self.assertIn("probe.skill",
+                          [s[0] for s in derived.context["session"]["active_skills"]])
+
+    def test_collection_and_gui_message_carry_the_same_mutation(self):
+        """§2.6: the handler boundary is not special-cased to plain
+        ``Message`` — ``CollectionMessage``/``GUIMessage`` (whose
+        non-standard constructors force hand-built derivations) carry a
+        mutation made through the session bound via ``SessionManager.get``
+        the same way. This is the surface bus-client < 2.11.4a1 lost: their
+        ``forward``/``reply`` stamped from the registry's default-session
+        fallback only, never from the session a caller actually bound to the
+        source Message. MUST."""
+        cmsg = CollectionMessage("collect.query", "handler.id", "q-1",
+                                 data={}, context={"session": Session("se-26-b").serialize()})
+        SessionManager.get(cmsg).activate_skill("probe.skill")
+        self.assertIn("probe.skill",
+                      [s[0] for s in cmsg.forward("collect.something")
+                       .context["session"]["active_skills"]])
+
+        gmsg = GUIMessage("gui.value.set", foo="bar")
+        gmsg.context = {"session": Session("se-26-c").serialize()}
+        SessionManager.get(gmsg).activate_skill("probe.skill")
+        self.assertIn("probe.skill",
+                      [s[0] for s in gmsg.forward("gui.something")
+                       .context["session"]["active_skills"]])
+
+    def test_emitting_no_message_has_no_bus_visible_effect(self):
+        """§2.6, negative control: a handler that mutates the *object*
+        returned by ``SessionManager.get`` but never derives a Message from
+        the one it was given has nothing on the wire — the spec's "a handler
+        that emits no Message has no bus-visible way to propagate its
+        session mutations." A message BUILT BEFORE the mutation (frozen at
+        construction, never derived from the dispatch Message afterwards)
+        still carries its own pre-mutation snapshot. MUST NOT."""
+        msg = Message("skill.dispatch", {}, {"session": Session("se-26-d").serialize()})
+        unrelated = Message("some.other.topic", {}, {"session": Session("se-26-d").serialize()})
+        SessionManager.get(msg).activate_skill("probe.skill")
+        self.assertNotIn(
+            "probe.skill",
+            [s[0] for s in unrelated.context["session"].get("active_skills", [])])
+
+    def test_bind_makes_get_and_derivations_see_the_orchestrator_round_session(self):
+        """§2.6 (implementation detail powering it): an orchestrator that
+        opens its own round session at intake and wants every later
+        ``SessionManager.get``/derivation in that round to see that exact
+        object — mutations included, per ``SessionManager.bind``'s
+        docstring — binds it explicitly instead of letting ``get`` rebuild
+        one lazily. After ``bind``, ``get`` returns the bound object and a
+        mutation on it is what a derivation stamps. MUST (implementation
+        contract; SessionManager itself is not spec-mandated)."""
+        msg = Message("some.topic", {}, {})
+        default = SessionManager.get_default_session()
+        self.addCleanup(SessionManager.reset_default_session)
+        bound = SessionManager.bind(msg, default)
+        self.assertIs(bound, default)
+        self.assertIs(SessionManager.get(msg), default)
+        default.activate_skill("probe.skill")
+        derived = msg.forward("some.topic.derived")
+        self.assertIn("probe.skill",
+                      [s[0] for s in derived.context["session"]["active_skills"]])
+
+    def test_bind_refuses_a_default_shaped_session_that_is_not_the_store(self):
+        """§2.6 (implementation contract): binding a freshly built
+        default-shaped ``Session`` — rather than the registry's own
+        ``get_default_session()`` object — would make ``get`` (which returns
+        the binding) and the derivation stamp (which reads the store)
+        disagree about the same Message, so ``bind`` refuses it with
+        ``ValueError``. MUST NOT silently accept."""
+        msg = Message("some.other.topic", {}, {})
+        not_the_store = Session.deserialize({"session_id": "default"})
+        with self.assertRaises(ValueError):
+            SessionManager.bind(msg, not_the_store)
+
+    def test_bind_refuses_a_session_id_mismatch(self):
+        """§2.6 (implementation contract): a Message whose own carrier names
+        one session id cannot be bound to a different named session — that
+        is two disagreeing claims about which session the Message belongs
+        to, not "the binding wins", so ``bind`` raises ``ValueError``. MUST
+        NOT silently accept."""
+        msg = Message("t", {}, {"session": {"session_id": "sat-2"}})
+        other_named = Session("sat-1")
+        with self.assertRaises(ValueError):
+            SessionManager.bind(msg, other_named)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SESSION-2 §5.1 / §2.7 — the retiring pre-spec ovos.session.sync push
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestPreSpecSessionSyncShim(TestCase):
+    """SESSION-2 defines no topic on which one participant pushes a session
+    at another (§2.7); the pre-spec ``ovos.session.sync`` push predates that
+    rule and is retiring behind a one-cycle shim,
+    ``SessionManager.handle_session_sync`` (``ovos-bus-client>=2.11.13a1``).
+    Needs ``ovos-bus-client>=2.11.13a1``.
+
+    A default-session push folds field-by-field per §5.1: an omitted field
+    leaves the stored field unchanged, a present field replaces it, and
+    ``intent_context`` merges entry-by-entry per OVOS-CONTEXT-1 §5.3. A
+    named-session push is §2.2 territory — this process is never pushed
+    someone else's session — so it merges only ``intent_context``, only into
+    a session this process already holds, and never touches an open round's
+    other fields. Every assertion here reads the session off a Message
+    derivation (``forward``), the same wire-shaped carrier the next round of
+    an utterance would see, rather than a registry lookup — the fold is only
+    real if it rides forward onto the next turn.
+
+    ovos-core carries no core-side handler for this push (PR #935, merged
+    164455c, ``ovos-core>=3.2.10a1``): the shim lives entirely in the
+    bus-client singleton every process already imports, so a satellite still
+    emitting the pre-spec push keeps working against a current core with no
+    core-side code at all."""
+
+    def setUp(self):
+        self.addCleanup(SessionManager.reset_default_session)
+        self.addCleanup(setattr, SessionManager, "bus", SessionManager.bus)
+
+    @staticmethod
+    def _next_round():
+        """A dispatch-shaped Message naming the default session — what an
+        ordinary next-round Message from a satellite that already saw the
+        default session would carry."""
+        return Message("some.topic", {}, {"session": {"session_id": "default"}})
+
+    def test_default_session_push_via_data_carrier_changes_only_named_field(self):
+        """§5.1: a default-session push carried in ``data["session"]`` with
+        only ``lang`` present replaces ``lang`` and leaves every omitted
+        field — ``pipeline``, an existing ``intent_context`` entry — as the
+        orchestrator already had it."""
+        default = SessionManager.get_default_session()
+        default.lang = "en-US"
+        default.pipeline = ["padatious-high"]
+        default.set_intent_context("kept", "here", scope="shared")
+        SessionManager.update(default)
+
+        push = Message("ovos.session.sync",
+                       {"session": {"session_id": "default", "lang": "pt-pt"}})
+        SessionManager.handle_session_sync(push)
+
+        derived = self._next_round().forward("ovos.utterance.handled")
+        sess = derived.context["session"]
+        self.assertEqual(sess["lang"], "pt-PT")
+        self.assertEqual(sess["pipeline"], ["padatious-high"])
+        self.assertEqual(sess["intent_context"]["kept"]["value"], "here")
+
+    def test_default_session_push_via_context_carrier_same_result(self):
+        """§5.1: the same push, carried in ``context["session"]`` instead of
+        ``data["session"]``, folds identically — the field-by-field merge
+        does not depend on which carrier the pre-spec peer used."""
+        default = SessionManager.get_default_session()
+        default.lang = "en-US"
+        default.pipeline = ["padatious-high"]
+        default.set_intent_context("kept", "here", scope="shared")
+        SessionManager.update(default)
+
+        push = Message("ovos.session.sync", {},
+                       {"session": {"session_id": "default", "lang": "pt-pt"}})
+        SessionManager.handle_session_sync(push)
+
+        derived = self._next_round().forward("ovos.utterance.handled")
+        sess = derived.context["session"]
+        self.assertEqual(sess["lang"], "pt-PT")
+        self.assertEqual(sess["pipeline"], ["padatious-high"])
+        self.assertEqual(sess["intent_context"]["kept"]["value"], "here")
+
+    def test_data_carrier_wins_over_a_decoy_context_carrier(self):
+        """§5.1: ``data["session"]`` is checked first (``handle_session_sync``'s
+        own precedence for "the producer built the request that way"); a
+        Message carrying a decoy ``context["session"]`` too still folds the
+        ``data`` one, not the ``context`` one."""
+        default = SessionManager.get_default_session()
+        default.lang = "en-US"
+        SessionManager.update(default)
+
+        push = Message("ovos.session.sync",
+                       {"session": {"session_id": "default", "lang": "pt-pt"}},
+                       {"session": {"session_id": "default", "lang": "fr-fr"}})
+        SessionManager.handle_session_sync(push)
+
+        derived = self._next_round().forward("ovos.utterance.handled")
+        self.assertEqual(derived.context["session"]["lang"], "pt-PT")
+
+    def test_default_session_push_merges_intent_context_entry_by_entry(self):
+        """§5.1 / CONTEXT-1 §5.3: a push whose ``intent_context`` carries one
+        new entry and one ``null`` tombstone applies both, entry-by-entry,
+        onto the default session's working map — a co-present unrelated
+        entry survives untouched."""
+        default = SessionManager.get_default_session()
+        default.set_intent_context("kept", "here", scope="shared")
+        default.set_intent_context("gone", "bye", scope="shared")
+        SessionManager.update(default)
+
+        push = Message("ovos.session.sync",
+                       {"session": {
+                           "session_id": "default",
+                           "intent_context": {"added": {"value": "hi"},
+                                              "gone": None}}})
+        SessionManager.handle_session_sync(push)
+
+        derived = self._next_round().forward("ovos.utterance.handled")
+        ic = derived.context["session"]["intent_context"]
+        self.assertEqual(ic["added"]["value"], "hi")
+        self.assertEqual(ic["kept"]["value"], "here")
+        self.assertNotIn("gone", ic)
+
+    def test_named_session_push_with_hostile_pipeline_leaves_the_round_untouched(self):
+        """§2.2 / §2.7: a NAMED-session push arriving mid-round, carrying a
+        hostile ``pipeline``, changes nothing — not the round this process
+        holds, and not the unrelated default session. The orchestrator is
+        never pushed someone else's session; the shim only ever folds
+        ``intent_context`` into a session it already holds, never any other
+        field."""
+        round_sess = Session("sat-open-round")
+        round_sess.pipeline = ["safe-pipeline"]
+        round_msg = Message("recognizer_loop:utterance", {},
+                            {"session": round_sess.serialize()})
+        held = SessionManager.get(round_msg)  # binds the live object to the round
+
+        class _FakeBusClient:
+            pass
+
+        fake_bus = _FakeBusClient()
+        fake_bus.session = held
+        SessionManager.bus = fake_bus
+
+        default = SessionManager.get_default_session()
+        default.pipeline = ["default-pipeline"]
+        SessionManager.update(default)
+
+        hostile = Session("sat-open-round")
+        hostile.pipeline = ["hostile.pipeline"]
+        push = Message("ovos.session.sync", {"session": hostile.serialize()})
+        SessionManager.handle_session_sync(push)
+
+        round_derived = round_msg.forward("ovos.utterance.handled")
+        self.assertEqual(round_derived.context["session"]["pipeline"],
+                         ["safe-pipeline"])
+
+        default_derived = self._next_round().forward("ovos.utterance.handled")
+        self.assertEqual(default_derived.context["session"]["pipeline"],
+                         ["default-pipeline"])
+
+    def test_unheld_named_session_push_is_ignored(self):
+        """§2.2: a NAMED-session push naming a session this process holds
+        NONE of — no open round for it, nothing in the registry — is
+        another client's state and has no effect anywhere: not on the
+        unrelated default session, not on an open round for a different
+        session, and it must not seed the registry with a new entry either
+        ("there is nothing here to carry its state on")."""
+        default = SessionManager.get_default_session()
+        default.pipeline = ["default-pipeline"]
+        SessionManager.update(default)
+
+        round_sess = Session("sat-open-round")
+        round_sess.pipeline = ["safe-pipeline"]
+        round_msg = Message("recognizer_loop:utterance", {},
+                            {"session": round_sess.serialize()})
+        held = SessionManager.get(round_msg)
+
+        class _FakeBusClient:
+            pass
+
+        fake_bus = _FakeBusClient()
+        fake_bus.session = held
+        SessionManager.bus = fake_bus
+
+        stranger = Session("stranger-session")
+        stranger.pipeline = ["stranger-pipeline"]
+        stranger.set_intent_context("x", "y", scope="shared")
+        push = Message("ovos.session.sync", {"session": stranger.serialize()})
+        SessionManager.handle_session_sync(push)
+
+        round_derived = round_msg.forward("ovos.utterance.handled")
+        self.assertEqual(round_derived.context["session"]["pipeline"],
+                         ["safe-pipeline"])
+
+        default_derived = self._next_round().forward("ovos.utterance.handled")
+        self.assertEqual(default_derived.context["session"]["pipeline"],
+                         ["default-pipeline"])
+
+        self.assertNotIn("stranger-session", SessionManager.sessions)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -397,3 +724,126 @@ class TestSec21BusStateless(TestCase):
         self.assertTrue(seen, "probe message was not delivered to the observer")
         self.assertEqual(seen[-1], payload,
                          "the bus mutated the session in transit")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# location/timezone — implementation-contract (not a SESSION-1 §3 field)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_LISBON_TZ = {"code": "Europe/Lisbon", "name": "Europe/Lisbon",
+              "dstOffset": 60.0, "offset": 0.0}
+_CHICAGO_LOCATION = {
+    "city": {"code": "Chicago", "name": "Chicago",
+             "state": {"code": "IL", "name": "Illinois",
+                       "country": {"code": "US", "name": "United States"}}},
+    "coordinate": {"latitude": 41.85, "longitude": -87.65},
+    "timezone": {"code": "America/Chicago", "name": "America/Chicago",
+                 "dstOffset": 0.0, "offset": -360.0},
+}
+
+
+_CHICAGO_LOCATION_FLAT = {"lat": 41.85, "lon": -87.65, "tz": "America/Chicago"}
+
+
+class TestLocationTimezoneContract(TestCase):
+    """``Session.location`` / ``Session.timezone`` are not a SESSION-1 §3
+    registry field — the closed field set (§2.4, §3) has no
+    ``location``/``timezone`` entry, so a producer/consumer pair is free to
+    define this surface as it likes. ``ovos-bus-client`` does: the wire key
+    is ``location`` (``Session.serialize()``/``.deserialize()``), a
+    ``{lat, lon, tz}`` dict per OVOS-SESSION-1 §3.5, and ``Session.timezone``
+    reads the IANA code at ``location["tz"]``. The legacy nested
+    city/coordinate/timezone shape (``location_preferences``) is accepted on
+    input and normalized to the flat shape, and offered back out as a derived,
+    deprecated view — it is not what round-trips byte-stable.
+
+    ``ovos-skill-alerts`` PR #183 built a DST-correctness feature entirely on
+    this surface — two sessions with distinct timezones resolve two distinct
+    UTC instants through ``SessionManager.get(message).timezone`` ->
+    ``dateutil.tz.gettz()``. That consumer differential only proves the wiring
+    holds for the skill's own driver; these cells pin the same contract at the
+    producing repo (``ovos-bus-client``) so a rename or precedence change is
+    caught before it ever reaches a downstream skill's DST tests. Each cell is
+    marked implementation-contract, not spec-clause, since no SESSION-1 text
+    claims this field."""
+
+    def test_location_round_trips_byte_stable(self):
+        """``location`` (the canonical OVOS-SESSION-1 §3.5 ``{lat, lon, tz}``
+        shape) round-trips its flat keys byte-stable — implementation-
+        contract, no SESSION-1 §3 entry for this field. ovos-bus-client#335
+        additionally projects the legacy ``timezone.code`` view onto the wire
+        dict for one deprecation cycle (owner ruling); SESSION-1 §3.5 defines
+        only the flat keys, so that projection is tolerated when present,
+        not required, and must be exactly ``{"code": tz}`` when it is."""
+        sess = Session("se-loc-roundtrip", lang="en-US",
+                       location_prefs=dict(_CHICAGO_LOCATION_FLAT))
+        data = sess.serialize()
+        location = dict(data.get("location") or {})
+        extra_timezone = location.pop("timezone", None)
+        self.assertEqual(location, _CHICAGO_LOCATION_FLAT)
+        if extra_timezone is not None:
+            self.assertEqual(extra_timezone,
+                             {"code": _CHICAGO_LOCATION_FLAT["tz"]})
+
+        restored = Session.deserialize(data)
+        restored_location = dict(restored.location or {})
+        restored_location.pop("timezone", None)
+        self.assertEqual(restored_location, _CHICAGO_LOCATION_FLAT)
+        self.assertEqual(restored.location["tz"], "America/Chicago")
+
+    def test_timezone_reads_the_location_code(self):
+        """``Session.timezone`` returns the IANA code from the session's own
+        location prefs when present — implementation-contract."""
+        sess = Session("se-loc-tzread", lang="en-US",
+                       location_prefs=dict(_CHICAGO_LOCATION))
+        self.assertEqual(sess.timezone, "America/Chicago")
+
+    def test_session_zone_overrides_the_configured_zone(self):
+        """A per-session timezone survives serialize/deserialize and WINS over
+        the deployment-configured zone when read through
+        ``SessionManager.get(message)`` — the exact surface
+        ovos-skill-alerts#183's two-sessions-two-timezones differential
+        exercises end-to-end. Implementation-contract: SESSION-1 places no
+        precedence rule on this field because it does not claim it."""
+        configured = {"location": dict(_CHICAGO_LOCATION)}
+        with patch.object(bus_client_session, "Configuration",
+                          lambda: configured):
+            configured_zone = Session("se-loc-configured").timezone
+            self.assertEqual(configured_zone, "America/Chicago")
+
+            overriding = Session("se-loc-override", lang="en-US",
+                                 location_prefs={
+                                     "city": _CHICAGO_LOCATION["city"],
+                                     "coordinate": _CHICAGO_LOCATION["coordinate"],
+                                     "timezone": _LISBON_TZ,
+                                 })
+            msg = Message("recognizer_loop:utterance", {},
+                         {"session": overriding.serialize()})
+            got = SessionManager.get(msg)
+
+            self.assertEqual(got.timezone, "Europe/Lisbon")
+            self.assertNotEqual(got.timezone, configured_zone,
+                                "session-carried zone did not win over the "
+                                "configured zone")
+
+    def test_absent_session_zone_falls_back_to_configured_zone(self):
+        """A session that carries no timezone of its own falls back to the
+        deployment-configured zone when read through ``SessionManager.get``.
+
+        SESSION-1 is silent on this field entirely (no §3 entry), so this is
+        NOT a spec clause — it is the ``ovos-bus-client`` implementation
+        contract ovos-skill-alerts#183's ``get_session_tz()`` fallback path
+        relies on. An intentional future change to this fallback (e.g.
+        raising instead of defaulting) should update that consumer."""
+        configured = {"location": dict(_CHICAGO_LOCATION)}
+        with patch.object(bus_client_session, "Configuration",
+                          lambda: configured):
+            sess = Session.deserialize({"session_id": "se-loc-absent"})
+            # positive control: the session with no location of its own
+            # really did fall through to the configured location, not to
+            # some other default; otherwise the test below is vacuous.
+            self.assertEqual(sess.location_preferences, _CHICAGO_LOCATION)
+            msg = Message("recognizer_loop:utterance", {},
+                         {"session": sess.serialize()})
+            got = SessionManager.get(msg)
+            self.assertEqual(got.timezone, "America/Chicago")

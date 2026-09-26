@@ -21,6 +21,26 @@ conformant.
 These reasons are the canonical record of the gap. They are kept verbatim
 from the test decorators so this page stays accurate.
 
+## OVOS-MSG-1
+
+### §2: unknown top-level keys MUST be ignored, not rejected
+
+- **Spec mandates:** "A consumer that receives a Message carrying top-level
+  keys it does not know MUST NOT reject the Message on that ground alone, and
+  MUST ignore those keys." A Message is malformed only when it cannot be parsed
+  as a JSON object or when a defined key carries a value of the wrong type.
+
+- **Current impl:** the MSG-1 reference envelope (`ovos_spec_tools.message`),
+  which `ovos-bus-client` adopted, raises `MalformedMessage` on any top-level
+  key outside `type`/`data`/`context`. A single emitter of an additive
+  envelope extension therefore severs valid traffic for every consumer, which
+  is the outcome the clause's informative note exists to prevent.
+
+- **Test:** `TestSec2Envelope.test_unknown_top_level_key_ignored`,
+  `TestSec2Envelope.test_reference_ignores_unknown_top_level_key`
+
+- **`reason`:** `"OVOS-MSG-1 §2 MUST: a consumer that receives a Message carrying top-level keys it does not know MUST NOT reject the Message on that ground alone, and MUST ignore those keys. ovos-bus-client's Message.deserialize (the MSG-1 reference envelope, ovos_spec_tools/message.py) raises MalformedMessage on any unknown top-level key."`
+
 ## OVOS-STOP-1
 
 > §3.1/§5.2 (global stop dispatched on `<stop_plugin_id>:global_stop`) is
@@ -195,30 +215,18 @@ CONTEXT-1 store PR:
   the suite's coverage map as the pending FALLBACK-1 §6.1 form, to be
   asserted when core moves to it.
 
-## OVOS-CONVERSE-1
-
-### §2.1: `session.converse_handlers` field
-
-- **Spec mandates:** `session.converse_handlers` carries the active
-  converse owner, head-first.
-
-- **Current core:** models converse ownership with the legacy
-  `session.active_skills` list. The spec field is not yet populated. The
-  clause is skip-guarded (probed at runtime) and runs once
-  `ovos-bus-client`'s `feat/session-spec-fields` is pinned in.
-
-- **Test:** `TestSec21OwnerOrdering.test_converse_handlers_reflects_owner`
-
 ## OVOS-SESSION-1 / OVOS-SESSION-2 (spec session fields)
 
 The session suite asserts the legacy carriers green and the spec field
 names under a runtime probe, skipping cleanly until `ovos-bus-client`
-populates them (`feat/session-spec-fields`). The pending spec fields:
+populates them (`feat/session-spec-fields`). `converse_handlers` is no
+longer pending — ovos-core 3.2.8a1 (#933) writes it at dispatch per
+CONVERSE-1 §3.1 — so it is not listed below. The remaining pending spec
+fields:
 
 | Spec field | Owning clause | Current legacy carrier | Test |
 |------------|---------------|------------------------|------|
 | `active_handlers` | PIPELINE-1 §7.1 | `session.active_skills` | `TestActiveHandlerRecency.test_active_handlers_spec_field` |
-| `converse_handlers` | CONVERSE-1 §2.1 | `session.active_skills` | `TestConverseOwnerOrdering.test_converse_handlers_spec_field` |
 | `response_mode` | CONVERSE-1 §2.2 | `session.utterance_states` (RESPONSE) | `TestResponseMode.test_response_mode_spec_field` |
 | `fallback_handlers` | FALLBACK-1 §4 | (none) | `TestFallbackHandlersField.test_fallback_handlers_spec_field` |
 
@@ -258,15 +266,41 @@ per-session-routing model of GUI-1.
 
 - **Test:** `TestSec33TypingRules.test_absent_optional_keys_are_omitted_not_null`
 
-### §3.5: local image resolved to a `data:` URI
+### §3.5: local image resolved to a `data:` URI (closed on alpha, open on stable)
 
 - **Spec mandates:** a producer resolves a local asset to a `data:` URI and
   MUST NOT place a bare filesystem path on the wire.
 
-- **Current impl:** `GUIInterface.show_image` resolves a local file to its
-  absolute filesystem path and emits that path verbatim on `image`.
+- **What closed it:** ovos-bus-client 2.11.21a1 added
+  `GUIInterface._to_wire_image` and calls it from `show_image`, citing the
+  clause at the call site. 2.11.20a1 still emitted the absolute path.
 
-- **Test:** `TestSec35ImageDelivery.test_local_image_resolved_to_data_uri`
+      2.11.19a1  no _to_wire_image   uploaded 2026-09-23T23:44:59
+      2.11.20a1  no _to_wire_image   uploaded 2026-09-24T14:38:07
+      2.11.21a1  _to_wire_image      uploaded 2026-09-24T23:25:23
+
+  Driven both ways against the real package: on 2.11.21a1 the `image` key
+  carries a `data:` URI and the test passes; on 2.11.20a1 it carries the
+  absolute path of the test file and the test fails.
+
+- **Why it reddened CI rather than passing quietly:** the marker was
+  `xfail(strict=True)`, so the day the gap closed the cell turned red. dev's
+  last green `integration` run was 2026-09-24 16:12, between the two
+  releases, which is why dev looked healthy while the next push would not
+  have been.
+
+- **Still open on the stable channel.** The channels do not move together:
+  the stable stack resolves ovos-bus-client 1.3.7 and emits the path.
+  Removing the mark outright reddened the `stable` job, which is the
+  channels disagreeing rather than the gap being open or closed fleet-wide.
+
+- **Test:** `TestSec35ImageDelivery.test_local_image_resolved_to_data_uri`.
+  The mark is conditional on `_producer_resolves_local_assets()`, a probe on
+  `GUIInterface._to_wire_image` rather than a version compare, so the clause
+  is a plain assertion wherever the capability is installed and stays xfail
+  where it is not. The assertion itself is now the clause rather than the
+  weaker "http or data:" it carried before: a local asset has no http
+  reading, so that form passed any path beginning with those four letters.
 
 ### §3.2 / §4.2 / §8.3: service dispatches only `SYSTEM_*` templates
 
@@ -336,6 +370,23 @@ rather than gaps.
 - **Test:** `TestSec51LanguageResolution.test_language_resolution_precedence`
 
 - **`reason`:** `"AUDIO-IN-1 §5.1 MUST resolve the STT input language as detected_lang > request_lang > lang from the session; OVOSDinkumVoiceService._stt_text resolves it from stt_context.get('lang') or the deployment config default and never consults session.detected_lang / session.request_lang / session.lang"`
+
+## OVOS-AUDIO-1
+
+### §4.4: the listen flag is named `listen`
+
+- **Spec mandates:** "When a received Message carries `listen: true`, the audio
+  output service MUST emit `ovos.mic.listen` after all audio for that utterance
+  has completed and after `ovos.audio.output.ended`." The field is `listen`,
+  defined by OVOS-PIPELINE-1 §9.6.
+
+- **Current impl:** `ovos_audio/service.py` reads `expect_response` off the
+  `ovos.utterance.speak` payload, so a producer that sends the spec field gets
+  no microphone re-open and the follow-up turn is lost.
+
+- **Test:** `TestSec44ListenFlag.test_mic_listen_after_listen_true`
+
+- **`reason`:** `"OVOS-AUDIO-1 §4.4 MUST: when a received ovos.utterance.speak carries listen: true, the audio output service MUST emit ovos.mic.listen after playback and after ovos.audio.output.ended. ovos_audio/service.py reads only the legacy expect_response key on that path, so the spec field never re-opens the microphone."`
 
 ## OVOS-OCP-1
 
@@ -416,22 +467,42 @@ The chain semantics (§1 run-to-completion, §4 ascending-priority order), the
 per-type IO contracts (§3.2 utterance, §3.3 metadata, §3.4 intent-capture
 enrichment), error handling (§7), the `<type>_transformer_ids` stamp (§1.3),
 and cancellation (§8.1) are green against the ovos-core transformer services.
-The §5 per-session override fields are skip-guarded (bus-client field presence,
-see the SESSION-fields note above). Two behavior gaps remain.
+The §5.1 preference fields are skip-guarded on bus-client field presence (see
+the SESSION-fields note above). Three behavior gaps remain.
 
-### §3.4 / §9: intent-transformer identity invariant MUST be enforced
+### §3.4 / §9: the identity backstop misses an in-place mutation
 
 - **Spec mandates:** if a transformer returns a `Match` whose `skill_id` or
   `intent_name` differs from its input, the orchestrator MUST treat it as a §7
   shape violation — discard the output and proceed with the prior `Match`
   unchanged.
 
-- **Current impl:** `IntentTransformersService.transform` does not enforce the
-  identity invariant — a transformer that overwrites `skill_id` is honoured.
+- **Current impl:** `IntentTransformersService.transform` enforces the
+  invariant by comparing the returned `Match` against the input one, which
+  catches a transformer that builds a new `Match`. A transformer that assigns
+  to `intent.skill_id` and returns the object it was handed compares equal to
+  itself, so the hijacked identity is dispatched.
 
-- **Test:** `TestSec34Intent.test_skill_id_invariant_enforced`
+- **Test:** `TestSec34Intent.test_skill_id_invariant_enforced_against_in_place_mutation`
 
-- **`reason`:** `"OVOS-TRANSFORM-1 §3.4 / §9 MUST: if a transformer returns a Match whose skill_id or intent_name differs from its input, the orchestrator MUST treat it as a §7 shape violation, discard the output and proceed with the prior Match unchanged. IntentTransformersService.transform does not enforce the identity invariant — a transformer that overwrites skill_id is honoured."`
+- **`reason`:** `"OVOS-TRANSFORM-1 §3.4 / §9 MUST: a transformer that changes the dispatch identity is a §7 shape violation — the orchestrator MUST discard the output and proceed with the prior Match unchanged. IntentTransformersService.transform compares the returned Match against the input Match, so a transformer that mutates its input in place and returns the same object passes the check and the hijacked skill_id is dispatched."`
+
+### §5.2 / §5.3: no runner reads the per-session transformer fields
+
+- **Spec mandates:** twelve session fields select the chain per session — six
+  `<type>_transformers` preference fields and six
+  `blacklisted_<type>_transformers` policy fields, composed by §5.3 so policy
+  overrides preference.
+
+- **Current impl:** `ovos-bus-client` registers the six preference fields but
+  none of the six policy fields, and the runner services resolve their chain
+  once from deployer configuration into the process-wide
+  `TransformersService.plugins` list. Neither channel is read off the session,
+  so every session on an orchestrator runs the same chain.
+
+- **Test:** `TestSec5PerSessionOverrides.test_session_denylist_suppresses_a_transformer`
+
+- **`reason`:** `"OVOS-TRANSFORM-1 §5.2/§5.3 MUST: the policy channel blacklisted_<type>_transformers denies a transformer for the session that carries it. ovos-bus-client registers no blacklisted_<type>_transformers session field, and the runner services resolve their chain once from deployer config into the process-wide TransformersService.plugins list and never read the session off the context, so a per-session denylist carried on the wire has no effect."`
 
 ### §3.0: bidirectional `lang` threaded through every chain
 
@@ -446,6 +517,113 @@ see the SESSION-fields note above). Two behavior gaps remain.
 - **Test:** `TestSec30Lang.test_lang_is_a_threaded_parameter`
 
 - **`reason`:** `"OVOS-TRANSFORM-1 §3.0 MUST: the orchestrator threads a bidirectional lang parameter through the audio/utterance/dialog/TTS chains (input AND output of each transform call). The installed transformer templates take no lang parameter."`
+
+## OVOS-SCHEDULER-1
+
+The spec has no conformance suite. Every section of `scheduler-1.md` is listed
+in `test/meta/uncited-sections.txt`, including the owner-scoping rule of §6.2,
+the `misfire` handling of §4.3, the persist-before-answer ordering of §5.1 and
+the legacy `mycroft.scheduler.*` adapter of §8. Nothing here is asserted, and
+nothing about the shipped scheduler should be read as conformant until it is.
+
+## Back-compat matrix: known-red cells
+
+The mixed-version matrix (`test/backcompat/`) has a second kind of gap: a
+cell that is a real deployment shape, builds, and cannot run. The record is
+`KNOWN_RED_CELLS` in `test/backcompat/cells.py`. `conftest.py` runs every
+scenario in such a cell under `xfail(strict=False)` with the recorded
+reason, so the job is green and the log still names each scenario that
+fails. One test per entry, marked `known_red_tripwire` in
+`test/backcompat/test_known_red_cells.py`, runs plain and asserts the
+reason is still true against the packages the core venv resolved. The day
+a release closes the gap, that test fails, which is the signal to drop the
+entry and run the cell plain.
+
+### Retired 2026-09-25: the two channel cells are carried by #271's emit-side twin
+
+- **Cells:** `stable-skill/dev-core`, `testing-skill/dev-core`.
+
+- **What the guard said:** the OVOS distro constraints file pins an
+  ovos-workshop below the 9.3.2a1 canonical-binding boundary, so the skill
+  side is suffixed-only against a dev core that canonicalizes at
+  registration. `xfail(strict=True)`, with "XPASS here means the channel
+  moved its pin past the boundary".
+
+- **Why it went red:** the cells started passing, through four pushes at dev
+  1f5ee23, and strict xfail turns a pass into a failure. The channel had
+  not moved its pin. Every clause of the reason was still true at the head
+  that reported the XPASS: ovos-workshop 3.4.0, ovos-bus-client 1.3.7, and
+  ovos-padatious 2.2.5a1 still carrying `_dealias_intent_name`, so the
+  matcher still folds and the primary dispatch is still canonical.
+
+- **What actually carries them:** ovos-bus-client#271 has two rules, and the
+  guard was retired against one of them. The receive-side rule
+  canonicalizes suffixed traffic inside a modern client, and it cannot reach
+  these cells, because the constraints file pins their client at 1.3.7. The
+  emit-side rule sends a marked `.intent`-suffixed twin for every canonical
+  intent topic, from whichever process calls `emit()` — here the dev core,
+  whose client is 2.11.x. The skill's suffixed-only binding hears the twin.
+  That is the frozen-image case the twin was written for.
+
+- **Measured (T-4536, dev 1f5ee23, the venv pair built locally):**
+
+      #271 mirror present (skill-side, receive-side probe)=False
+      #271 mirror present (driver-side, emitter-side probe)=True
+      OVOS_BUS_EMIT_LEGACY unset -> both handler tests XPASS
+      OVOS_BUS_EMIT_LEGACY=0     -> both handler tests XFAIL
+
+  The kill switch is the proof: with the twin off the gap comes straight
+  back, so the twin is the whole of what closes it.
+
+- **What replaces the guard:**
+  `test_the_channel_cells_ride_the_emitter_side_twin` in
+  `test_mixed_version_matrix.py`. It asserts the client is still below #271
+  on the skill side, that the driver still emits the twin, that the matcher
+  still folds, and that the skill still binds the suffixed topic — so the
+  day any of those four moves, the reason is re-read rather than silently
+  outlived.
+
+- **The fleet finding stands:** a real stable or testing channel container
+  still resolves ovos-bus-client 1.3.7, which is below #271. It is carried
+  by the core it talks to, not by anything in its own image. A deployment
+  that sets `OVOS_BUS_EMIT_LEGACY=0` breaks every such skill.
+
+### C=old, M=new: the ovos-core 2.5.5a2 cohort cannot run current matchers
+
+- **Cells:** `old-skill/old-core-new-matchers`, `new-skill/old-core-new-matchers`
+  (venv `venv_core_old_matchers_new`).
+
+- **The two sets:** the core cohort is ovos-core 2.5.5a2 with
+  ovos-bus-client 2.7.0a1. That bus client emits `SpecMessage.SESSION_SYNC`
+  on connect (removed in ovos-spec-tools 1.11.0a2, spec-tools#138) and calls
+  `SessionManager._store` (removed in 1.10.1a1, spec-tools#116), so it needs
+  ovos-spec-tools<=1.10.0a1. The matcher side is ovos-padatious 2.2.0a1
+  (ovos-padatious-pipeline-plugin#158), which imports `REGISTERED_TYPES`,
+  present from ovos-spec-tools 1.11.0a1 (spec-tools#137). No release
+  satisfies both.
+
+- **What the cell shows:** `build_venvs.sh` floors ovos-spec-tools with the
+  matchers on this venv (`>=1.11.0a1`) and pins only the core packages to the
+  cohort, so the venv resolves (2026-09-18: padatious 2.2.0a1, spec-tools
+  1.13.0a1, bus-client 2.7.0a1). At run time the core's bus client raises
+  `AttributeError('SESSION_SYNC')` on connect and reconnect-loops. Measured
+  with the cell run plain: 13 failed, 2 errors, 58 passed. Under the entry:
+  1 passed (the tripwire), 20 xfailed, 58 xpassed.
+
+- **Why no pin fixes it:** an upper bound on padatious (`<2.2.0a1`) keeps the
+  cell green and hides the break; the fleet ships floor pins only. Moving the
+  spec-tools pin alone breaks the bus client. Before 2026-09-17 the cell was
+  green because padatious 2.1.5a1 and below imported nothing above 1.10.0a1.
+
+- **What closes it:** an ovos-core cohort whose bus client runs on
+  ovos-spec-tools>=1.11.0a1 becomes the C=old vintage (which moves every
+  venv that pins 2.5.5a2), or a padatious release that imports nothing above
+  1.10.0a1. Until then ovos-padatious's own floor (declared `>=1.5.0a1`
+  through 2.2.0a1) makes uv resolve the pair; the floor bump in
+  ovos-padatious-pipeline-plugin makes uv refuse it at resolve time instead.
+
+- **`reason`:** see `KNOWN_RED_CELLS` in `test/backcompat/cells.py`; the
+  string is the canonical record.
 
 ## Follow-up: MUST-clause enumeration (INTENT-1/2/3/4, SESSION-1/2)
 
@@ -534,14 +712,16 @@ Prioritized: **[C]** = correctness/security critical, **[N]** = normal.
   stateless with respect to session — a Message carrying a session is delivered
   to a bus observer byte-identical; the bus does not interpret, mutate, or
   persist it.
+- **[C]** §5.1 (spec §347, §355) — `TestPreSpecSessionSyncShim`: the retiring
+  pre-spec `ovos.session.sync` push folds `Message.data.session` (or
+  `context.session`) field-by-field into the default session, merging
+  `intent_context` entry-by-entry per CONTEXT-1 §5.3, and reflects the merged
+  state on the next round. `SessionManager.handle_session_sync`
+  (`ovos-bus-client>=2.11.13a1`) is the fold; ovos-core carries no core-side
+  handler for the push at all (PR #935, merged 164455c, `ovos-core>=3.2.10a1`).
 
 **Remaining**:
 
-- **[C]** §5.1 (spec §347, §355): "the orchestrator MUST merge
-  `Message.data.session` from an in-progress round and reflect the merged
-  state." Overlaps CONTEXT-1 §5.3 sync (tracked there as a strict-xfail). Not
-  separately asserted for SESSION-2, and a blind strict-xfail risks XPASS on
-  the CI stack, so it stays documented pending a deterministic driver.
 - **[N]** a client MUST make every round self-sufficient via the session
   (spec §625); a component MUST NOT rely on async bus events for session state
   (§596). Client-contract MUSTs — no client in the stack, not bus-observable;

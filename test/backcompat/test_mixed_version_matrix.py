@@ -106,6 +106,7 @@ Design references below (``design §X.Y``) are to ``docs/matrix-design.md``.
 import os
 import time
 import uuid
+from typing import Optional
 
 import pytest
 
@@ -132,8 +133,12 @@ from .driver import (ACTIVATED_TOPIC,
                      mic_listen_spec_topic,
                      audio_output_end_topic_probe, converse_match,
                      core_canonicalizes, core_has_pipeline_match_api,
-                     dispatch, dispatch_match, emitter_side_has_reemit_hook,
-                     dispatch_topic_for, make_converse_service,
+                     core_supports_utterance_dispatch,
+                     dispatch, dispatch_match, dispatch_utterance,
+                     emitter_side_has_reemit_hook,
+                     dispatch_topic_for, make_intent_service,
+                     register_padatious_intents,
+                     report_intent_state, wait_for_intent_state,
                      session_context, wait_for_active_skill,
                      wait_for_response_mode)
 
@@ -236,13 +241,45 @@ for _combo, _cell in BOUNDARY_ALIASES.items():
         f", but cells.py's alias {_cell!r} pins M={_values['M']!r}")
 del _combo, _cell, _want_suffixed_only, _want_canon, _values, _want_S, _want_M
 
-#: Combos expected to fail today because the skill side is suffixed-only and
-#: the core side canonicalizes — the same gap ``old-skill/new-core`` marks,
-#: reached via a distro constraints pin instead of a boundary pin.
+#: The live-fleet combos whose skill side is suffixed-only and whose core
+#: side canonicalizes — the same shape ``old-skill/new-core`` marks, reached
+#: through a distro constraints pin instead of a boundary pin. They are not
+#: xfail: ovos-bus-client#271's emit-side twin carries them, and
+#: ``test_the_channel_cells_ride_the_emitter_side_twin`` holds that reason.
 _BROKEN_CHANNEL_COMBOS = {"stable-skill/dev-core", "testing-skill/dev-core"}
 
 COMBO = os.environ.get("BACKCOMPAT_COMBO", "")
 SKILL_PYTHON = os.environ.get("BACKCOMPAT_SKILL_PYTHON", "")
+
+
+def _combo_core_is_new(combo: str) -> Optional[bool]:
+    """Whether ``combo``'s core-side venv is the NEW-core vintage, or
+    ``None`` for a combo this module does not recognize.
+
+    Boundary combos read straight off the cell's own C axis (``cells.py``'s
+    4-tuple identity, the same one ``test_pins_are_the_intended_vintage``
+    checks the M axis against) -- not ``COMBOS[combo][1]`` (``want_canon``),
+    which is the M axis and drifts from C on every ``*-matchers`` cell.
+    Channel combos pin ``ovos-core`` off a live distro constraints file
+    rather than a boundary pin, so C isn't part of that 4-tuple at all for
+    them; whichever side names ``dev-core`` is core-at-dev, which is newer
+    than the boundary this matrix probes, while ``stable-core`` and
+    ``testing-core`` both floor well below it (see ``COMBOS``' channel
+    comment).
+    """
+    cell = resolve_cell(combo)
+    if cell is not None:
+        return axis_values(cell)["C"] == REFERENCE
+    if combo in CHANNEL_CELLS:
+        return combo.endswith("dev-core")
+    return None
+
+
+#: The core-side vintage of the running combo, or ``None`` when no combo is
+#: set (module import with the matrix skipped -- see ``pytestmark`` below).
+CORE_IS_NEW = _combo_core_is_new(COMBO) if COMBO else None
+
+
 
 pytestmark = pytest.mark.skipif(
     not COMBO or not SKILL_PYTHON,
@@ -268,18 +305,54 @@ pytestmark = pytest.mark.skipif(
 #: shape so an unset combo never claims a gap.
 IS_BROKEN_CELL = COMBOS.get(COMBO, (False, False, True)) == (True, True, False)
 
+#: ovos-bus-client#271 (the wire-twin bridge) has shipped, and it closes this
+#: shape through BOTH of its rules, not one:
+#:
+#: * the RECEIVE-side rule canonicalizes unmarked suffixed traffic inside a
+#:   modern client, which is what carried the boundary-pinned
+#:   ``old-skill/new-core`` cell: that venv floats its bus-client, so a
+#:   frozen workshop still resolves a current client;
+#: * the EMIT-side rule sends a marked ``.intent``-suffixed twin frame for
+#:   every canonical intent topic, from whichever process calls ``emit()``.
+#:   In this suite that is the driver/core side, never the skill subprocess.
+#:
+#: The two live-fleet channel combos were kept under the guard on the
+#: reasoning that their distro constraints pin the bus-client at 1.3.7, below
+#: where #271 lands, so the receive-side rule cannot reach them. That is true
+#: and it is not the whole fix: the emit-side twin fires from the dev core's
+#: own client and does not care what the skill resolved, which is exactly the
+#: frozen-image case it was written for. Measured at dev 1f5ee23 (T-4536),
+#: stable-skill/dev-core, with every clause of the old reason still true
+#: (ovos-workshop 3.4.0, ovos-bus-client 1.3.7, ovos-padatious 2.2.5a1 still
+#: carrying ``_dealias_intent_name``):
+#:
+#:     #271 mirror present (skill-side, receive-side probe)=False
+#:     #271 mirror present (driver-side, emitter-side probe)=True
+#:     OVOS_BUS_EMIT_LEGACY unset -> both handler tests XPASS
+#:     OVOS_BUS_EMIT_LEGACY=0     -> both handler tests XFAIL
+#:
+#: The kill switch is the proof: the emit-side twin is the whole of what
+#: carries these cells, so the guard comes off and
+#: ``test_the_channel_cells_ride_the_emitter_side_twin`` keeps the reason.
+#:
+#: ``old-skill/old-core-new-matchers`` keeps the guard. Its canonicalization
+#: comes from an OLD core resolving a current ``ovos-padatious`` (COMBOS' own
+#: comment: "pins the blame on padatious"), and that old core's own client
+#: predates #271, so no twin is emitted there to rescue it.
+_STILL_XFAIL_COMBOS = {"old-skill/old-core-new-matchers"}
+IS_XFAIL_CELL = IS_BROKEN_CELL and COMBO in _STILL_XFAIL_COMBOS
+
 _XFAIL_REASON = (
-    "old skill container (ovos-workshop==9.3.1a2, suffixed binding only) does "
-    "not hear a canonical dispatch; needs the #271 bridge (wire twin from the "
-    "emitter, or local canonicalization in a modern client), unreleased. XPASS here means #271 shipped — drop "
-    "this marker and keep the guard."
-    if COMBO not in _BROKEN_CHANNEL_COMBOS else
-    f"{COMBO}: the OVOS distro constraints file pins an ovos-workshop below "
-    "the 9.3.2a1 canonical-binding boundary, so this channel's skill side is "
-    "suffixed-only against a dev core that canonicalizes at registration; "
-    "same gap as old-skill/new-core, reached via a live fleet pin instead of "
-    "a boundary pin. XPASS here means either the channel moved its pin past "
-    "the boundary or #271 shipped — check which, then drop the marker.")
+    f"{COMBO}: an OLD ovos-core resolving a CURRENT ovos-padatious "
+    "canonicalizes at registration (the fold lives in the matcher "
+    "package, not ovos-core -- see COMBOS' own probe comment above), so "
+    "the suffixed-only old skill still never hears a bound handler. "
+    "ovos-bus-client#271's emit-side twin does not reach this cell either: "
+    "the emitting process here is the OLD core, whose own client predates "
+    "#271. XPASS here means either this core pin stopped resolving that "
+    "padatious vintage, or padatious changed the fold, or this cell's core "
+    "started resolving a client that emits the twin — check which, then "
+    "drop the marker.")
 
 
 @pytest.fixture(scope="module")
@@ -371,34 +444,85 @@ def _expected_dispatch_topic(skill) -> str:
 
 
 @pytest.fixture(scope="module")
-def converse_service(stack):
-    """The real, per-combo ``ConverseService`` from ``driver.
-    make_converse_service``, running on the shared bus for the module's
-    converse/get_response tests.
+def intent_service(stack):
+    """The real, per-combo ``IntentService`` from ``driver.
+    make_intent_service``, with its real pipeline plugins loaded — used by
+    the converse/get_response tests below to give the fixture skill real
+    OVOS-CONVERSE-1 §3.1 converse eligibility through an actual dispatch
+    (``driver.dispatch_utterance``), which ``self.activate()`` alone never
+    produces on a core that keeps the two lists apart.
 
     A separate fixture (not folded into ``stack``) so the plain
     intent-dispatch tests above don't pay for it and aren't coupled to it —
     only the interactive-flow tests below ask for this.
 
-    Skips (own reason, never the #271 marker) when this core venv's
-    ``ConverseService`` predates the plugin-pipeline ``.match()`` API this
-    module's helpers are built on — real today only for the "stable"
-    distro channel's ``ovos-core==1.3.1`` pin. See
-    ``driver.core_has_pipeline_match_api``.
+    Skips (own reason, never the #271 marker) when this core venv predates
+    the plugin-pipeline architecture ``IntentService``'s own pipeline
+    loading assumes — real today only for the "stable" distro channel's
+    ``ovos-core==1.3.1`` pin. See ``driver.core_has_pipeline_match_api``.
+
+    ``driver.register_padatious_intents`` replays the fixture skill's
+    already-captured real registration onto this instance's own padatious
+    pipeline plugin (constructed after the skill registered, so it never
+    heard the original broadcast) and blocks until it is actually trained,
+    once, here — every test that asks for this fixture gets an
+    already-ready matcher.
     """
     if not core_has_pipeline_match_api():
         pytest.skip(
-            f"{COMBO}: this core venv's ConverseService predates the "
-            f"plugin-pipeline .match() API (pre ovos-core pipeline "
-            f"refactor) — converse/get_response routing here uses a "
-            f"different, older object model this suite does not adapt to "
-            f"yet; unrelated to the #271 canonical-topic gap")
-    _server, bus, _skill, _regs = stack
-    service = make_converse_service(bus)
+            f"{COMBO}: this core venv predates the plugin-pipeline "
+            f"architecture (pre ovos-core pipeline refactor) — "
+            f"converse/get_response routing here uses a different, older "
+            f"object model this suite does not adapt to yet; unrelated to "
+            f"the #271 canonical-topic gap")
+    _server, bus, _skill, regs = stack
+    service, teardown_intent_service = make_intent_service(bus)
+    register_padatious_intents(service, bus, regs)
     try:
         yield service
     finally:
-        service.shutdown()
+        teardown_intent_service()
+
+
+def test_make_intent_service_restores_session_manager_bus_on_teardown(stack):
+    """``IntentService.__init__`` binds the process-global
+    ``SessionManager.bus`` (via ``SessionManager.connect_to_bus``), and its
+    own ``shutdown()`` never unbinds it. Left alone, this module's
+    ``intent_service`` fixture would leave ``SessionManager.bus`` pointed at
+    this module's already-closed client for every later test module sharing
+    the same pytest process. ``driver.make_intent_service``'s returned
+    ``teardown`` callable is what restores it.
+    """
+    if not core_has_pipeline_match_api():
+        pytest.skip(
+            f"{COMBO}: this core venv predates the plugin-pipeline "
+            f"architecture; unrelated to what this test probes")
+    from ovos_bus_client.session import SessionManager
+    _server, bus, _skill, regs = stack
+    prior_bus = SessionManager.bus
+    service, teardown_intent_service = make_intent_service(bus)
+    try:
+        register_padatious_intents(service, bus, regs)
+        assert SessionManager.bus is bus
+    finally:
+        teardown_intent_service()
+    assert SessionManager.bus is prior_bus, (
+        f"{COMBO}: SessionManager.bus was not restored after "
+        f"make_intent_service's teardown; a later module in this process "
+        f"would inherit a dead bus client")
+
+
+@pytest.fixture(scope="module")
+def converse_service(intent_service):
+    """The real ``ConverseService`` instance ``intent_service``'s own
+    pipeline loading already constructed (``ovos-converse-pipeline-plugin``
+    — the exact entry point ``ovos-core`` registers ``ConverseService``
+    under, see ``driver.make_intent_service``), reused rather than built a
+    second time: two live ``ConverseService`` objects bound to the same bus
+    would each independently react to, and re-emit, the same
+    activation/converse traffic.
+    """
+    return intent_service.pipeline_plugins["ovos-converse-pipeline-plugin"]
 
 
 def test_pins_are_the_intended_vintage(stack):
@@ -482,6 +606,47 @@ def test_pins_are_the_intended_vintage(stack):
 #: assumption.
 _CHANNEL_COMBOS = {"stable-skill/dev-core", "dev-skill/stable-core",
                     "testing-skill/dev-core", "dev-skill/testing-core"}
+
+
+def test_the_channel_cells_ride_the_emitter_side_twin(stack):
+    """T-4536: name the rule that carries a channel cell, not the version.
+
+    These two cells were ``xfail(strict=True)`` on the reasoning that their
+    distro constraints pin the bus-client below #271, so its receive-side
+    canonicalization cannot reach the skill. That is true, and it is not the
+    whole of #271: the emit-side twin fires from the process that calls
+    ``emit()``, which here is the dev core, and it does not care what the
+    skill resolved. That is the frozen-image case the twin exists for.
+
+    Every clause of the retired reason is still true, so a version compare
+    would still predict a break. This asserts the two facts that actually
+    decide it, and the suffixed dispatch the skill really hears.
+    """
+    if COMBO not in _BROKEN_CHANNEL_COMBOS:
+        pytest.skip(f"{COMBO} is not a suffixed-only channel cell")
+    _server, _bus, skill, _regs = stack
+
+    client = skill.versions.get("ovos_bus_client", "")
+    assert int(client.split(".")[0]) < 2, (
+        f"{COMBO}: the channel now resolves ovos-bus-client {client}; the "
+        f"receive-side rule reaches it, so this cell no longer isolates the "
+        f"emit-side twin and this test's premise needs rewriting")
+    assert skill.versions.get("has_reemit_hook") in (False, "False"), (
+        f"{COMBO}: the skill side reports #271's receive-side hook; see above")
+
+    assert emitter_side_has_reemit_hook(), (
+        f"{COMBO}: the driver's own client carries no emit-side twin, so "
+        f"nothing puts a suffixed frame on the wire for this skill. The "
+        f"cell is broken again and the guard has to come back.")
+
+    assert core_canonicalizes(), (
+        f"{COMBO}: the matcher no longer folds at registration, so the "
+        f"primary dispatch is already suffixed and this cell would pass "
+        f"without the twin. The reason above is then wrong.")
+
+    assert LEGACY_TOPIC in skill.bound_topics, (
+        f"{COMBO}: the skill binds {skill.bound_topics}, not the suffixed "
+        f"topic this cell is about")
 
 
 def test_old_container_resolves_a_current_bus_client(stack):
@@ -757,7 +922,7 @@ def test_matcher_skew_leaves_the_dispatch_spelling_to_padatious(stack):
         f"§2.2 says it cannot")
 
 
-@pytest.mark.xfail(condition=IS_BROKEN_CELL, strict=True, reason=_XFAIL_REASON)
+@pytest.mark.xfail(condition=IS_XFAIL_CELL, strict=True, reason=_XFAIL_REASON)
 @pytest.mark.axes("S", "C", "M")
 def test_the_skill_handler_runs(stack):
     """The contract: a canonical dispatch must reach the skill's handler.
@@ -796,7 +961,7 @@ def test_the_skill_handler_runs(stack):
         spoken.close()
 
 
-@pytest.mark.xfail(condition=IS_BROKEN_CELL, strict=True, reason=_XFAIL_REASON)
+@pytest.mark.xfail(condition=IS_XFAIL_CELL, strict=True, reason=_XFAIL_REASON)
 @pytest.mark.axes("S", "C", "M")
 def test_the_handler_runs_exactly_once(stack):
     """A skill bound to both spellings must not answer twice.
@@ -830,13 +995,475 @@ def test_the_handler_runs_exactly_once(stack):
         handled.close()
 
 
+# ---------------------------------------------------------------------------
+# T2.8: RULE 2 (receive-side canonicalization) dispatch cells
+# ---------------------------------------------------------------------------
+#
+# HANDOFF.md's T2.8 backlog items 2-3. The four boundary cells above prove
+# RULE 1 (the ovos-bus-client#271 legacy-suffixed TWIN emitted alongside a
+# canonical dispatch) via ``test_the_skill_handler_runs`` /
+# ``test_kill_switch_disables_the_compat_mirror`` -- but nothing else in this
+# file proves RULE 2 (a client that RECEIVES a raw, unmarked suffixed frame
+# and canonicalizes it LOCALLY for a listener bound only to the canonical
+# spelling), even though ``new-skill/old-core`` looks at first glance like it
+# should: on that combo the core does not canonicalize
+# (``core_canonicalizes()`` is False), so the topic it actually dispatches is
+# already the SUFFIXED name padatious registered under -- the skill's own
+# suffixed binding catches it directly, and RULE 2 never has to fire.
+#
+# ovos-workshop#500 (merged, PyPI alphas 9.3.11a2/9.3.12a1 carry it) is what
+# makes a real skill canonical-only. Cell A below runs against a REAL
+# ``SkillProcess`` for any combo whose skill venv already resolves one of
+# those alphas -- feature-detected live via ``skill.bound_topics``
+# (``_skill_binds_canonical_only``), never a version compare -- and skips
+# with its own reason on a combo whose skill venv predates the fix, where
+# RULE 2 has nothing to prove (the skill's own suffixed binding already
+# catches a raw suffixed dispatch regardless of RULE 2).
+#
+# Cell B still uses a shadow bus client, the same pattern the A-axis's
+# Layer 2 tests use (see ``test_spec_only_audio_output_end_reaches_a_
+# legacy_listener_via_translator_bridge`` above) for "what a receiving
+# process's own client would locally deliver": ``SkillProcess`` has no
+# ``modernize`` knob to thread through (only ``BusServer.client()`` does),
+# so there is no way to build a real canonical-only skill container with
+# RULE 2 turned OFF -- promoting Cell B to a real SkillProcess the way Cell
+# A was promoted is a genuine missing-cell follow-up (adding a
+# ``modernize`` kwarg to ``SkillProcess.__init__``, threaded into
+# ``skill_process.py``'s own client construction), not done here.
+#
+# Cell A takes the module ``stack`` fixture (a real skill/bus pair, one per
+# combo); Cell B does not -- no skill subprocess is needed to prove a
+# receive-side bus-client rule with a shadow client, so it runs once per
+# venv pair the suite is invoked with, independent of
+# ``BACKCOMPAT_COMBO``, guarded only by ``_require_rule2_hook`` (below) on
+# whether this core venv's ovos-bus-client carries #271's RULE 2 hook at
+# all.
+
+def _require_rule2_hook() -> None:
+    """Skip with an honest, own reason on a core venv whose ovos-bus-client
+    predates #271 (RULE 2's ``_modernize_intent_topic`` symbol). The
+    "old-core" boundary pin and both distro channel pins are all older than
+    ovos-bus-client 2.8.0a1 (the release RULE 2 landed in, per
+    ``skill_process.py``'s own ``has_reemit_hook`` comment) -- this is a
+    real capability gate, not the IS_BROKEN_CELL/#271 xfail marker, which is
+    about something else entirely (the suffixed-vs-canonical dispatch gap).
+    """
+    from ovos_bus_client.client import MessageBusClient
+    if not hasattr(MessageBusClient, "_modernize_intent_topic"):
+        pytest.skip(
+            "this core venv's ovos-bus-client predates #271's RULE 2 "
+            "(_modernize_intent_topic) -- unrelated to the IS_BROKEN_CELL "
+            "suffixed/canonical dispatch gap this module otherwise tests")
+
+
+@pytest.mark.skipif(CORE_IS_NEW is None,
+                    reason=f"{COMBO!r}: not a recognized combo, no core "
+                           "vintage to check the hook against")
+def test_new_core_combos_carry_the_rule2_hook():
+    """Asserts ``MessageBusClient._modernize_intent_topic`` is present on a
+    NEW-core combo, the symbol every RULE 2 test above skips without via
+    ``_require_rule2_hook``.
+
+    The hook is imported straight from this pytest process's own installed
+    ``ovos-bus-client`` (``_require_rule2_hook``'s own docstring: "a core
+    venv whose ovos-bus-client predates #271"), and this suite always runs
+    under the core-side venv's pytest binary -- so the vintage that decides
+    whether the symbol exists is C, not S, regardless of which venv the
+    skill subprocess itself resolves. ``_require_rule2_hook`` only ever
+    skips; nothing else in this module asserts the hook is actually there,
+    so a refactor that renamed or dropped ``_modernize_intent_topic`` would
+    make every RULE 2 cell silently skip instead of failing loud.
+    """
+    if not CORE_IS_NEW:
+        pytest.skip(f"{COMBO}: old-core combo, this pytest process's own "
+                    "ovos-bus-client predates #271 -- RULE 2 has nothing to "
+                    "prove here, see _require_rule2_hook")
+    from ovos_bus_client.client import MessageBusClient
+    assert hasattr(MessageBusClient, "_modernize_intent_topic"), (
+        f"{COMBO}: MessageBusClient has no _modernize_intent_topic hook on "
+        "a NEW-core combo -- every RULE 2 cell would silently skip instead "
+        "of exercising the canonicalization it exists to test")
+
+
+def test_rule2_canonicalizes_a_raw_suffixed_dispatch_for_a_canonical_only_listener(stack):
+    """T2.8 Cell A: a raw ``<skill_id>:food.order.intent`` frame, with NO
+    RULE 1 twin marker, reaches a REAL canonical-only skill's handler
+    exactly once.
+
+    Promoted to a real ``SkillProcess`` (adversarial-review follow-up on an
+    earlier revision that used a shadow bus client, before a canonical-only
+    skill venv existed to run this against): ovos-workshop#500 shipped
+    canonical-only binding and PyPI alphas carrying it exist
+    (9.3.11a2/9.3.12a1) -- ``build_venvs.sh``'s ``venv_skill_new`` (tracks
+    ``ovos-workshop @ dev``) resolves one of them as of this revision,
+    verified directly: ``skill.bound_topics == ['<skill_id>:food.order']``,
+    no suffixed binding at all.
+
+    Feature-detected via ``_skill_binds_canonical_only`` (live
+    introspection of THIS combo's real skill, never a version compare): a
+    combo whose skill venv still binds both spellings (every vintage
+    pre-#500) has nothing for RULE 2 to prove here -- its own suffixed
+    binding already catches a raw suffixed dispatch directly, with or
+    without RULE 2 -- so it skips with its own reason, not the
+    IS_BROKEN_CELL/#271 marker. ``test_rule2_kill_switch_...`` below still
+    uses a shadow bus client: ``SkillProcess`` has no ``modernize`` knob to
+    thread through (only ``BusServer.client()`` does), so Cell B cannot yet
+    be promoted the same way -- noted as the missing-cell follow-up in the
+    section comment above.
+
+    "Raw" and "no marker" both matter: ``bus.emit()`` only twins a message
+    whose topic is ALREADY canonical (``_send_legacy_intent_twin`` no-ops
+    when ``legacy_intent_topic(message.msg_type) == message.msg_type``,
+    i.e. the message is already suffixed) -- so emitting ``LEGACY_TOPIC``
+    directly here can never accidentally exercise RULE 1's marked twin path
+    instead of RULE 2's raw-frame path. Verified directly against the
+    installed ``ovos_bus_client.client.client`` source, not assumed.
+
+    Mutation-proof both ways: dropping the raw-suffix emit (sending
+    ``CANONICAL_TOPIC`` directly instead) would starve RULE 2 of anything to
+    canonicalize, and the exactly-once assertion below catches a mutant that
+    made RULE 2 double-deliver (e.g. by not checking ``is_twin`` before
+    modernizing).
+    """
+    _require_rule2_hook()
+    _server, bus, skill, _regs = stack
+    if not _skill_binds_canonical_only(skill):
+        pytest.skip(
+            f"{COMBO}: this skill venv (ovos-workshop "
+            f"{skill.versions.get('ovos_workshop')}) binds "
+            f"{skill.bound_topics!r} -- not canonical-only, so a raw "
+            f"suffixed dispatch reaches it through its own suffixed "
+            f"binding regardless of RULE 2; nothing to prove on this combo "
+            f"until its skill venv resolves ovos-workshop#500")
+
+    token = uuid.uuid4().hex
+    handled = Capture(bus, "backcompat.skill.handled", token=token)
+    try:
+        bus.emit(Message(LEGACY_TOPIC, {"food": "tacos", "token": token},
+                         {"session": {"session_id": "backcompat-rule2"}}))
+        assert handled.wait(), (
+            f"{COMBO}: a raw {LEGACY_TOPIC!r} frame (no RULE 1 twin "
+            f"marker) never reached the canonical-only skill's handler -- "
+            f"RULE 2's receive-side canonicalization did not fire "
+            f"(skill bound {skill.bound_topics})")
+        # exactly-once: give a duplicate a real window to show up rather
+        # than trusting the first hit, same discipline as
+        # test_the_handler_runs_exactly_once above.
+        handled.wait_for_count(2, timeout=3.0)
+        assert len(handled.messages) == 1, (
+            f"{COMBO}: one raw suffixed frame produced "
+            f"{len(handled.messages)} handler runs -- RULE 2 double-fired")
+    finally:
+        handled.close()
+
+
+def test_rule2_kill_switch_silences_the_canonical_only_listener():
+    """T2.8 Cell B: RULE 2's negative control, with its positive control
+    inline so the silent assertion below can never pass for the wrong
+    reason (design instruction: an expected-silent assertion needs a
+    same-test positive control to be mutation-proof).
+
+    Two shadow clients, same shape as ``test_rule2_canonicalizes_a_raw_
+    suffixed_dispatch_for_a_canonical_only_listener`` above: one with
+    ``modernize=True`` (must fire -- proves the harness/emission itself is
+    not what is broken), one with ``modernize=False`` (must NOT fire --
+    ``OVOS_BUS_MODERNIZE`` is load-bearing for RULE 2, per ovos-workshop#500's
+    own "Deployment note": "a canonical-only skill hearing an old core's
+    suffixed dispatch depends entirely on bus-client 2.8.0a1's receive-side
+    modernization... there is no fallback path once the skill-layer dual
+    binding is gone").
+    """
+    _require_rule2_hook()
+    server = BusServer()
+    try:
+        emitter = server.client()
+        on_shadow = server.client(modernize=True)
+        off_shadow = server.client(modernize=False)
+        try:
+            assert on_shadow._translator.modernize is True
+            assert off_shadow._translator.modernize is False, (
+                "server.client(modernize=False) did not bring the shadow "
+                "client's translator up with modernize=False -- the kill "
+                "switch is not actually wired to this client")
+
+            # positive control: same dispatch, modernize on, must fire.
+            on_token = uuid.uuid4().hex
+            on_seen = Capture(on_shadow, CANONICAL_TOPIC, token=on_token)
+            try:
+                emitter.emit(Message(LEGACY_TOPIC,
+                                     {"food": "tacos", "token": on_token},
+                                     {"session": {"session_id":
+                                                  "backcompat-rule2-on"}}))
+                assert on_seen.wait(), (
+                    "positive control failed: with modernize=True the "
+                    "canonical-only listener never heard the raw suffixed "
+                    "frame -- the kill-switch test below would prove "
+                    "nothing, since the mechanism it is supposed to "
+                    "silence never fires in the first place")
+            finally:
+                on_seen.close()
+
+            # negative control: same shape, modernize off, must stay silent.
+            off_token = uuid.uuid4().hex
+            # Validated-delivery control (adversarial-review finding on
+            # cf22ba4): without proof that off_shadow actually received the
+            # raw frame AT ALL, "the canonical listener stayed silent" is
+            # indistinguishable from "off_shadow never got anything" -- a
+            # mutant that points off_shadow at a DIFFERENT BusServer (or
+            # otherwise breaks its wiring) would pass this test for the
+            # wrong reason. Capture the RAW suffixed topic on off_shadow
+            # too and require it to arrive before trusting the silent
+            # canonical-topic assertion below.
+            off_raw = Capture(off_shadow, LEGACY_TOPIC, token=off_token)
+            off_seen = Capture(off_shadow, CANONICAL_TOPIC, token=off_token)
+            try:
+                emitter.emit(Message(LEGACY_TOPIC,
+                                     {"food": "tacos", "token": off_token},
+                                     {"session": {"session_id":
+                                                  "backcompat-rule2-off"}}))
+                assert off_raw.wait(), (
+                    "off_shadow never got the raw frame -- the silent "
+                    "canonical-topic assertion below would prove nothing "
+                    "(indistinguishable from a broken/misdirected shadow "
+                    "client), see this test's validated-delivery control")
+                assert not off_seen.wait(5), (
+                    "the canonical-only listener heard a raw suffixed "
+                    "frame with OVOS_BUS_MODERNIZE=false -- RULE 2 fired "
+                    "with the kill switch off, so the flag is not actually "
+                    "load-bearing")
+            finally:
+                off_raw.close()
+                off_seen.close()
+        finally:
+            emitter.close()
+            on_shadow.close()
+            off_shadow.close()
+    finally:
+        server.stop()
+
+
+# ---------------------------------------------------------------------------
+# T2.8: enable/disable-intent round trip (S x C scenario)
+# ---------------------------------------------------------------------------
+#
+# HANDOFF.md's T2.8 backlog item 4. ``mycroft.skill.disable_intent`` /
+# ``mycroft.skill.enable_intent`` take an ``intent_name`` payload that can be
+# spelled either way -- the padatious-file-derived bare name
+# (``food.order.intent``, this suite's stand-in for the backlog note's
+# ``time.intent``) or the canonical bare name (``food.order`` / ``time``).
+#
+# ovos-workshop#500 (MERGED upstream -- ``gh pr view 500 --repo
+# OpenVoiceOS/ovos-workshop`` -> ``mergedAt`` is now set, head ``eb68a6e``)
+# changes what ``register_intent_file`` stores AND what
+# ``disable_intent``/``enable_intent`` look up, together, in the same
+# commit: pre-#500, ``register_intent_file`` stores the bare FILE-derived
+# name (``food.order.intent``) and neither disable nor enable canonicalizes
+# the author-supplied spelling before the lookup, so only the suffixed
+# spelling ever matches; post-#500, registration itself stores the
+# CANONICAL bare name (``food.order``) and both disable/enable canonicalize
+# the author-supplied name first, so EITHER spelling matches.
+#
+# This is deliberately NOT gated on a version string or a
+# merged/unmerged/released calendar (the harness's own #30 pattern,
+# ``core_canonicalizes()``/``core_has_pipeline_match_api()`` above): whether
+# the skill venv's ``ovos-workshop`` carries the fix is read straight off
+# the live registry state every test here already captures via
+# ``report_intent_state`` -- ``CANONICAL_NAME`` (fix present) vs
+# ``INTENT_FILE`` (fix absent) is exactly the bare name
+# ``register_intent_file`` itself stored, a real runtime observation, not an
+# assumption. Verified against both directions with a real venv:
+# ``build_venvs.sh``'s ``venv_skill_old`` (ovos-workshop==9.3.1a2, pre-#500)
+# reports the bare FILE-derived name and hits the xfail branch; a freshly
+# rebuilt ``venv_skill_new`` (tracks ``ovos-workshop @ dev``, resolved
+# ovos-workshop==9.3.12a1, a PyPI alpha published after #500 merged) reports
+# the CANONICAL bare name and genuinely PASSES the "fix present" branch
+# below with no marker at all. ``test_cells.py`` additionally covers the
+# probe's decision logic in isolation (no venv, no bus --
+# ``test_disable_enable_probe_flips_xfail_to_pass_once_the_registry_key_is_
+# canonical`` and its siblings) as a fast regression guard on top of the
+# real end-to-end venv run, not in place of it.
+#
+# State is read through ``report_intent_state`` (a dedicated trigger/done
+# round trip skill_process.py answers -- see its module docstring) rather
+# than by re-dispatching and checking whether the handler ran: on
+# ovos-workshop==9.3.1a2 (old-skill), ``disable_intent`` computes the
+# skill-id-PREFIXED name and calls ``IntentServiceInterface.remove_intent``
+# with it, but that vintage's ``remove_intent`` checks
+# ``intent_name in self.intent_names`` with NO prefix stripping (verified
+# directly against the installed 9.3.1a2 source) -- the prefixed name it is
+# given never matches the bare names ``intent_names`` holds, so the call is
+# a silent no-op and NOTHING about the skill's real dispatch behavior
+# changes. A raw-dispatch probe would misread that no-op as "still enabled"
+# and never distinguish it from a real disable; the registry state read here
+# is what ``disable_intent`` itself actually mutates (or fails to), so it is
+# the direct, vintage-honest signal.
+
+#: Bare (no ``<skill_id>:`` prefix) intent names -- what
+#: ``IntentServiceInterface.registered_intents``/``.detached_intents`` key
+#: on, derived from the module's own topic constants so a rename of either
+#: never lets these two drift out of sync with what the skill actually
+#: registers. Which ONE of these two is the live registry key is itself the
+#: #500 probe -- see the section comment above.
+INTENT_FILE = LEGACY_TOPIC[len(f"{SKILL_ID}:"):]
+CANONICAL_NAME = CANONICAL_TOPIC[len(f"{SKILL_ID}:"):]
+
+
+def _assert_registered(state: dict, bare_name: str, combo: str, when: str) -> None:
+    assert bare_name in state["registered"], (
+        f"{combo}: expected {bare_name!r} to be registered {when}, got "
+        f"registered={state['registered']} detached={state['detached']}")
+    assert bare_name not in state["detached"], (
+        f"{combo}: {bare_name!r} is in BOTH registered and detached {when} "
+        f"-- inconsistent IntentServiceInterface bookkeeping "
+        f"({state!r})")
+
+
+def _assert_detached(state: dict, bare_name: str, combo: str, when: str) -> None:
+    assert bare_name in state["detached"], (
+        f"{combo}: expected {bare_name!r} to be detached {when}, got "
+        f"registered={state['registered']} detached={state['detached']}")
+    assert bare_name not in state["registered"], (
+        f"{combo}: {bare_name!r} is in BOTH registered and detached {when} "
+        f"-- inconsistent IntentServiceInterface bookkeeping "
+        f"({state!r})")
+
+
+def _live_registry_bare_name(before: dict, combo: str) -> str:
+    """Which bare name THIS venv's ``register_intent_file`` really stored --
+    the #500 probe. Exactly one of the two must be present; anything else
+    means neither this section's assumption (every vintage stores one of
+    these two bare forms) nor the registry read itself can be trusted, and
+    failing loudly here is better than a downstream assertion whose failure
+    message would not point at the real cause.
+    """
+    canonical_present = CANONICAL_NAME in before["registered"]
+    suffixed_present = INTENT_FILE in before["registered"]
+    assert canonical_present != suffixed_present, (
+        f"{combo}: expected EXACTLY ONE of {CANONICAL_NAME!r} (post-#500 "
+        f"registry key) or {INTENT_FILE!r} (pre-#500 registry key) in "
+        f"registered={before['registered']!r} -- the #500 probe's own "
+        f"assumption is wrong for this vintage, not just this test's setup")
+    return CANONICAL_NAME if canonical_present else INTENT_FILE
+
+
+@pytest.mark.axes("S")
+def test_disable_then_enable_intent_round_trips_the_suffixed_spelling(stack):
+    """T2.8 Cell C, suffixed leg: ``mycroft.skill.disable_intent`` then
+    ``mycroft.skill.enable_intent``, both spelled ``food.order.intent`` (the
+    backlog note's ``time.intent`` stand-in), must move the intent
+    registered -> detached -> registered again.
+
+    This is the leg the backlog note says "must pass everywhere", and
+    ``bare_name`` below is probe-derived (see the section comment above) so
+    "everywhere" really does include a post-#500 venv, where the registry
+    key itself has moved to the canonical bare name but disable/enable's own
+    canonicalization still makes the suffixed SPELLING match it.
+
+    old-skill is a narrower case: verified directly against the installed
+    9.3.1a2 source, its own ``remove_intent`` never actually matches a
+    skill-id-prefixed name (no prefix stripping), so its ``disable_intent``
+    is ALWAYS a no-op regardless of spelling. That is not this scenario's
+    gap (T2.8 backlog item 4 is about the enable/disable SPELLING mismatch,
+    not about old-skill's prefix handling), so it is recorded, not asserted
+    strictly, via the ``still_registered_after_disable`` flag below rather
+    than a second silent xfail marker layered onto an already-narrow cell.
+    """
+    _cell_or_skip()
+    _server, bus, _skill, _regs = stack
+    combo = COMBO
+
+    before = report_intent_state(bus)
+    bare_name = _live_registry_bare_name(before, combo)
+
+    bus.emit(Message("mycroft.skill.disable_intent", {"intent_name": INTENT_FILE}))
+    after_disable = wait_for_intent_state(bus, bare_name, want_registered=False)
+    still_registered_after_disable = bare_name in after_disable["registered"]
+    print(f"{combo}: registry key={bare_name!r} (#500 "
+          f"{'present' if bare_name == CANONICAL_NAME else 'absent'}); "
+          f"after disable_intent({INTENT_FILE!r}), still "
+          f"registered={still_registered_after_disable} "
+          f"(old-skill's remove_intent is a known no-op on a "
+          f"skill-id-prefixed name -- see this test's docstring)")
+    if not still_registered_after_disable:
+        _assert_detached(after_disable, bare_name, combo, "after disable_intent")
+
+    bus.emit(Message("mycroft.skill.enable_intent", {"intent_name": INTENT_FILE}))
+    after_enable = wait_for_intent_state(bus, bare_name, want_registered=True)
+    _assert_registered(after_enable, bare_name, combo,
+                       "after the disable/enable round trip")
+
+
+@pytest.mark.axes("S")
+def test_disable_then_enable_intent_round_trips_the_canonical_spelling(request, stack):
+    """T2.8 Cell C, canonical leg: same round trip as the suffixed-spelling
+    test above, but both calls are spelled ``food.order`` (no ``.intent``) --
+    the modern, author-facing name the backlog note's ``time``/``time.intent``
+    example is about.
+
+    Probe-derived xfail (harness #30 pattern), not a version compare: this
+    venv's live registry key (``_live_registry_bare_name``, same probe the
+    suffixed-leg test above uses) says whether ovos-workshop#500's
+    canonicalize-before-lookup fix is present. When it is absent the
+    canonical spelling matches nothing -- a real, verified-red failure (this
+    marker's own reason string was checked by running the assertions below
+    with no xfail marker at all and confirming a genuine ``AssertionError``,
+    not assumed) -- so the marker is added dynamically, ``strict=True``, only
+    for that case. When the probe says the fix IS present, no marker is
+    added at all: this test must then genuinely PASS, and a real failure
+    here would not be silently swallowed by a stale calendar-based marker
+    the way a static ``@pytest.mark.xfail`` would have as soon as any S
+    vintage's ovos-workshop resolved #500's fix -- exactly the bug this
+    dynamic version replaces (see PR discussion: #500 merged upstream while
+    the static version of this marker was still in flight).
+    """
+    _cell_or_skip()
+    _server, bus, _skill, _regs = stack
+    combo = COMBO
+
+    before = report_intent_state(bus)
+    bare_name = _live_registry_bare_name(before, combo)
+    fix_present = bare_name == CANONICAL_NAME
+    print(f"{combo}: #500 probe -- registry key={bare_name!r}, "
+          f"fix_present={fix_present}")
+    if not fix_present:
+        request.node.add_marker(pytest.mark.xfail(strict=True, reason=(
+            f"{combo}: probe-derived (not a version compare) -- this "
+            f"venv's register_intent_file stored the bare name under "
+            f"{INTENT_FILE!r} (pre-#500 shape), not the canonical "
+            f"{CANONICAL_NAME!r} ovos-workshop#500 registers under. "
+            f"Pre-#500, neither disable_intent nor enable_intent "
+            f"canonicalizes the author-supplied intent_name before the "
+            f"registry lookup, so a round trip spelled with the canonical "
+            f"name matches nothing and is a silent no-op. Verified as a "
+            f"real red failure (this exact assertion, no marker) before "
+            f"writing this reason. XPASS here would mean the registry key "
+            f"is canonical but the lookup still fails -- a real "
+            f"regression in #500 itself, not a signal to drop this "
+            f"marker; the marker only stops applying on its own once "
+            f"``_live_registry_bare_name`` reports {CANONICAL_NAME!r} for "
+            f"this venv, which is the codepath the PASS side below "
+            f"exercises.")))
+
+    bus.emit(Message("mycroft.skill.disable_intent", {"intent_name": CANONICAL_NAME}))
+    after_disable = wait_for_intent_state(bus, bare_name, want_registered=False)
+    _assert_detached(after_disable, bare_name, combo,
+                     f"after disable_intent({CANONICAL_NAME!r}) -- the "
+                     f"canonical spelling")
+
+    bus.emit(Message("mycroft.skill.enable_intent", {"intent_name": CANONICAL_NAME}))
+    after_enable = wait_for_intent_state(bus, bare_name, want_registered=True)
+    _assert_registered(after_enable, bare_name, combo,
+                       f"after the disable/enable round trip via the "
+                       f"canonical spelling {CANONICAL_NAME!r}")
+
+
 #: The interactive-flow tests below are NOT marked with the IS_BROKEN_CELL
 #: xfail. That marker exists for one specific gap: an old skill binds the
 #: suffixed `<skill_id>:<file>.intent` topic only, and a canonicalizing core
 #: dispatches `<skill_id>:<file>` only, so registered-intent names never line
 #: up. converse and get_response are routed through the real, per-combo
 #: `ovos_core.intent_services.converse_service.ConverseService` (see the
-#: `converse_service` fixture / `driver.make_converse_service`) — genuine
+#: `converse_service` fixture / `driver.make_intent_service`) — genuine
 #: core-side code decides the match, the driver only forwards
 #: `match.match_type` verbatim, same as `dispatch()` already does for
 #: intents. That match_type is a FIXED literal
@@ -853,6 +1480,33 @@ def test_the_handler_runs_exactly_once(stack):
 #: reason instead of folding it into this one (see module docstring: "any PR
 #: that drops the compat must flip these deliberately" — a borrowed marker
 #: would hide the wrong signal).
+
+
+@pytest.mark.skipif(CORE_IS_NEW is None,
+                    reason=f"{COMBO!r}: not a recognized combo, no core "
+                           "vintage to check the probe against")
+def test_new_core_combos_support_utterance_dispatch():
+    """Asserts ``core_supports_utterance_dispatch()`` on a NEW-core combo,
+    the probe the two branching tests below key their converse/get_response
+    setup on but never themselves assert.
+
+    A refactor that moves the ``add_converse_handler`` bytecode probe behind
+    a helper, or otherwise breaks it, would silently flip the probe False on
+    a NEW-core combo -- both branching tests would then fall back to their
+    ``self.activate()``-only setup and keep passing for the wrong reason,
+    the same failure mode ``test_pins_are_the_intended_vintage`` exists to
+    catch on the S/M axes. This is the missing C-axis half of that net; an
+    OLD-core combo asserts nothing here, since the probe is genuinely
+    expected False there.
+    """
+    if not CORE_IS_NEW:
+        pytest.skip(f"{COMBO}: old-core combo, "
+                    "core_supports_utterance_dispatch() is expected False")
+    assert core_supports_utterance_dispatch(), (
+        f"{COMBO}: core_supports_utterance_dispatch() returned False on a "
+        "NEW-core combo -- the converse/get_response tests would silently "
+        "fall back to the self.activate()-only path instead of exercising "
+        "the real utterance dispatch")
 
 
 def _require_converse_api(skill) -> None:
@@ -881,21 +1535,38 @@ def test_converse_fires_before_a_followup_utterance_matches_an_intent(
     ahead of intent matching.
 
     This is the multi-turn-dialog contract every bus-only skill container
-    leans on: ``activate()`` puts the skill on the active list, and the
-    pipeline is supposed to try ``converse()`` before falling through to
+    leans on: a dispatch puts the skill on the converse-eligible list, and
+    the pipeline is supposed to try ``converse()`` before falling through to
     intent matching. Genuinely cross-version this time: the driver calls the
     real, per-combo ``ConverseService.match()`` (see ``converse_service``
-    fixture / ``driver.make_converse_service``) to decide whether and how to
+    fixture / ``driver.make_intent_service``) to decide whether and how to
     route the follow-up utterance, then forwards ``match.match_type``
     verbatim — the same shortcut ``dispatch()`` already takes for the
     food-order intent, except the topic now comes from real core code
     instead of a constant the driver assumes.
+
+    Converse eligibility (OVOS-CONVERSE-1 §2.1's ``session.
+    converse_handlers``) is earned the real way, on a core that can reach
+    it (``driver.core_supports_utterance_dispatch``): a real utterance is
+    sent to the real ``IntentService.handle_utterance`` (``driver.
+    dispatch_utterance``), whose real installed padatious pipeline plugin
+    matches it against the fixture skill's real registered intent and
+    dispatches — §3.1's automatic ``converse_handlers`` stamp is that
+    dispatch's own side effect, never something ``self.activate()`` alone
+    produces on this vintage; the dispatch message's own wire carrier is
+    what confirms it landed, needing no separate probe of the stamp
+    itself. A core old enough to predate the spec-side utterance-dispatch
+    surface entirely (this combo's ``old-core`` boundary pin,
+    ``ovos-core==2.5.5a2``, which also predates the ``converse_handlers``/
+    ``active_handlers`` split) has no such surface to dispatch through, so
+    it keeps the ``self.activate()``-only setup — ``ConverseService.
+    get_active_skills`` there reads whatever that push already wrote
+    directly.
     """
-    _server, bus, skill, _regs = stack
+    _server, bus, skill, regs = stack
     _require_converse_api(skill)
     token = uuid.uuid4().hex
     session_id = f"backcompat-converse-{token[:8]}"
-    activated = Capture(bus, ACTIVATED_TOPIC, token=token)
     # the real second hop: ConverseService.handle_converse (triggered by
     # dispatch_match below) re-emits to this exact skill-facing topic —
     # capturing it independently of the "converse_fired" marker proves the
@@ -904,25 +1575,34 @@ def test_converse_fires_before_a_followup_utterance_matches_an_intent(
     fired = Capture(bus, CONVERSE_FIRED_TOPIC)
     responded = Capture(bus, CONVERSE_RESPONSE_TOPIC)
     try:
-        # self.activate() (real workshop code, either vintage) emits the
-        # real "intent.service.skills.activate" message, which the real
-        # converse_service.handle_activate_skill_request (bound in its
-        # __init__) puts the skill on SessionManager's live active-skills
-        # list for this session_id.
-        bus.emit(Message(CONVERSE_TRIGGER_TOPIC, {"token": token},
-                         session_context(session_id)))
-        assert activated.wait(), (
-            f"{COMBO}: skill never confirmed activation:\n{skill.log}")
-        # activate_skill_request is itself async over the wire (our own
-        # "activated" marker races the real core-side session update it
-        # rides alongside); wait for the actual evidence — the skill_id
-        # showing up on the live session — rather than guessing a delay.
-        assert wait_for_active_skill(session_id, SKILL_ID), (
-            f"{COMBO}: skill confirmed activation but never showed up on "
-            f"the live session's active-skill list")
+        if core_supports_utterance_dispatch():
+            topic = dispatch_topic_for(_registered_name(regs))
+            session = dispatch_utterance(bus, topic, session_id,
+                                         "order some tacos")
+            assert session is not None, (
+                f"{COMBO}: the real utterance dispatch never reached "
+                f"{topic!r} on the wire\nskill process log:\n{skill.log}")
+        else:
+            activated = Capture(bus, ACTIVATED_TOPIC, token=token)
+            # subscribed before the trigger below fires it — this is the
+            # real wire evidence wait_for_active_skill reads.
+            activation = Capture(bus, "intent.service.skills.activated",
+                                 session_id=session_id)
+            try:
+                bus.emit(Message(CONVERSE_TRIGGER_TOPIC, {"token": token},
+                                 session_context(session_id)))
+                assert activated.wait(), (
+                    f"{COMBO}: skill never confirmed activation:\n{skill.log}")
+                session = wait_for_active_skill(activation, SKILL_ID)
+            finally:
+                activated.close()
+                activation.close()
+            assert session is not None, (
+                f"{COMBO}: skill confirmed activation but never showed up "
+                f"on the orchestrator's own activation emission")
 
         match = converse_match(converse_service, ["i changed my mind"],
-                               "en-us", session_id)
+                               "en-us", session_id, session=session)
         assert match is not None, (
             f"{COMBO}: ConverseService.match() found no active skill to "
             f"converse with — activation never reached the real core-side "
@@ -951,7 +1631,6 @@ def test_converse_fires_before_a_followup_utterance_matches_an_intent(
             "converse() claimed the utterance (returned True) but the "
             "pipeline-facing response says it did not consume it")
     finally:
-        activated.close()
         requested.close()
         fired.close()
         responded.close()
@@ -972,44 +1651,62 @@ def test_get_response_receives_the_answer_utterance(stack, converse_service):
     state, and forwards it verbatim, same as the converse test above.
 
     ``ConverseService.match()`` only considers a skill for
-    response-mode if it is ALSO on the session's active-skill list
-    (``_collect_converse_skills`` / ``get_active_skills`` gate — see
-    ``match()``'s ``gr_skills`` computation) — in a real deployment this is
-    implicit, since ``get_response`` is normally called from inside a
-    handler for an intent that was just dispatched to this skill, which
-    activates it as a side effect. This harness has no intent-dispatch
-    pipeline standing that context up, so the skill is activated explicitly
-    first, the same way the converse test above does.
+    response-mode if it is ALSO converse-eligible (``_collect_converse_
+    skills`` / ``get_active_skills`` gate, reading ``session.
+    converse_handlers`` — see ``match()``'s ``gr_skills`` computation) — in
+    a real deployment this is implicit, since ``get_response`` is normally
+    called from inside a handler for an intent that was just dispatched to
+    this skill, and OVOS-CONVERSE-1 §3.1 makes that dispatch itself what
+    stamps ``converse_handlers``. This harness earns that the same real
+    way, sending a real utterance through the real orchestrator first (see
+    the converse test above for why ``self.activate()`` alone is not
+    enough on a core that can reach it).
 
-    ``wait_for_response_mode`` proves the round trip by sampling
-    ``SessionManager.sessions`` from this test's own thread every 50ms. On a
-    starved runner that sampling can miss the whole thing: the skill's real
-    ``skill.converse.get_response.enable`` / ``.disable`` pair can both get
-    processed by the driver process's bus-handler thread in one scheduling
-    burst, entirely between two polls, even though the round trip genuinely
-    happened. A sampled miss is therefore ambiguous between "never happened"
-    and "happened, window missed" — so this also watches the real enable/
-    disable events directly. If the poll misses but the events prove the
-    round trip landed and the response-mode window has since closed, that is
-    not a failure — it is "proven once, sampled late" — so the trigger is
-    re-armed and retried rather than failed on a scheduler artifact.
+    ``wait_for_response_mode`` proves the round trip off the wire itself —
+    the real ``skill.converse.get_response.enable`` message the skill emits
+    — rather than polling ``SessionManager.sessions`` (OVOS-SESSION-2 §2.2:
+    the registry never holds a named session to poll). On a starved runner
+    the skill's real enable/disable pair can both get processed by the
+    driver process's bus-handler thread in one scheduling burst, so this
+    also watches the disable event directly: if the enable wait times out
+    but both events prove the round trip landed and the response-mode
+    window has since closed, that is not a failure — it is "proven once,
+    window since closed" — so the trigger is re-armed and retried rather
+    than failed on a scheduler artifact.
     """
-    _server, bus, skill, _regs = stack
+    _server, bus, skill, regs = stack
     _require_converse_api(skill)
     token = uuid.uuid4().hex
     session_id = f"backcompat-getresp-{token[:8]}"
-    activated = Capture(bus, ACTIVATED_TOPIC, token=token)
     done = Capture(bus, GET_RESPONSE_DONE_TOPIC, token=token)
     enabled = Capture(bus, GET_RESPONSE_ENABLE_TOPIC, session_id=session_id)
     disabled = Capture(bus, GET_RESPONSE_DISABLE_TOPIC, session_id=session_id)
     try:
-        bus.emit(Message(CONVERSE_TRIGGER_TOPIC, {"token": token},
-                         session_context(session_id)))
-        assert activated.wait(), (
-            f"{COMBO}: skill never confirmed activation:\n{skill.log}")
-        assert wait_for_active_skill(session_id, SKILL_ID), (
-            f"{COMBO}: skill confirmed activation but never showed up on "
-            f"the live session's active-skill list")
+        if core_supports_utterance_dispatch():
+            topic = dispatch_topic_for(_registered_name(regs))
+            session = dispatch_utterance(bus, topic, session_id,
+                                         "order some tacos")
+            assert session is not None, (
+                f"{COMBO}: the real utterance dispatch never reached "
+                f"{topic!r} on the wire\nskill process log:\n{skill.log}")
+        else:
+            activated = Capture(bus, ACTIVATED_TOPIC, token=token)
+            # subscribed before the trigger below fires it — this is the
+            # real wire evidence wait_for_active_skill reads.
+            activation = Capture(bus, "intent.service.skills.activated",
+                                 session_id=session_id)
+            try:
+                bus.emit(Message(CONVERSE_TRIGGER_TOPIC, {"token": token},
+                                 session_context(session_id)))
+                assert activated.wait(), (
+                    f"{COMBO}: skill never confirmed activation:\n{skill.log}")
+                session = wait_for_active_skill(activation, SKILL_ID)
+            finally:
+                activated.close()
+                activation.close()
+            assert session is not None, (
+                f"{COMBO}: skill confirmed activation but never showed up "
+                f"on the orchestrator's own activation emission")
 
         # Up to two attempts: the first is the normal path. The second only
         # runs if the first attempt's live sampling missed a round trip the
@@ -1017,17 +1714,19 @@ def test_get_response_receives_the_answer_utterance(stack, converse_service):
         match = None
         for attempt in range(2):
             bus.emit(Message(GET_RESPONSE_TRIGGER_TOPIC, {"token": token},
-                             session_context(session_id)))
+                             session_context(session_id, session)))
             # get_response's real "skill.converse.get_response.enable" round
             # trip is async over the wire; wait for the actual evidence — the
-            # live session's response-mode holder — rather than guessing a
-            # delay long enough.
-            if wait_for_response_mode(session_id, SKILL_ID):
+            # enable message itself — rather than guessing a delay long
+            # enough.
+            with_response_mode = wait_for_response_mode(enabled, SKILL_ID, session)
+            if with_response_mode is not None:
                 # Seen live: do the converse match immediately, before the
                 # skill's own get_response poll window can close underneath
                 # it and disable response-mode again.
                 match = converse_match(converse_service, ["tacos please"],
-                                       "en-us", session_id)
+                                       "en-us", session_id,
+                                       session=with_response_mode)
                 break
 
             if enabled.wait(timeout=0) and disabled.wait(timeout=0):
@@ -1036,9 +1735,9 @@ def test_get_response_receives_the_answer_utterance(stack, converse_service):
                 # never happened", just "happened, sampled late". Re-arm by
                 # triggering get_response again (the skill's previous call
                 # already returned, since disable fired) and retry once.
-                enabled.messages.clear()
-                disabled.messages.clear()
-                done.messages.clear()
+                enabled.reset()
+                disabled.reset()
+                done.reset()
                 continue
 
             # Neither seen live nor proven by the events: a genuine miss,
@@ -1046,11 +1745,10 @@ def test_get_response_receives_the_answer_utterance(stack, converse_service):
             break
 
         assert match is not None, (
-            f"{COMBO}: get_response() never showed up as the live "
-            f"session's response-mode holder, and the "
-            f"{GET_RESPONSE_ENABLE_TOPIC!r}/{GET_RESPONSE_DISABLE_TOPIC!r} "
-            f"events never proved a round trip either\nskill process "
-            f"log:\n{skill.log}")
+            f"{COMBO}: get_response() never showed up on the wire — "
+            f"neither {GET_RESPONSE_ENABLE_TOPIC!r} nor "
+            f"{GET_RESPONSE_DISABLE_TOPIC!r} ever proved a round trip"
+            f"\nskill process log:\n{skill.log}")
         assert match.match_type == GET_RESPONSE_ANSWER_TOPIC, (
             f"{COMBO}: real ConverseService.match() picked "
             f"{match.match_type!r}, not the expected "
@@ -1065,7 +1763,6 @@ def test_get_response_receives_the_answer_utterance(stack, converse_service):
             f"{done.messages[0].data['answer']!r} instead of the answer "
             f"utterance sent")
     finally:
-        activated.close()
         done.close()
         enabled.close()
         disabled.close()

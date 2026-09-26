@@ -18,10 +18,13 @@ Status legend:
 
 ## Top-level matrix
 
-The architecture `dev` branch carries 20 specs. All 20 are covered by 20
-conformance suites, each with its own `## OVOS-...` detail section below.
-SESSION-1 and SESSION-2 share one suite. INTENT-4 is covered by both an
-orchestrator suite and a per-plugin registration-compliance suite.
+The pinned corpus (`test/meta/architecture.sha`) carries 21 specs. Twenty of
+them have a conformance suite; OVOS-SCHEDULER-1 has none. Every spec has its own
+`## OVOS-...` detail section below, and `test/meta/` reads both the count and
+the section list off the pinned spec corpus, so a spec cannot be added upstream
+without forcing a row here. SESSION-1 and SESSION-2 share one suite. INTENT-4
+is covered by both an orchestrator suite and a per-plugin
+registration-compliance suite.
 
 `OVOS-USER-ID-1` is not tracked here: no such document exists among the
 ratified `OpenVoiceOS/architecture` specs, so there is nothing to trace
@@ -36,7 +39,7 @@ suite coverage against.
 | Fallback Pipeline Plugin | OVOS-FALLBACK-1 | `test_fallback1_conformance.py` | implemented |
 | Session Specification | OVOS-SESSION-1 | `test_session_conformance.py` | implemented |
 | Session Lifecycle & State Ownership | OVOS-SESSION-2 | `test_session_conformance.py` | implemented |
-| Bus Message | OVOS-MSG-1 | `test_msg1_conformance.py` | implemented |
+| Bus Message | OVOS-MSG-1 | `test_msg1_conformance.py` (envelope) + `test_msg1_producers_conformance.py` (§3.3 producers on a real bus) | implemented |
 | Audio Input Service | OVOS-AUDIO-IN-1 | `test_audio_in_conformance.py` | implemented |
 | Audio Output Service | OVOS-AUDIO-1 | `test_audio_out_conformance.py` | implemented |
 | Bus Bridge & Opaque Relay | OVOS-BRIDGE-1 | `test_bridge1_conformance.py` | implemented |
@@ -49,6 +52,7 @@ suite coverage against.
 | OVOS Common Playback (OCP) | OVOS-OCP-1 | `test_ocp1_conformance.py` | implemented |
 | Persona Pipeline Plugin | OVOS-PERSONA-1 | `test_persona1_conformance.py` | implemented |
 | Transformer Plugins | OVOS-TRANSFORM-1 | `test_transform1_conformance.py` | implemented |
+| Scheduled Events | OVOS-SCHEDULER-1 | — | no suite |
 
 ---
 
@@ -83,7 +87,7 @@ Deterministic on a `FakeBus`.
 |-------|-----------|---------|--------|
 | `TestSec5GlobalStop` | §4.1 step 1, §5.1, §5.3 | A generic `stop` with empty active handlers terminates once and broadcasts `ovos.stop`. | green |
 | `TestSec5GlobalStop.test_global_stop_dispatch_topic` | §3.1, §5.2 | Global stop dispatched on `<stop_plugin_id>:global_stop`. | **xfail** (core emits legacy `stop:global`) |
-| `TestSec42PingPong.test_ping_broadcast_topic` / `.test_pong_reply_from_active_skill` | §4.1 step 2, §4.2 | With active handlers, the stop plugin is meant to broadcast `ovos.stop.ping` and collect `ovos.stop.pong`. | **xfail** (core dispatches the per-skill `<skill_id>.stop.ping` directly and never emits the broadcast ping or `ovos.stop.pong`; ovos-core#802) |
+| `TestSec42PingPong.test_ping_broadcast_topic` / `.test_pong_reply_from_active_skill` | §4.1 step 2, §4.2 | With active handlers, the stop plugin broadcasts `ovos.stop.ping` and collects `ovos.stop.pong`; only a skill that pongs `can_handle: True` is dispatched the targeted stop. | green (ovos-core#932) |
 | `TestSec43PerSkillStop` | §4.1 step 3, §4.3, §4 | An active skill yields a targeted `<skill_id>.stop` (not the broadcast). No active skill escalates to the `ovos.stop` global. | green |
 | `TestSec2ReservedName.test_reserved_stop_registration_not_dispatched` | §2 (+ INTENT-4 §5.3 / PIPELINE-1 §7.3) | A registration naming the reserved `stop` is malformed and must not become matchable. | **xfail** (core does not reject it) |
 
@@ -153,7 +157,7 @@ pipeline.
 | `TestSec4ConverseRoundTrip` | §4, §6.4 | An active owner consumes the follow-up via `converse:skill` before normal matching. Parrot echoes it. Terminates once. | green |
 | `TestSec4Decline` | §4 | With no active owner, converse declines and the utterance falls through to the normal pipeline (no `converse:skill`). | green |
 | `TestSec21OwnerOrdering.test_most_recent_owner_first` | §2.1 | Re-activating an owner moves it to the head of `active_skills` (index 0). | green |
-| `TestSec21OwnerOrdering.test_converse_handlers_reflects_owner` | §2.1 | `session.converse_handlers` carries the active owner head-first. | skip-guarded (bus-client field) |
+| `TestSec21OwnerOrdering.test_converse_handlers_reflects_owner` | §2.1 | `session.converse_handlers` carries the active owner head-first. | green |
 
 ## OVOS-FALLBACK-1 — `test_fallback1_conformance.py`
 
@@ -183,15 +187,18 @@ Clauses naming the spec field skip until `ovos-bus-client` populates it.
 | `TestActiveHandlerRecency` | PIPELINE-1 §7.1 | Dispatch records the skill in the session's active list (echoed on the response). Re-activation is head-first dedup. | green |
 | `TestActiveHandlerRecency.test_active_handlers_spec_field` | PIPELINE-1 §7.1 | `session.active_handlers` carries the dispatched skill head-first. | skip-guarded |
 | `TestConverseOwnerOrdering` | CONVERSE-1 §2.1 | Converse owners ordered most-recently-activated first. | green |
-| `TestConverseOwnerOrdering.test_converse_handlers_spec_field` | CONVERSE-1 §2.1 | `session.converse_handlers` mirrors that ordering. | skip-guarded |
+| `TestConverseOwnerOrdering.test_converse_handlers_spec_field` | CONVERSE-1 §2.1 | `session.converse_handlers` mirrors that ordering. | green |
 | `TestResponseMode.test_get_response_enable_sets_response_state` | CONVERSE-1 §2.2 | Enabling get-response marks the skill RESPONSE. Disabling clears it back to INTENT. | green |
 | `TestResponseMode.test_response_mode_spec_field` | CONVERSE-1 §2.2 | `session.response_mode` names the owner holding response mode. | skip-guarded |
 | `TestFallbackHandlersField` | FALLBACK-1 §4 | `session.fallback_handlers` is carried on the session. | skip-guarded |
 | `TestUpdatedSessionEcho` | SESSION-2 §2, §2.6 | The echoed session keeps the entry `session_id`. A pipeline-side mutation rides forward on the response. | green |
+| `TestSec26HandlerBoundaryMutation` | SESSION-2 §2.6 | A handler-boundary mutation made through `SessionManager.get(message)` rides `forward`/`reply`/`response`, and the same on `CollectionMessage`/`GUIMessage`; a mutation with no derived Message has no bus-visible effect; `SessionManager.bind` pins the round session for later `get`/derivation calls and refuses a non-store default-shaped session or a session-id mismatch. Needs `ovos-bus-client>=2.11.4a1` and `ovos-spec-tools>=1.10.4a1` (`SessionManager.bind`). | green |
+| `TestPreSpecSessionSyncShim` | SESSION-2 §5.1, §2.2, §2.7 | The retiring pre-spec `ovos.session.sync` push, folded by `SessionManager.handle_session_sync` rather than any core-side handler: a default-session push carried in `data["session"]` or `context["session"]` replaces only the fields it names and merges `intent_context` entry-by-entry (an omitted field is unchanged); `data` wins over a decoy `context` carrier on the same Message; a named-session push mid-round never touches that round's other fields or the unrelated default session; a push naming a session this process holds nowhere at all is ignored everywhere, including the registry. Every assertion reads the session off a `forward`-derived Message, not a registry lookup, except the last, which checks the registry gained no stray entry. Needs `ovos-bus-client>=2.11.13a1`. | green |
 | `TestSec21OmissionAndNull` | SESSION-1 §2.1 | An omitted field resolves to the deployment default; an explicit `null` is treated as omitted (not a deferral sentinel) and is not rejected. | green |
 | `TestSec31SessionIdentity` | SESSION-1 §3.1 | An empty/absent session resolves to `session_id: "default"`. | **xfail** (bus-client mints a random uuid) |
 | `TestSec31PerSessionKeying` | SESSION-1 §3.1 (spec §227) | Per-session state is keyed on `session_id` — an active handler in session A is not visible to session B. | green |
 | `TestSec21BusStateless` | SESSION-2 §2.1 (spec §543) | The bus leaves `session` byte-identical in transit — it does not interpret, mutate, or persist it. | green |
+| `TestLocationTimezoneContract` | implementation-contract, not a SESSION-1 §3 field | `location` (`Session.location_preferences`) round-trips serialize/deserialize byte-stable, including nested `timezone.code`; `Session.timezone` reads that code; a per-session zone wins over the deployment-configured zone through `SessionManager.get(message)`; an absent session zone falls back to the configured one. Pins the surface `ovos-skill-alerts`#183's two-sessions-two-timezones DST differential depends on end-to-end, at the producing repo instead of only downstream. | green |
 
 ---
 
@@ -254,12 +261,14 @@ skips.
 *Bus Message Specification.* Asserts the §7 conformance clauses against the
 runtime envelope, `ovos_bus_client.message.Message` — the type every
 component on the bus actually exchanges — rather than the reference
-`ovos_spec_tools.message.Message`. Every clause is green: the installed
-bus-client envelope already conforms.
+`ovos_spec_tools.message.Message`. The routing, derivation and serialization
+clauses are green; the §2 unknown-key tolerance rule is not implemented by
+either envelope.
 
 | Class | Clause(s) | Asserts | Status |
 |-------|-----------|---------|--------|
-| `TestSec2Envelope` | §2 | The envelope carries exactly `type`/`data`/`context`; an absent `data`/`context` is treated as empty; unknown top-level keys are rejected. | green |
+| `TestSec2Envelope` | §2 | The envelope carries exactly `type`/`data`/`context`; an absent `data`/`context` is treated as empty. | green |
+| `TestSec2Envelope.test_unknown_top_level_key_ignored`, `.test_reference_ignores_unknown_top_level_key` | §2 | A consumer MUST NOT reject a Message over a top-level key it does not know, and MUST ignore the key. | **xfail** (both envelopes raise on an unknown key) |
 | `TestSec21Type` | §2.1 | `type` is a non-empty, whitespace-free string matching the topic syntax. | green |
 | `TestSec22Data` | §2.2 | `data` is a JSON object; consumers MUST NOT reject a Message on key order. | green |
 | `TestSec23Context` | §2.3 | `context` is topic-independent metadata; a consumer MUST NOT reject on unrecognised keys; an empty `context` is well-formed. | green |
@@ -271,6 +280,26 @@ bus-client envelope already conforms.
 | `TestSec53Response` | §5.3 | `response(D')` is equivalent to `reply(T + '.response', D')`, delegating to the §5.2 routing swap. | green |
 | `TestSec6Serialization` | §6 | A Message serializes to a single top-level UTF-8 JSON object; key order is not significant; a non-finite `data` number rejects rather than serializing; an unparseable payload is treated as malformed. | green |
 | `TestSec7Conformance` | §7 | Producer MUST give `data`/`context` JSON-object values when present; consumer MUST NOT require `source`, `destination`, or other optional context keys. | green |
+
+### §3.3 producer cells, `test_msg1_producers_conformance.py`
+
+One cell per producer family that stamps `destination`, read from the literal
+frame a raw websocket reader saw on a real `ovos-messagebus`. §3.3 allows a
+string or an array. These producers each put a one-element list where a
+string belongs until ovos-bus-client#368, ovos-dinkum-listener#258 and
+ovos-docker#189 (T-2650).
+
+The cells run only where `MSG1_PRODUCER_CELLS=1` (the integration job). The
+docker cells also need `OVOS_DOCKER_HC` naming the healthcheck script, and
+under the gate a missing script fails them instead of skipping. The
+HiveMind bridge family needs a hivemind-core between the producer and this
+bus and lives in hivemind-test-harness.
+
+| Class | Clause(s) | Asserts | Status |
+|-------|-----------|---------|--------|
+| `TestEnclosureAPI` | §3.3 | `EnclosureAPI._get_source_message` stamps `destination` `"enclosure"` as a string. `register()` puts that string on the wire in `enclosure.active_skill`. | green |
+| `TestListenerContext` | §3.3 | `AudioTransformersService.default_context` and the hotword path's `recognizer_loop:utterance` carry `destination` `"skills"` as a string. The listen-sound `mycroft.audio.play_sound` carries `"audio"`. | green |
+| `TestDockerHealthcheck` | §3.3 | `ovos-hc.py -s <svc>` puts `mycroft.<svc>.is_ready` on the wire with `destination` `<svc>` as a string. It exits 0 when answered and non-zero when not. | green |
 
 ## OVOS-AUDIO-IN-1 — `test_audio_in_conformance.py`
 
@@ -300,14 +329,15 @@ conformance clauses and the §7 bus surface against the real
 `ovos_audio.service.PlaybackService`, driven through
 `ovoscope.audio.PlaybackServiceHarness` with a silent `MockTTS`. The bus
 runs single-namespace (no legacy bridge) so subscriptions are read from the
-service's own handler registry, not rescued by a legacy-topic bridge. Every
-clause is green: the installed `ovos-audio` service already conforms.
+service's own handler registry, not rescued by a legacy-topic bridge. The bus
+surface is green; the §4.4 listen flag is driven by its spec name and is the
+one divergence.
 
 | Class | Clause(s) | Asserts | Status |
 |-------|-----------|---------|--------|
 | `TestSec3LocalRendering` | §3, §8 | The service subscribes to `ovos.utterance.speak`, renders, and plays. | green |
 | `TestSec5LifecycleSignals` | §5.1, §5.2 | The service emits `ovos.audio.output.started` on playback start and `ovos.audio.output.ended` on playback end. | green |
-| `TestSec44ListenFlag` | §4.4 | A Message carrying `listen: true` triggers `ovos.mic.listen` after playback. | green |
+| `TestSec44ListenFlag` | §4.4 | A Message carrying the spec field `listen: true` triggers `ovos.mic.listen` after playback; without the flag the microphone stays shut. | green / **xfail** (`test_mic_listen_after_listen_true`: the service reads only the legacy `expect_response` key) |
 | `TestSec6StopIntegration` | §6 | A stop signal on `ovos.audio.stop`/`ovos.stop` clears the queue and halts playback. | green |
 | `TestSec34RemoteRendering` | §3.4 | The service subscribes to `ovos.utterance.speak.b64` and emits `ovos.audio.speech` for b64 delivery. | green |
 | `TestSec41QueuedSound` | §4.1, §8 | Queued sound playback via `ovos.audio.queue` is FIFO and sequential. | green |
@@ -355,7 +385,7 @@ is green: `ovos-spec-tools` already conforms.
 | `TestSec3_3Optionals` | §3.3 | `[x]` is exactly equivalent to `(x\|)`. | green |
 | `TestSec3_4NamedSlots` | §3.4 | `{name}`/`{{name}}` fold to the same slot; slot names use the lowercase/digit/underscore charset with no leading digit. | green |
 | `TestSec3_5Nesting` | §3.5 | Expansion groups nest without limit. | green |
-| `TestSec3_6Malformed` | §3.6 | A tool MUST reject unbalanced metacharacters, single-branch groups, empty-sample templates, slot-only templates, adjacent slots, repeated slot names, and undefined/cyclic vocabulary references. | green |
+| `TestSec3_6Malformed` | §3.6 | A tool MUST reject unbalanced metacharacters, the empty group `()`, empty-sample templates, slot-only templates, adjacent slots, repeated slot names, and undefined/cyclic vocabulary references. | green |
 | `TestSec3_7VocabularyReference` | §3.7 | `<name>` expands to its named vocabulary as alternatives. | green |
 | `TestSec4Expansion` | §4 | A template expands to a finite sample set; slots stay opaque through expansion; whitespace is normalized and duplicates removed. | green |
 | `TestSec5_1DialogFill` | §5.1 | A `.dialog` template with an unfilled slot MUST NOT render. | green |
@@ -420,6 +450,7 @@ are xfail — see [known-gaps.md](known-gaps.md).
 | `TestSec2EntryCarrier` | §2 | `session.intent_context` is a flat key -> entry map carried inside the session; absence is an empty map; entry fields (including a null-valued flag entry) round-trip. | green |
 | `TestSec3KeyShapes` | §3 | Scope is encoded in the key — a bare key is shared, a prefixed key has exactly one separator. | green |
 | `TestSec4Propagation` | §4.1 | `session.intent_context` rides forward/reply derivations and an ordinary Message unchanged. | green |
+| `TestSec53HandlerCarrierWrite` | §5.3 | A handler that writes `session.intent_context` through `SessionManager.get(message)` sees the write on `forward`/`reply`/`response`, on `CollectionMessage`/`GUIMessage` derivations, and on a later (not an earlier) derivation; a removal rides as a `null`-entry tombstone. Needs `ovos-bus-client>=2.11.4a1` (#324) and `ovos-spec-tools>=1.10.4a1`. | green |
 | `TestSec53SessionSyncMerge.test_sync_sets_entry` / `.test_sync_null_deletes_entry` | §5.3 | `ovos.session.sync` applies `intent_context` entry-by-entry: a co-present entry sets, a `null` entry deletes. | **xfail** (no sync-merge handler) |
 | `TestSec4Decay` | §4 | Per-utterance decay: `turns_remaining` decrements after a round; a dead entry is pruned before the next match. | green (decay tick landed, ovos-core#802) |
 | `TestSec6RequiresContext` | §6 | An engine MUST NOT report an intent matched unless every `requires_context` key names a live entry. | green |
@@ -475,14 +506,26 @@ transformers injected into each service's loaded set.
 | `TestSec1ChainModel` | §1 | Every transformer in a chain always runs — no early exit; the last transformer's output is what proceeds. | green |
 | `TestSec32Utterance` | §3.2 | The utterance chain takes an input list and returns a possibly-modified list; may mutate `Message.context`; an empty (no-transcription) list is returned as-is. | green |
 | `TestSec33Metadata` | §3.3 | The metadata chain's only input and output is `Message.context`; a mutation is kept. | green |
-| `TestSec34Intent.test_skill_id_invariant_enforced` | §3.4, §9 | The intent chain may enrich `Match.captures`; `Match.skill_id`/`intent_name` MUST NOT change. | green / **xfail** (identity invariant not enforced) |
+| `TestSec34Intent` | §3.4, §9 | The intent chain may enrich `Match.captures`; a returned `Match` whose `skill_id` differs from its input is discarded and the prior `Match` proceeds. | green |
+| `TestSec34Intent.test_skill_id_invariant_enforced_against_in_place_mutation` | §3.4, §9 | The identity backstop holds when the transformer mutates the `Match` it was handed instead of returning a new one. | **xfail** (the runner compares the return value against the same object) |
 | `TestSec4Ordering` | §4 | A chain runs in ascending priority order (lower number first). | green |
 | `TestPerTypeContract` | §1.1 | A transformer is a `(type, transformer_id)` pair over the six defined types. | green |
 | `TestSec30Lang.test_lang_is_a_threaded_parameter` | §3.0 | A bidirectional `lang` parameter is threaded through every chain (audio/utterance/dialog/TTS). | **xfail** (installed templates take no `lang` parameter) |
 | `TestSec7ErrorHandling` | §7 | A raising transformer is caught and treated as if it returned its input unchanged; a wrong-shape return is treated like a raise. | green |
 | `TestSec13SelfIdentification` | §1.3 | A transformer stamps its own id onto `<type>_transformer_ids` on every Message it touches. | green |
 | `TestSec8Cancellation` | §8.1 | A transformer signals cancellation via `canceled`/`cancel_reason`, which propagate through the chain; the orchestrator stamps `cancel_by`. | green |
-| `TestSec5PerSessionOverrides` | §5 | Six per-session `<type>_transformers` preference fields are honoured. | skip-guarded (bus-client field) |
+| `TestSec5PerSessionOverrides.test_session_carries_override_fields` | §5.1 | A serialized session carries the six `<type>_transformers` preference fields. This is field presence on the wire, not chain selection. | skip-guarded (bus-client field) |
+| `TestSec5PerSessionOverrides.test_session_denylist_suppresses_a_transformer` | §5.2, §5.3 | A transformer named in the session's `blacklisted_utterance_transformers` does not run for that session. | **xfail** (no runner reads the §5 session fields) |
+
+---
+
+## OVOS-SCHEDULER-1 — no suite
+
+*Scheduled Events.* The harness asserts nothing about this spec. It has no
+conformance suite, no cell and no clause-level status; every section is listed
+in `test/meta/uncited-sections.txt` and the spec is named in
+[known-gaps.md](known-gaps.md) so the absence is recorded rather than implied.
+Read the shipped scheduler as untested against SCHEDULER-1, not as conformant.
 
 ---
 

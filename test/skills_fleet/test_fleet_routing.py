@@ -39,6 +39,17 @@ from ._fleet import (fleet_skill_ids, installed_id, load_corpus,
                       load_xfail_registry, row_key)
 
 ENTRY_TOPIC = "recognizer_loop:utterance"
+# The language this suite's one MiniCroft boots in. A skill loads the
+# resource container of the language the MiniCroft was built with, so this
+# is the only language the suite can make a routing assertion about. A row
+# in any other language needs its own MiniCroft, which is a fleet boot of
+# its own; such rows are quarantined, not dispatched here. Measured on
+# ovos-skill-fuster-quotes at dev: an en-US MiniCroft answers
+# "qui est Fuster" with ovos.intent.unmatched even when the session and the
+# message both carry lang fr-FR, and the same utterance on an fr-FR
+# MiniCroft dispatches ovos-skill-fuster-quotes.openvoiceos:who. The
+# session language does not select the container.
+FLEET_LANG = "en-US"
 EOF_TYPES = {
     "ovos.utterance.handled",
     "mycroft.skill.handler.complete",
@@ -77,7 +88,7 @@ def setup_module(_module):
     # end to end (each skill's padatious/padacioso intent training runs
     # in-process at load time); this generous ceiling is a real observed
     # figure, not a guess -- see FINDINGS.md "Boot population".
-    _MC = get_minicroft(_FLEET_IDS, max_wait=1800)
+    _MC = get_minicroft(_FLEET_IDS, lang=FLEET_LANG, max_wait=1800)
     deadline = time.monotonic() + 60
     state = getattr(getattr(_MC, "status", None), "state", None)
     while state != ProcessState.READY:
@@ -132,7 +143,7 @@ def _own_session(recs, session_id: str):
             if _session_of(m) in ("", session_id)]
 
 
-def _capture(utterance_text: str, lang: str = "en-US"):
+def _capture(utterance_text: str, lang: str = FLEET_LANG):
     """Send one utterance turn and return every bus Message observed.
 
     ``FakeBus.emit`` runs every handler synchronously, in-thread. A skill
@@ -268,7 +279,7 @@ def _params():
 @pytest.mark.parametrize("row", list(_params()))
 def test_utterance_routes_to_expected_skill(row):
     expected = installed_id(row["skill_id"])
-    recs, session_id = _capture(row["utterance"])
+    recs, session_id = _capture(row["utterance"], row.get("lang", FLEET_LANG))
     recs = _own_session(recs, session_id)
     actual = _claimant(recs, set(_FLEET_IDS), session_id)
 

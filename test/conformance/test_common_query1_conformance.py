@@ -42,7 +42,7 @@ from ovos_bus_client.message import Message
 from ovos_utils.log import LOG
 from ovos_workshop.skills.ovos import OVOSSkill
 
-from ovoscope import get_minicroft
+from ovoscope import COMMON_QUERY_PIPELINE, get_minicroft
 
 from ._conformance import (
     DEFAULT_EOF_TYPES,
@@ -153,7 +153,8 @@ def setUpModule():
     LOG.set_level("ERROR")
     use_spec_namespace()
     try:
-        _MC = get_minicroft([UNKNOWN_ID], extra_skills={WIKI_ID: _FakeWikiSkill})
+        _MC = get_minicroft([UNKNOWN_ID], extra_skills={WIKI_ID: _FakeWikiSkill},
+                             extra_pipelines=COMMON_QUERY_PIPELINE)
         # let the plugin's startup ping/pong register the fixture as a CQ skill
         from ._conformance import wait_ready
         wait_ready(_MC, settle=3.0)

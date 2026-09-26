@@ -115,6 +115,8 @@
 #   venv_core_new_matchers_old / venv_core_old_matchers_new  (T2.5, the M axis)
 #              ovos-core @ dev      + ovos-padatious==2.0.0a1
 #              ovos-core==2.5.5a2   + ovos-padatious>=2.0.1a2 + ovos-adapt-parser>=1.4.0a1
+#                                   + ovos-spec-tools>=1.11.0a1 (spec-tools rides
+#                                   the M axis on this venv; see the call site)
 #              The matcher plugins are DEPLOYER-installed: ovos-core's runtime
 #              `dependencies` list names neither package (only its [test] extra
 #              mentions them), so both of these mixes are reachable by real
@@ -296,6 +298,11 @@ mkvenv() {
 # build time, and always rebuilt unconditionally (no completion marker, no
 # skip) — it must re-resolve the live distro constraints every call, which is
 # the whole point of a channel venv.
+#
+# Only ever called for the stable and testing channels (see the calls below),
+# which resolve like a plain `pip install` — no prereleases, matching
+# test/channel_compat/install_channel.sh. Do not add --prerelease=allow/--pre
+# here; an alpha channel venv would need its own call, not this one widened.
 # $1=name $2=constraints-url $3..=packages to install
 mkvenv_channel() {
   local name="$1" url="$2"; shift 2
@@ -306,11 +313,11 @@ mkvenv_channel() {
   echo "==> building $name (constrained)"
   if have_uv; then
     uv venv --python "$PY" "$dir" >/dev/null
-    VIRTUAL_ENV="$dir" uv pip install --quiet --prerelease=allow -c "$cfile" "$@"
+    VIRTUAL_ENV="$dir" uv pip install --quiet -c "$cfile" "$@"
   else
     "$PY" -m venv "$dir"
     "$dir/bin/pip" install --quiet "pip>=24,<25"  # range pin, not an unbounded upgrade
-    "$dir/bin/pip" install --quiet --pre -c "$cfile" "$@"
+    "$dir/bin/pip" install --quiet -c "$cfile" "$@"
   fi
   echo "    $("$dir/bin/python" -c 'import sys; print(sys.version.split()[0])')"
 }
@@ -322,18 +329,54 @@ mkvenv_channel() {
 # test_get_response_receives_the_answer_utterance red on old-skill/old-core).
 # ovos-bus-client==2.7.1a1 is the latest release at or before workshop
 # 9.3.1a2's own release (2026-07-24T16:31Z vs 2026-07-24T00:24Z).
-wants venv_skill_old && mkvenv venv_skill_old "ovos-workshop==9.3.1a2" "ovos-bus-client==2.7.1a1" "setuptools<81"
+#
+# Whole-era pin on every OLD-vintage venv below, not just spec-tools: an OLD
+# ovos-bus-client's SessionManager grafts its ``_store``/folding logic onto
+# ovos_spec_tools.session.SessionManager at import time, so this bus-client
+# vintage needs the exact spec-tools release it was validated against, not
+# merely one that still has the names it references. A ceiling
+# (spec-tools<1.11.0a2, dodging spec-tools#138's removal of
+# SpecMessage.SESSION_SYNC in that release) still floats onto 1.11.0a1, which
+# has no ``_store`` either: it was removed in 1.10.1a1, so 1.10.0a1 is the
+# last release that has it and no ceiling short of an exact pin is safe
+# here. ovos-utils and ovos-plugin-manager are unpinned
+# transitive deps of the same bus-client/core vintage and drift the same way
+# (uv resolved ovos-utils==0.14.2a1 and ovos-plugin-manager==2.12.0a1 here on
+# 2026-09-06, both newer than what the last green run of these cells
+# (33730302535, 2026-09-03) recorded). All four pins below are exactly that
+# run's freeze for the OLD-vintage venvs (ovos-config was already pinned
+# there by coincidence of the day's resolution, not by an explicit pin, so it
+# is added explicitly too, to stop the same drift). NEW venvs, the channel
+# venvs, and venv_wire_twin_old (pre-spec-tools, bus-client==1.5.0) are
+# untouched -- a vintage is a frozen deployment shape, not a moving floor.
+wants venv_skill_old && mkvenv venv_skill_old "ovos-workshop==9.3.1a2" "ovos-bus-client==2.7.1a1" "ovos-spec-tools==1.10.0a1" "ovos-config==2.3.11a2" "ovos-plugin-manager==2.11.6a1" "ovos-utils==0.14.0a1" "setuptools<81"
 wants venv_skill_new && mkvenv venv_skill_new "ovos-workshop @ git+https://github.com/OpenVoiceOS/ovos-workshop@dev" "setuptools<81"
-wants venv_core_old  && mkvenv venv_core_old  "ovos-core==2.5.5a2" "ovos-padatious==2.0.0a1" "ovos-workshop==9.2.3a1" "ovos-bus-client==2.7.0a1" ovos-messagebus pytest pytest-timeout "setuptools<81"
+wants venv_core_old  && mkvenv venv_core_old  "ovos-core==2.5.5a2" "ovos-padatious==2.0.0a1" "ovos-workshop==9.2.3a1" "ovos-bus-client==2.7.0a1" "ovos-spec-tools==1.10.0a1" "ovos-config==2.3.11a2" "ovos-plugin-manager==2.11.6a1" "ovos-utils==0.14.0a1" ovos-messagebus pytest pytest-timeout "setuptools<81"
 wants venv_core_new  && mkvenv venv_core_new  "$CORE_SPEC" "ovos-padatious>=2.0.1a2" ovos-messagebus pytest pytest-timeout "setuptools<81"
 # T2.5 -- the M (matcher) axis. See the pins block in this file's header for
 # why each of these four is a reachable deployment and not a contrivance.
 wants venv_core_new_matchers_old && mkvenv venv_core_new_matchers_old \
   "$CORE_SPEC" "ovos-padatious==2.0.0a1" \
   ovos-messagebus pytest pytest-timeout "setuptools<81"
+# venv_core_old_matchers_new: ovos-spec-tools rides the M axis here. M=new
+# means current matcher plugins, and ovos-padatious 2.2.0a1 (2026-09-17,
+# ovos-padatious-pipeline-plugin#158) imports REGISTERED_TYPES from
+# ovos_spec_tools, a name that exists from ovos-spec-tools 1.11.0a1
+# (spec-tools#137). A deployer who installs a current matcher on an old core
+# gets the spec-tools that matcher needs, so this venv floors spec-tools
+# with the matchers and pins only the core packages to the C=old cohort.
+# The fleet ships floor pins only, so there is no ceiling on padatious
+# here. (The release declares ovos-spec-tools>=1.5.0a1, a floor below the
+# name it imports; that floor is raised in ovos-padatious itself.) Before
+# this, the C=old spec-tools==1.10.0a1 pin sat on this venv too, and dev
+# runs 35166148940 and 35199803886 failed both old-core-new-matchers cells
+# with 4 ImportErrors each. The cell is a KNOWN_RED_CELLS entry
+# (test/backcompat/cells.py, docs/known-gaps.md): the resolved set runs,
+# and the old bus client breaks on the spec-tools the matcher needs.
 wants venv_core_old_matchers_new && mkvenv venv_core_old_matchers_new \
-  "ovos-core==2.5.5a2" "ovos-padatious>=2.0.1a2" "ovos-adapt-parser>=1.4.0a1" \
+  "ovos-core==2.5.5a2" "ovos-padatious>=2.0.1a2" "ovos-adapt-parser>=1.4.0a1" "ovos-spec-tools>=1.11.0a1" \
   "ovos-workshop==9.2.3a1" "ovos-bus-client==2.7.0a1" \
+  "ovos-config==2.3.11a2" "ovos-plugin-manager==2.11.6a1" "ovos-utils==0.14.0a1" \
   ovos-messagebus pytest pytest-timeout "setuptools<81"
 wants venv_core_skew_padatious_old_adapt_new && mkvenv venv_core_skew_padatious_old_adapt_new \
   "$CORE_SPEC" "ovos-padatious==2.0.0a1" "ovos-adapt-parser>=1.4.0a1" \

@@ -31,8 +31,19 @@ git+https://github.com/OpenVoiceOS/ovos-core@dev
 # requires ovos-workshop>=9.3.2a1, which the merged branch itself predates,
 # 9.0.2a1). @dev (9.3.3a1) is both current and resolves against ovos-core@dev.
 git+https://github.com/OpenVoiceOS/ovos-workshop@dev
-# session spec fields (active_handlers / converse_handlers / response_mode)
-ovos-bus-client>=2.4.0a1
+# session spec fields (active_handlers / converse_handlers / response_mode).
+# Floor bumped for #324: forward/reply/response on CollectionMessage/GUIMessage
+# stamped from the registry's default-session fallback only, never from the
+# session a caller bound via SessionManager.get(source) -- a handler write on
+# either subclass was lost on derivation (CONTEXT-1 §5.3 / SESSION-2 §2.6).
+# Also raises the ovos-spec-tools floor below to 1.10.4a1 for
+# SessionManager.bind.
+# Floor bumped again to 2.11.13a1 for SessionManager.handle_session_sync --
+# the one-cycle shim that folds a pre-spec ovos.session.sync push from an
+# old peer (default-session field-by-field, named-session intent_context
+# only, never an unheld named session) so SESSION-2 §5.1 / §2.7 hold at a
+# current core even while the push itself is retiring.
+ovos-bus-client>=2.11.13a1
 # pipeline engines (workshop-9-compatible)
 # adapt @dev carries the None-blacklist guard (#47): the INTENT-3 e2e registers a
 # keyword intent for a session whose blacklisted_intents/blacklisted_skills are
@@ -78,9 +89,9 @@ git+https://github.com/OpenVoiceOS/ovos-common-query-pipeline-plugin@dev
 # Loaded as pipeline_ids "ovos-persona-pipeline-plugin-high"/"-low". A throwaway
 # echo persona is injected by the suite via pipeline_config (personas_path), so
 # no solver backend or network is required.
-#   @dev now lifts the ovos-workshop cap to <10.0.0 (the workshop-9 compat fix
-#   merged), so it resolves against the workshop>=9 integration branch.
-git+https://github.com/OpenVoiceOS/ovos-persona@fix/pipeline1-handler-done-signal
+#   >=0.9.0a20 carries ovos-persona#192 (PIPELINE-1 §8 done-signal for
+#   persona:* handlers), released to PyPI right after the fix merged.
+ovos-persona>=0.9.0a20
 # TRANSFORM-1 reference implementers (test_transform1_plugins_conformance.py),
 # driven at the transformer-service level:
 #   ovos-utterance-plugin-cancel — the §3.2/§8.1 utterance transformer
@@ -99,15 +110,33 @@ git+https://github.com/OpenVoiceOS/ovos-solver-failure-plugin@dev
 # media keyword/search pipeline plugin (OCPPipelineMatcher). Driven at the
 # component level, so it needs no ovos-media player install.
 git+https://github.com/OpenVoiceOS/ovos-ocp-pipeline-plugin@dev
-# e2e harness lib (None-iter-guard fix landed on dev)
-git+https://github.com/OpenVoiceOS/ovoscope@dev
+# e2e harness lib. This is the harness's OWN test driver, not a member of the
+# spec stack under test, so unlike every other line in this file it is a
+# normal PyPI floor pin, not a git @dev ref: never install it from git, and
+# never let a channel's device-stack constraints file pin it either (see the
+# ovoscope override in test/channel_compat/install_channel.sh — every channel
+# runs this same floor). The floor covers the extra_pipelines= lean-boot
+# opt-in (>=1.6.17a1, see test_common_query1_conformance.py /
+# test_persona1_conformance.py / test_solvers_conformance.py) plus the
+# None-iter-guard fix.
+ovoscope>=1.6.23a1
 # GUI service (NamespaceManager) — drives the GUI-1 service-contract clauses
 # (SYSTEM_ prefix gating, per-session namespace stack, reserved-key stripping).
 # The producer-side GUI-1 clauses need only ovos-bus-client's GUIInterface; if
 # this install is unavailable the GUI service classes skip cleanly.
 git+https://github.com/OpenVoiceOS/ovos-gui@dev
-# published spec vocabulary
-ovos-spec-tools>=0.17.1a1
+# published spec vocabulary. Floor bumped: the ovos-bus-client #324 fix needs
+# SessionManager.bind (landed 1.10.4a1) and the public resolve_session_id
+# (1.10.3a1+); see the ovos-bus-client pin above. 1.12.0a1 is the first release
+# whose MIGRATION_MAP carries the four OVOS-FALLBACK-1 renames: test/meta's
+# pending-coverage list names them, and its stale guard fails on any older map.
+# No channel constraints file pins spec-tools, so this floor applies everywhere.
+ovos-spec-tools>=1.12.0a1
+# transformer runner services under test (TRANSFORM-1). Most of that suite
+# drives ovos_plugin_manager.transformer_services directly, so the floor is
+# explicit rather than left to transitive resolution: >=2.11.6a1 is the
+# release carrying the §3.4 intent-identity backstop the suite asserts green.
+ovos-plugin-manager>=2.11.6a1
 # padacioso matcher: drops the unhashable-Session lru_cache key so it matches
 # under ovos-bus-client 2.x (PyPI 1.0.0 raises TypeError on every match).
 # TODO flip to @dev once OpenVoiceOS/padacioso#... (the lru_cache fix) merges.

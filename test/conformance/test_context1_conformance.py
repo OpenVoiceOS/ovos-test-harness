@@ -47,6 +47,10 @@ Coverage map (clause -> status against the installed stack):
 - §4.1 intent_context rides forward derivations .................. green (carrier)
 - §4.1 intent_context rides reply derivations .................... green (carrier)
 - §4.1 intent_context rides an ordinary Message .................. green (carrier)
+- §5.3 SessionManager.get(message) write rides forward/reply/response  green (carrier)
+- §5.3 the same write on CollectionMessage/GUIMessage forward/reply  green (carrier)
+- §5.3 a mutation before a derivation is carried; after, is not .. green (carrier)
+- §5.3 a removal rides a derivation as a null-entry tombstone .... green (carrier)
 - §5.3 ovos.session.sync sets an entry ........................... xfail (no sync merge handler)
 - §5.3 ovos.session.sync null deletes an entry ................... xfail (no sync merge handler)
 - §4   turns_remaining decremented after a round ................. green (decay tick landed, ovos-core#802)
@@ -61,8 +65,8 @@ import time
 from unittest import TestCase
 
 import pytest
-from ovos_bus_client.message import Message
-from ovos_bus_client.session import Session
+from ovos_bus_client.message import CollectionMessage, GUIMessage, Message
+from ovos_bus_client.session import Session, SessionManager
 from ovos_utils.log import LOG
 
 from ovoscope import get_minicroft, register_padatious_intent
@@ -212,6 +216,122 @@ class TestSec4Propagation(TestCase):
         rep = self._msg_with_ctx().reply("t.req.response")
         self.assertEqual(rep.context["session"].get("intent_context"),
                          {"person": {"value": "Bob", "turns_remaining": 3}})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §5.3 — Handler in-place write, propagated via SessionManager + derivation
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSec53HandlerCarrierWrite(TestCase):
+    """§5.3: "A skill handler … [1] takes its local copy of ``session`` …
+    [2] writes or deletes entries directly in ``session.intent_context`` …
+    [3] emits at least one Message derived via MSG-1 ``forward`` from the
+    dispatch Message. ``forward`` carries the mutated session … A handler
+    that emits no Message does not propagate its mutation." This is the
+    ``SessionManager.get(message)`` handler shape (also SESSION-2 §2.6's
+    handler boundary), exercised against the real ``ovos_bus_client``
+    carrier — no orchestrator/core required, since the write-then-derive
+    round-trip is entirely a property of ``Session``/``Message``/
+    ``SessionManager``. MUST (carrier)."""
+
+    def _dispatch_message(self, session_id):
+        return Message("skill.dispatch", {}, {"session": Session(session_id).serialize()})
+
+    def test_named_session_write_rides_forward_reply_response(self):
+        """§5.3 / SESSION-2 §2.6: a handler that reads its session via
+        ``SessionManager.get(message)``, writes an entry in place, and
+        derives ``forward`` / ``reply`` / ``response`` from the dispatch
+        Message sees the write on all three derivations. MUST."""
+        msg = self._dispatch_message("ic-carrier-a")
+        sess = SessionManager.get(msg)
+        sess.set_intent_context("person", "Bob", scope="shared", turns_remaining=3)
+        expected = {"person": {"value": "Bob", "turns_remaining": 3}}
+        self.assertEqual(
+            msg.forward("ovos.utterance.speak").context["session"].get("intent_context"),
+            expected)
+        self.assertEqual(
+            msg.reply("skill.dispatch.response").context["session"].get("intent_context"),
+            expected)
+        self.assertEqual(
+            msg.response({}).context["session"].get("intent_context"),
+            expected)
+
+    def test_collection_message_write_rides_forward_and_reply(self):
+        """§5.3: the same handler shape on ``CollectionMessage`` (a collect-
+        handler dispatch) — ``forward`` / ``reply`` carry the write a
+        component made after ``SessionManager.get`` bound this exact
+        Message. This is the surface bus-client < 2.11.4a1 dropped:
+        ``CollectionMessage``/``GUIMessage``'s ``forward``/``reply``
+        overrides called the session stamp with no ``source``, so they never
+        consulted the session a handler bound via ``SessionManager.get``.
+        MUST."""
+        cmsg = CollectionMessage("collect.query", "handler.id", "q-1",
+                                 data={}, context={"session": Session("ic-carrier-b").serialize()})
+        sess = SessionManager.get(cmsg)
+        sess.set_intent_context("kw", "val", scope="shared")
+        expected = {"kw": {"value": "val"}}
+        self.assertEqual(
+            cmsg.forward("collect.something").context["session"].get("intent_context"),
+            expected)
+        self.assertEqual(
+            cmsg.reply("collect.something.reply").context["session"].get("intent_context"),
+            expected)
+
+    def test_gui_message_write_rides_forward(self):
+        """§5.3: the same handler shape on ``GUIMessage`` — the other
+        subclass with a non-standard ``__init__`` that had to build the
+        derived Message by hand, and so shared the same pre-2.11.4a1 gap
+        ``CollectionMessage`` had. MUST."""
+        gmsg = GUIMessage("gui.value.set", foo="bar")
+        gmsg.context = {"session": Session("ic-carrier-c").serialize()}
+        sess = SessionManager.get(gmsg)
+        sess.set_intent_context("gkw", "gval", scope="shared")
+        self.assertEqual(
+            gmsg.forward("gui.something").context["session"].get("intent_context"),
+            {"gkw": {"value": "gval"}})
+
+    def test_mutation_before_derivation_is_carried(self):
+        """§5.3: a write made through the session bound *before* a
+        derivation is built rides out on that derivation — the ordering the
+        spec's numbered steps (1: take session, 2: write, 3: derive)
+        mandate. MUST."""
+        msg = self._dispatch_message("ic-carrier-order-a")
+        sess = SessionManager.get(msg)
+        sess.set_intent_context("early", "e1", scope="shared")
+        derived = msg.forward("x.derived")
+        self.assertEqual(derived.context["session"].get("intent_context"),
+                         {"early": {"value": "e1"}})
+
+    def test_mutation_after_derivation_is_not_carried(self):
+        """§5.3, negative control: a write made *after* a derivation was
+        already built is a mutation to the session object, not a rewrite of
+        the Message already emitted — an earlier derivation does not
+        retroactively pick up a later write. A second derivation taken after
+        the write DOES see it, proving the write itself is live and the
+        first derivation's omission is a real ordering effect, not a broken
+        write path. MUST NOT (spec's ordering) / MUST (later derivation)."""
+        msg = self._dispatch_message("ic-carrier-order-b")
+        sess = SessionManager.get(msg)
+        before = msg.forward("x.before")
+        sess.set_intent_context("late", "l1", scope="shared")
+        after = msg.forward("x.after")
+        self.assertIsNone(before.context["session"].get("intent_context"))
+        self.assertEqual(after.context["session"].get("intent_context"),
+                         {"late": {"value": "l1"}})
+
+    def test_removal_rides_as_a_null_entry(self):
+        """§5.3 / §5: a handler that wants an entry removed writes the
+        removal into its session copy exactly as it writes an addition —
+        ``Session.remove_intent_context`` tombstones the key with a ``null``
+        entry (not a pop), and that tombstone rides a derivation the same
+        way a set does. MUST."""
+        msg = self._dispatch_message("ic-carrier-removal")
+        sess = SessionManager.get(msg)
+        sess.set_intent_context("gone", "x", scope="shared")
+        sess.remove_intent_context("gone", scope="shared")
+        derived = msg.forward("x.derived")
+        self.assertIn("gone", derived.context["session"].get("intent_context"))
+        self.assertIsNone(derived.context["session"]["intent_context"]["gone"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
