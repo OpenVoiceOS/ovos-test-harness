@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gate-probe-provider"
+version = "1.0.0"
+description = "A recording MediaProvider that makes the OCP in-process provider dispatch reachable in a gate."
+requires-python = ">=3.9"
+dependencies = ["ovos-plugin-manager"]
+
+[project.entry-points."opm.media.provider"]
+gate-probe-provider = "gate_probe_provider:GateProbeProvider"
+
+[tool.setuptools]
+packages = ["gate_probe_provider"]
