@@ -1,0 +1,51 @@
+# Known gaps of the ovos-bus-client session graft against the SESSION-1
+# named-session contract, measured on the OVOS distro "alpha" release channel.
+#
+# The cell behind this file is the `session-graft` job in
+# .github/workflows/channel_compat.yml. It installs the alpha channel stack,
+# puts ovos-spec-tools@dev on top, loads ovos_bus_client.session so its graft
+# lands on ovos_spec_tools.session.SessionManager, and runs spec-tools' own
+# test/test_session_manager.py against the grafted store. Node ids are
+# relative to this repository's root, where the spec-tools checkout sits at
+# ovos-spec-tools/.
+#
+# Each line is a pytest node id that FAILS under the graft and passes without
+# it. These are defects in the grafted store, not harness problems, so the job
+# xfails exactly these and stays green — anything NOT listed here that breaks
+# turns the job red.
+#
+# The xfails are strict. A listed node that starts PASSING also turns the job
+# red: the graft caught up and the line must be deleted. A listed node that
+# no longer exists fails the run too, so a renamed test cannot rot in here.
+#
+# Reproduce locally:
+#
+#   git clone -b dev https://github.com/OpenVoiceOS/ovos-spec-tools ovos-spec-tools
+#   test/channel_compat/install_channel.sh alpha
+#   pip install --no-deps ./ovos-spec-tools
+#   OVOS_CHANNEL=alpha-session-graft pytest ovos-spec-tools/test/test_session_manager.py \
+#     -p ovos_bus_client.session -rxX
+#
+# Sections:
+#   [modules]  files that do not import at all under the graft
+#   [tests]    individual node ids that fail
+#   [xpass]    node ids the suite marks xfail(strict) for a reason that does
+#              not hold under the graft, so they pass; the marker is relaxed
+
+[modules]
+
+[tests]
+# OVOS-SESSION-1 §4.1: a materialized session other than default MUST set
+# session_id and MUST NOT populate any other field whose deployment default is
+# a deployment-configured or "no behaviour" value. ovos-bus-client's Session
+# subclass, grafted in as SessionManager.session_cls, materializes lang
+# ('en-US'), the deployment pipeline and the context defaults onto a named
+# session, so the four cells that assert those fields are None see values.
+# Audit record: knowledge/wiki/audits/spec-adoption-2026-09/
+# defect-bus-client-named-session-defaults.md (TigreGotico workspace wiki).
+ovos-spec-tools/test/test_session_manager.py::TestDefaultSessionStoreMerge::test_a_named_carrier_tolerates_a_malformed_field
+ovos-spec-tools/test/test_session_manager.py::TestDefaultSessionStoreMerge::test_a_named_session_does_not_survive_its_utterance
+ovos-spec-tools/test/test_session_manager.py::TestDefaultSessionStoreMerge::test_merged_lang_conflict_resolves_instead_of_raising
+ovos-spec-tools/test/test_session_manager.py::TestDefaultSessionStoreMerge::test_named_session_stays_a_whole_snapshot
+
+[xpass]
