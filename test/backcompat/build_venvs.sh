@@ -199,6 +199,22 @@
 #              NamespaceTranslator) the #286 fix targets. This is a bare
 #              listener venv, not a skill or core cohort: no ovos-workshop,
 #              no ovos-core, nothing else pinned alongside it.
+#              Also backs the FALLBACK-1 Q1 cells in
+#              test_fallback_twin_quadrants.py, which put this same listener on
+#              the four ovos.skills.fallback.* legacy names through
+#              WIRE_TWIN_TOPICS instead of the default `speak`.
+#
+#   venv_spec_tools_old  NOT BUILT YET -- ovos-spec-tools==1.11.2a1
+#              Wanted by test_fallback_twin_quadrants.py's Q3, the FALLBACK-1
+#              no-bridge quadrant: a consumer whose spec-tools predates the
+#              1.12.0a1 entries cannot bridge a legacy fallback emit, and a
+#              legacy emit gets no send-side wire twin, so nothing delivers.
+#              That is correct behaviour and the T-1331 ruling requires it to
+#              be recorded, never assumed. Until this venv exists the cell is
+#              a strict xfail naming the vintage; when it does, export
+#              BACKCOMPAT_SPEC_TOOLS_OLD_PYTHON and drop the marker. Unlike
+#              venv_wire_twin_old this is a CURRENT bus-client with an OLD
+#              spec-tools -- the map, not the client, is what must be behind.
 #
 #   venv_audio ovos-bus-client only (current)
 #              Backs test/backcompat/audio_process.py (design §2.6). The

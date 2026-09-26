@@ -993,8 +993,15 @@ class WireTwinListener:
     module docstring for why the distinction matters).
     """
 
-    def __init__(self, python: str, xdg: str):
+    def __init__(self, python: str, xdg: str, topics=None):
+        # ``topics`` puts this same genuinely-old client on other legacy
+        # names (the FALLBACK-1 quadrant cells use the four
+        # ``ovos.skills.fallback.*`` spellings). Default None keeps the
+        # ovos-bus-client#286 cell on ``speak`` alone, so that module is
+        # unchanged by this parameter's existence.
         env = dict(os.environ, XDG_CONFIG_HOME=xdg, PYTHONUNBUFFERED="1")
+        if topics:
+            env["WIRE_TWIN_TOPICS"] = ",".join(topics)
         self.lines = []
         self.versions = {}
         self.proc = subprocess.Popen(
@@ -1035,6 +1042,21 @@ class WireTwinListener:
                 return
         raise RuntimeError(
             f"wire-twin listener never reported ready:\n{self.log}")
+
+    def received(self) -> list:
+        """Every ``RECEIVED`` record this process has reported, parsed live
+        from its stdout log: ``{"token", "topic", "data", "session_id"}``.
+        A cell that only counts tokens cannot tell which legacy spelling
+        delivered, which is the whole question for a twin."""
+        out = []
+        for line in self.lines:
+            if line.startswith("RECEIVED "):
+                out.append(json.loads(line[len("RECEIVED "):]))
+        return out
+
+    def received_for(self, token: str) -> list:
+        """The records carrying ``token``, in arrival order."""
+        return [r for r in self.received() if r.get("token") == token]
 
     def received_tokens(self) -> list:
         """Tokens of every ``speak`` message this process has reported
