@@ -107,10 +107,44 @@ jobs:
           # at all against channel-age packages. test/test_channel_gaps.py
           # enforces the channel-shaped version of that floor instead — every
           # suite the baseline does not excuse MUST import.
+        # -rs alongside -rxX: the short summary then lists the skip reasons,
+        # which is where "not measured on this channel: cannot import X"
+        # appears. Without it a dropped suite is visible only as one -v line
+        # among six hundred (T-5963).
         run: >-
-          pytest test/ -v --tb=short -rxX
+          pytest test/ -v --tb=short -rsxX
           --timeout=180 --timeout-method=thread
           --ignore=test/backcompat --ignore=test/skills_fleet
+
+      # What the channel did NOT measure, on the job's own summary page. The
+      # suites under [modules] are dropped at collection, so the pytest output
+      # carries a pass count and no sign that a whole specification went
+      # unmeasured. A reader who has to know that should not have to open the
+      # gaps file to find out (T-5963).
+      - name: Say what this channel could not measure
+        if: always()
+        run: |
+          python3 - "${{ matrix.channel }}" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import os
+          import sys
+          from test.channel_compat.gaps import gaps_file, read_gaps
+
+          channel = sys.argv[1]
+          modules = sorted(read_gaps(channel)[0])
+          print(f"### {channel}: suites not measured on this channel\n")
+          if not modules:
+              print("None. Every conformance suite imports on this channel.")
+          else:
+              print(f"{len(modules)} suite(s) do not import against the "
+                    f"versions this channel pins, so no clause in them was "
+                    f"measured here. Each one has a SKIPPED row in the run "
+                    f"above naming the import that failed.\n")
+              for path in modules:
+                  print(f"- `{path}`")
+              rel = os.path.relpath(gaps_file(channel), os.getcwd())
+              print(f"\nListed in `{rel}`. A suite that starts importing "
+                    f"turns the job red until its line is deleted.")
+          PY
 
       # A gap list is only useful if it can be refreshed. This produces the
       # exact file a maintainer would commit after a channel bump.
