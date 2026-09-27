@@ -199,6 +199,19 @@
 #              NamespaceTranslator) the #286 fix targets. This is a bare
 #              listener venv, not a skill or core cohort: no ovos-workshop,
 #              no ovos-core, nothing else pinned alongside it.
+#   All FOUR core venvs -- core_old, core_new, AND the channel pair
+#   (core_stable/core_testing, below) -- also install
+#   ovos-common-query-pipeline-plugin -- test/backcompat/
+#   test_backcompat_common_query.py drives the real
+#   ovos_commonqa.opm.CommonQAService from the driver/core process, not a
+#   stand-in, so it needs to actually be importable there. Adversarial
+#   review caught an earlier draft that only added it to core_old/core_new,
+#   which broke collection for all four channel cells (they import
+#   test_backcompat_common_query.py too -- one skill/core venv, one
+#   pytest process, every file in test/backcompat/ collected together).
+#   Adding it to the channel venvs resolves cleanly under each channel's
+#   own live constraints file (checked live: does not perturb any existing
+#   V0 pin in either constraints file).
 #
 #   venv_audio ovos-bus-client only (current)
 #              Backs test/backcompat/audio_process.py (design §2.6). The
@@ -351,13 +364,13 @@ mkvenv_channel() {
 # untouched -- a vintage is a frozen deployment shape, not a moving floor.
 wants venv_skill_old && mkvenv venv_skill_old "ovos-workshop==9.3.1a2" "ovos-bus-client==2.7.1a1" "ovos-spec-tools==1.10.0a1" "ovos-config==2.3.11a2" "ovos-plugin-manager==2.11.6a1" "ovos-utils==0.14.0a1" "setuptools<81"
 wants venv_skill_new && mkvenv venv_skill_new "ovos-workshop @ git+https://github.com/OpenVoiceOS/ovos-workshop@dev" "setuptools<81"
-wants venv_core_old  && mkvenv venv_core_old  "ovos-core==2.5.5a2" "ovos-padatious==2.0.0a1" "ovos-workshop==9.2.3a1" "ovos-bus-client==2.7.0a1" "ovos-spec-tools==1.10.0a1" "ovos-config==2.3.11a2" "ovos-plugin-manager==2.11.6a1" "ovos-utils==0.14.0a1" ovos-messagebus pytest pytest-timeout "setuptools<81"
-wants venv_core_new  && mkvenv venv_core_new  "$CORE_SPEC" "ovos-padatious>=2.0.1a2" ovos-messagebus pytest pytest-timeout "setuptools<81"
+wants venv_core_old  && mkvenv venv_core_old  "ovos-core==2.5.5a2" "ovos-padatious==2.0.0a1" "ovos-workshop==9.2.3a1" "ovos-bus-client==2.7.0a1" "ovos-spec-tools==1.10.0a1" "ovos-config==2.3.11a2" "ovos-plugin-manager==2.11.6a1" "ovos-utils==0.14.0a1" ovos-messagebus pytest pytest-timeout ovos-common-query-pipeline-plugin "setuptools<81"
+wants venv_core_new  && mkvenv venv_core_new  "$CORE_SPEC" "ovos-padatious>=2.0.1a2" ovos-messagebus pytest pytest-timeout ovos-common-query-pipeline-plugin "setuptools<81"
 # T2.5 -- the M (matcher) axis. See the pins block in this file's header for
 # why each of these four is a reachable deployment and not a contrivance.
 wants venv_core_new_matchers_old && mkvenv venv_core_new_matchers_old \
   "$CORE_SPEC" "ovos-padatious==2.0.0a1" \
-  ovos-messagebus pytest pytest-timeout "setuptools<81"
+  ovos-messagebus pytest pytest-timeout ovos-common-query-pipeline-plugin "setuptools<81"
 # venv_core_old_matchers_new: ovos-spec-tools rides the M axis here. M=new
 # means current matcher plugins, and ovos-padatious 2.2.0a1 (2026-09-17,
 # ovos-padatious-pipeline-plugin#158) imports REGISTERED_TYPES from
@@ -377,10 +390,10 @@ wants venv_core_old_matchers_new && mkvenv venv_core_old_matchers_new \
   "ovos-core==2.5.5a2" "ovos-padatious>=2.0.1a2" "ovos-adapt-parser>=1.4.0a1" "ovos-spec-tools>=1.11.0a1" \
   "ovos-workshop==9.2.3a1" "ovos-bus-client==2.7.0a1" \
   "ovos-config==2.3.11a2" "ovos-plugin-manager==2.11.6a1" "ovos-utils==0.14.0a1" \
-  ovos-messagebus pytest pytest-timeout "setuptools<81"
+  ovos-messagebus pytest pytest-timeout ovos-common-query-pipeline-plugin "setuptools<81"
 wants venv_core_skew_padatious_old_adapt_new && mkvenv venv_core_skew_padatious_old_adapt_new \
   "$CORE_SPEC" "ovos-padatious==2.0.0a1" "ovos-adapt-parser>=1.4.0a1" \
-  ovos-messagebus pytest pytest-timeout "setuptools<81"
+  ovos-messagebus pytest pytest-timeout ovos-common-query-pipeline-plugin "setuptools<81"
 
 wants venv_audio      && mkvenv venv_audio    ovos-bus-client "setuptools<81"
 
@@ -391,8 +404,8 @@ wants venv_wire_twin_old && mkvenv venv_wire_twin_old "ovos-bus-client==1.5.0" "
 
 wants venv_skill_stable  && mkvenv_channel venv_skill_stable  "$STABLE_CONSTRAINTS_URL"  ovos-workshop "setuptools<81"
 wants venv_skill_testing && mkvenv_channel venv_skill_testing "$TESTING_CONSTRAINTS_URL" ovos-workshop "setuptools<81"
-wants venv_core_stable   && mkvenv_channel venv_core_stable   "$STABLE_CONSTRAINTS_URL"  ovos-core ovos-padatious ovos-messagebus pytest pytest-timeout "setuptools<81"
-wants venv_core_testing  && mkvenv_channel venv_core_testing  "$TESTING_CONSTRAINTS_URL" ovos-core ovos-padatious ovos-messagebus pytest pytest-timeout "setuptools<81"
+wants venv_core_stable   && mkvenv_channel venv_core_stable   "$STABLE_CONSTRAINTS_URL"  ovos-core ovos-padatious ovos-messagebus pytest pytest-timeout ovos-common-query-pipeline-plugin "setuptools<81"
+wants venv_core_testing  && mkvenv_channel venv_core_testing  "$TESTING_CONSTRAINTS_URL" ovos-core ovos-padatious ovos-messagebus pytest pytest-timeout ovos-common-query-pipeline-plugin "setuptools<81"
 
 echo
 echo "resolved versions:"
