@@ -278,9 +278,15 @@ def test_ocp_voice_skill_registers_its_intents(tmp_path, monkeypatch):
                           likes=LikedSongsStore())
     try:
         time.sleep(0.5)
+        # Pinned spellings, deliberately: these names are the dispatch
+        # topics, so a test that derived them from the tree could not see a
+        # rename at all. They moved once, in ovos-media#235, when the intent
+        # files took the underscore base names OVOS-INTENT-2 section 2
+        # requires. A consumer that keys off the old CamelCase names stops
+        # matching at that release.
         expected = {f"{SKILL_ID}:{name}" for name in
-                    ("WhatSong", "WhatAlbum", "WhatArtist",
-                     "ShuffleOn", "ShuffleOff")}
+                    ("what_song", "what_album", "what_artist",
+                     "shuffle_on", "shuffle_off")}
         missing = expected - set(registered)
         assert not missing, (
             f"the voice skill did not announce: {sorted(missing)} "
