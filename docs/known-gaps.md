@@ -6,12 +6,33 @@ specs mandate one behavior but the current ovos-core stack still does the
 legacy thing.
 
 Each is recorded in the suite as
-`@pytest.mark.xfail(strict=False, reason=...)`, asserting the spec behavior,
+`@pytest.mark.xfail(strict=True, reason=...)`, asserting the spec behavior,
 with a `reason` that cites the legacy topic and the spec clause.
 
-Because the markers are `strict=False`, a gap xpasses (and so flags itself
-for marker removal) the moment the implementation catches up. See
+Nearly every marker is **strict**. Counted over `test/` by parsing the syntax
+tree, so a mention inside a docstring is not mistaken for a marker, the tree
+holds **43** `strict=True` call sites against **2** `strict=False`, and none
+without an explicit `strict`. So strict is this page's rule and a non-strict
+marker is the exception.
+
+A strict marker turns a pass into a failure. The day a gap closes, its cell
+goes red and names itself for retirement: that is the intended signal, and it
+is loud on purpose. Two cells reddened dev this way in September 2026 and both
+were real upstream closures rather than regressions here, which is what #81
+retired. A reader who meets such a red should check whether the gap closed
+before reading it as a regression.
+
+A `strict=False` marker is for the cells where the installed stack decides the
+answer, so the same code may legitimately xfail or pass. Those gaps xpass
+quietly instead of reddening. One such marker is applied at collection time in
+`test/backcompat/conftest.py` to the known-red matrix cells, so it covers many
+tests from a single call site — the counts above are call sites in the source,
+not marked tests. See
 [ci.md](ci.md#interpreting-results).
+
+`xfail_strict` is deliberately not set in `pytest.ini`: strictness is chosen per
+marker and written at the marker, so a reader of a test sees which behavior it
+has without consulting the runner configuration.
 
 The framing for every gap is the same: the spec mandates X, current core
 emits or consumes the legacy Y. The test asserts X, is marked `xfail`, and
