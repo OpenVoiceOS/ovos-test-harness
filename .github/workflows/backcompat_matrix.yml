@@ -132,13 +132,25 @@ jobs:
           # string -- a cell can belong to more than one selection set (the
           # 6 PR-fast cells are also full boundary cells, so nightly/weekly/
           # push still run them; they are not duplicated in this list).
+          # wire_twin and skill_twin go to the two new-core cells only. In
+          # this matrix the pytest process IS the core venv, so the core venv
+          # is the EMITTER for both twin files, and both assert that a modern
+          # emitter's send-side legacy twin reaches a pre-spec-tools consumer.
+          # venv_core_old pins ovos-bus-client==2.7.0a1, which has no
+          # send-side twin at all (measured: MessageBusClient.emit has no twin
+          # branch and the module does not read OVOS_BUS_WIRE_LEGACY_TWINS;
+          # 2.11.23a1, the new-core pin, has both). So the quadrant those
+          # files test does not exist on the old-core axis, and the cells skip
+          # there on the unset variable rather than fail on a premise the
+          # vintage cannot meet.
           ALL_CELLS = [
               {"combo": "old-skill/old-core", "skill": "venv_skill_old",
                "core": "venv_core_old", "audio": "venv_audio",
                "skill_dir": "venvs", "core_dir": "venvs",
                "tiers": ["pr-fast", "boundary"]},
               {"combo": "old-skill/new-core", "skill": "venv_skill_old",
-               "core": "venv_core_new", "audio": "venv_audio",
+               "core": "venv_core_new", "audio": "venv_audio", "wire_twin": "venv_wire_twin_old",
+               "skill_twin": "venv_skill_twin_old",
                "skill_dir": "venvs", "core_dir": "venvs",
                "tiers": ["pr-fast", "boundary"]},
               {"combo": "new-skill/old-core", "skill": "venv_skill_new",
@@ -146,7 +158,8 @@ jobs:
                "skill_dir": "venvs", "core_dir": "venvs",
                "tiers": ["pr-fast", "boundary"]},
               {"combo": "new-skill/new-core", "skill": "venv_skill_new",
-               "core": "venv_core_new", "audio": "venv_audio",
+               "core": "venv_core_new", "audio": "venv_audio", "wire_twin": "venv_wire_twin_old",
+               "skill_twin": "venv_skill_twin_old",
                "skill_dir": "venvs", "core_dir": "venvs",
                "tiers": ["pr-fast", "boundary"]},
               # T2.5 -- the M (matcher) axis. ovos-core declares neither
@@ -285,7 +298,10 @@ jobs:
           BACKCOMPAT_PYTHON: "3.11"
         run: |
           chmod +x test/backcompat/build_venvs.sh
-          test/backcompat/build_venvs.sh "$RUNNER_TEMP/venvs" "${{ matrix.skill }}" "${{ matrix.core }}" ${{ matrix.audio }}
+          # `audio`, `wire_twin` and `skill_twin` are unquoted on purpose: a
+          # cell that omits the key renders as empty and must expand to no
+          # argument at all.
+          test/backcompat/build_venvs.sh "$RUNNER_TEMP/venvs" "${{ matrix.skill }}" "${{ matrix.core }}" ${{ matrix.audio }} ${{ matrix.wire_twin }} ${{ matrix.skill_twin }}
 
       - name: Record the resolved versions
         run: |
@@ -346,6 +362,25 @@ jobs:
           # above.
           if [ -n "${{ matrix.audio }}" ]; then
             export BACKCOMPAT_AUDIO_PYTHON="$RUNNER_TEMP/venvs/${{ matrix.audio }}/bin/python"
+          fi
+          # The pre-spec-tools client, for the file that spawns a bare
+          # LISTENER: test_wire_twin_old_listener.py, three cells. Their
+          # premise is a subscriber carrying no ovos_spec_tools at all, which
+          # venv_skill_old does not satisfy (it pins
+          # ovos-spec-tools==1.10.0a1); only venv_wire_twin_old does. See
+          # build_venvs.sh's venv_wire_twin_old.
+          if [ -n "${{ matrix.wire_twin }}" ]; then
+            export BACKCOMPAT_WIRE_TWIN_PYTHON="$RUNNER_TEMP/venvs/${{ matrix.wire_twin }}/bin/python"
+          fi
+          # The pre-spec-tools SKILL container, for the file that spawns a
+          # real FallbackSkill: test_fallback_poll_two_vintages.py, four
+          # cells. Same frozen client, plus ovos-workshop, which the listener
+          # venv deliberately does not carry: pointing those four cells at
+          # BACKCOMPAT_WIRE_TWIN_PYTHON makes them die at fixture setup with
+          # "No module named ovos_workshop" (T-5812). See build_venvs.sh's
+          # venv_skill_twin_old.
+          if [ -n "${{ matrix.skill_twin }}" ]; then
+            export BACKCOMPAT_SKILL_TWIN_PYTHON="$RUNNER_TEMP/venvs/${{ matrix.skill_twin }}/bin/python"
           fi
           "$RUNNER_TEMP/${{ matrix.core_dir }}/${{ matrix.core }}/bin/pytest" \
             test/backcompat/ -v --tb=short -rxX \
