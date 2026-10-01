@@ -10,7 +10,13 @@ These tests close that hole:
   channel catches up, the line has to go, and this test says so;
 * every suite NOT listed must import — this is the channel-mode replacement for
   ``OVOS_CONFORMANCE_EXPECT_FULL``, which cannot be used here because a channel
-  install is partial by construction (no channel ships ovos-media, for one).
+  install is partial by construction (no channel ships ovos-media, for one);
+* every suite listed under ``[modules]`` also gets one SKIPPED row naming the
+  import that failed, so the clauses it would have measured are visible as
+  unmeasured. Collection-ignoring a module is silent by construction: the
+  reader of a channel job sees a pass count and no sign that eight suites
+  never ran, and a clause with no result reads as a clause that passed
+  (T-5963).
 
 They run only in channel mode. A dev-stack run skips them.
 """
@@ -53,3 +59,26 @@ def test_listed_module_still_fails_to_import(rel_path):
 def test_unlisted_module_imports(rel_path):
     """Every suite the gaps file does not excuse must import on this channel."""
     importlib.import_module(_module_name(rel_path))
+
+
+@pytest.mark.parametrize("rel_path", sorted(_MODULE_GAPS))
+def test_listed_module_is_not_measured_here(rel_path):
+    """One visible row per suite this channel does not measure.
+
+    ``conftest.py`` drops these suites at collection, which is the right
+    behaviour — the alternative is an ImportError that stops the run — but it
+    is silent: nothing in the report says the channel measured no OVOS-
+    TRANSFORM-1 clause at all. This cell always skips, and its reason carries
+    the import that failed, so the summary of every channel job lists what it
+    could not measure and why.
+
+    The reason is read at run time rather than from the gaps file, so it
+    cannot go stale, and it names the missing symbol rather than a
+    hand-written note about it.
+    """
+    try:
+        importlib.import_module(_module_name(rel_path))
+    except ImportError as exc:
+        pytest.skip(f"not measured on the {CHANNEL} channel: {exc}")
+    pytest.fail(f"{rel_path} imports on {CHANNEL} after all; "
+                f"delete its [modules] line")
