@@ -117,7 +117,18 @@ jobs:
       - name: Regenerate the baseline for comparison
         if: always()
         run: |
+          # --continue-on-collection-errors: this step runs WITHOUT
+          # OVOS_CHANNEL, so conftest.py does not skip the suites the channel
+          # cannot import, and they raise collection errors. Without the flag
+          # pytest stops at "Interrupted: N errors during collection" before it
+          # runs a single test, the json report carries no tests, and
+          # seed_gaps.py writes a file whose [tests] and [xpass] sections are
+          # EMPTY. Committing that regenerated file would un-gate every real
+          # gap: 206 tests and 1 xpass on stable, 114 and 2 on testing. The
+          # import failures themselves are still recorded, because seed_gaps.py
+          # reads report["collectors"], which pytest fills either way.
           pytest test/ -q --tb=short --ignore=test/backcompat --ignore=test/skills_fleet \
+            --continue-on-collection-errors \
             --timeout=180 --timeout-method=thread \
             --json-report --json-report-file="$RUNNER_TEMP/report.json" || true
           python3 test/channel_compat/seed_gaps.py "${{ matrix.channel }}" \

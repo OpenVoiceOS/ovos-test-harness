@@ -16,6 +16,7 @@
 #   venv_skill_old venv_skill_new venv_core_old venv_core_new venv_audio
 #   venv_core_new_matchers_old venv_core_old_matchers_new
 #   venv_core_skew_padatious_old_adapt_new venv_wire_twin_old
+#   venv_skill_twin_old
 #   venv_skill_stable venv_skill_testing venv_core_stable venv_core_testing
 #
 # An unrecognized name is a hard error (not a silent no-op), since a typo'd
@@ -183,6 +184,52 @@
 #              filters them down to scenario 1, and adding a -k filter would
 #              cost more than the handful of seconds it would save.
 #
+#   venv_skill_twin_old  ovos-workshop==7.0.9a1, ovos-bus-client==1.5.0,
+#                        ovos-utils==0.9.0a1, ahocorasick-ner==0.3.2a3
+#              The pre-spec-tools SKILL container, for
+#              test/backcompat/test_fallback_poll_two_vintages.py. It is a
+#              second venv rather than a reuse of venv_wire_twin_old because
+#              the two gated files need different things: that file spawns a
+#              bare LISTENER and ovos-bus-client alone is enough, while this
+#              one spawns a real FallbackSkill and needs ovos-workshop too.
+#              Pointing the fallback cells at venv_wire_twin_old makes them
+#              run and die at fixture setup with "fallback skill died before
+#              registering: ModuleNotFoundError: No module named
+#              ovos_workshop" (measured).
+#
+#              Neither existing venv serves both halves. venv_skill_old
+#              carries workshop but pins ovos-spec-tools==1.10.0a1, and the
+#              premise of these cells is a subscriber carrying NO spec-tools
+#              at all.
+#
+#              The archaeology, measured live on 2026-09-26: ovos-workshop
+#              7.0.9a1 declares no ovos-spec-tools dependency, while 8.3.0a1
+#              requires >=0.9.0a1 and 9.8.9a2 requires >=1.11.0a1, so 7.0.9a1
+#              is the newest workshop that can sit in a pre-spec-tools
+#              container at all. With ovos-bus-client==1.5.0 (the frozen
+#              client venv_wire_twin_old pins) and ovos-utils==0.9.0a1 (the
+#              newest ovos-utils with no ovos-spec-tools dependency, the pin
+#              T-5775 established) the set resolves and installs no
+#              ovos-spec-tools: importing ovos_spec_tools raises after the
+#              install, which is the property these cells assert.
+#
+#              ahocorasick-ner is pinned here although workshop 7.0.9a1 does
+#              NOT declare it: ovos_workshop.skills.__init__ imports
+#              common_play, which imports ahocorasick_ner, so every import of
+#              ovos_workshop.skills.fallback raises ModuleNotFoundError
+#              without it. That is an undeclared dependency of the release,
+#              not a choice this venv makes, and it brings no
+#              ovos-spec-tools with it.
+#
+#              Verified past the resolution: the fixture's skill class
+#              constructs on this stack. FallbackSkill.__init__ takes
+#              (bus, skill_id, **kwargs) in workshop 7, so
+#              fallback_process.py's keyword call including resources_dir is
+#              accepted, and the construction logs "registering fallback
+#              handler -> ovos.skills.fallback.<skill_id>", the LEGACY
+#              spelling, which is the vintage behaviour these cells exist to
+#              observe.
+#
 #   venv_wire_twin_old  ovos-bus-client==1.5.0
 #              Backs test/backcompat/wire_twin_listener.py, and the
 #              ovos-bus-client#286 wire-twin gap: the last PyPI release that
@@ -237,7 +284,8 @@ PY="${BACKCOMPAT_PYTHON:-python3.11}"
 
 ALL_BOUNDARY_VENVS=(venv_skill_old venv_skill_new venv_core_old venv_core_new venv_audio
                     venv_core_new_matchers_old venv_core_old_matchers_new
-                    venv_core_skew_padatious_old_adapt_new venv_wire_twin_old)
+                    venv_core_skew_padatious_old_adapt_new venv_wire_twin_old
+                    venv_skill_twin_old)
 ALL_CHANNEL_VENVS=(venv_skill_stable venv_skill_testing venv_core_stable venv_core_testing)
 ALL_VENVS=("${ALL_BOUNDARY_VENVS[@]}" "${ALL_CHANNEL_VENVS[@]}")
 
@@ -387,7 +435,24 @@ wants venv_audio      && mkvenv venv_audio    ovos-bus-client "setuptools<81"
 # venv_wire_twin_old: a genuinely pre-spec-tools client (no NamespaceTranslator
 # at all), the frozen-satellite shape ovos-bus-client#286's send-side wire
 # twin exists to reach. See the pins block above for the version archaeology.
-wants venv_wire_twin_old && mkvenv venv_wire_twin_old "ovos-bus-client==1.5.0" "setuptools<81"
+#
+# ovos-utils is pinned as well, and it has to be: pinning ovos-bus-client alone
+# left ovos-utils to float, and every release from 0.10.0a1 onward requires
+# ovos-spec-tools (0.15.3a3 asks for >=1.10.7a2). Resolving this venv today
+# therefore installed ovos-spec-tools 1.13.1a3 WITH NamespaceTranslator, so the
+# one venv the suite keeps as pre-spec-tools was not pre-spec-tools at all.
+# 0.9.0a1 is the newest ovos-utils that declares no ovos-spec-tools dependency.
+# Nothing caught the drift because both files that assert this venv's vintage
+# were gated on an environment name the matrix never exported, so they skipped
+# in every job (T-5775).
+wants venv_wire_twin_old && mkvenv venv_wire_twin_old "ovos-bus-client==1.5.0" "ovos-utils==0.9.0a1" "setuptools<81"
+
+# venv_skill_twin_old: the same frozen client with a skill framework on top,
+# for the cells that spawn a real FallbackSkill rather than a bare listener.
+# ahocorasick-ner is explicit because workshop 7.0.9a1 imports it without
+# declaring it. See the pins block above for the version archaeology.
+wants venv_skill_twin_old && mkvenv venv_skill_twin_old "ovos-workshop==7.0.9a1" \
+  "ovos-bus-client==1.5.0" "ovos-utils==0.9.0a1" "ahocorasick-ner==0.3.2a3" "setuptools<81"
 
 wants venv_skill_stable  && mkvenv_channel venv_skill_stable  "$STABLE_CONSTRAINTS_URL"  ovos-workshop "setuptools<81"
 wants venv_skill_testing && mkvenv_channel venv_skill_testing "$TESTING_CONSTRAINTS_URL" ovos-workshop "setuptools<81"

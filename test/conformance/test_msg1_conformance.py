@@ -32,8 +32,8 @@ requirements are skipped with a ``# not bus-observable`` note.
 Coverage map (clause -> status against ovos-bus-client):
 - §2    envelope carries exactly type/data/context ................ green
 - §2    absent data/context are equivalent to {} .................. green
-- §2    an unknown top-level key MUST be ignored, not rejected .... xfail (the envelope raises)
-- §2    the reference envelope ignores an unknown top-level key ... xfail (the envelope raises)
+- §2    an unknown top-level key MUST be ignored, not rejected .... green
+- §2    the reference envelope ignores an unknown top-level key ... green
 - §2.1  type is a non-empty, whitespace-free topic string ......... green
 - §2.1.1 colon-free component identifiers stay parseable .......... green
 - §2.2  data key order is not significant ......................... green
@@ -48,7 +48,6 @@ Coverage map (clause -> status against ovos-bus-client):
 import json
 from unittest import TestCase
 
-import pytest
 from ovos_bus_client.message import Message
 from ovos_bus_client.session import Session
 
@@ -83,13 +82,6 @@ class TestSec2Envelope(TestCase):
         self.assertEqual(m.data, {})
         self.assertEqual(m.context, {})
 
-    @pytest.mark.xfail(
-        reason="OVOS-MSG-1 §2 MUST: a consumer that receives a Message carrying "
-               "top-level keys it does not know MUST NOT reject the Message on "
-               "that ground alone, and MUST ignore those keys. "
-               "The reference envelope rejects unknown top-level keys.",
-        strict=True,
-    )
     def test_unknown_top_level_key_ignored(self):
         """§2: "A consumer that receives a Message carrying top-level keys it
         does not know MUST NOT reject the Message on that ground alone, and
@@ -101,12 +93,6 @@ class TestSec2Envelope(TestCase):
         self.assertEqual(m.data, {"x": 1})
         self.assertNotIn("extra", json.loads(m.serialize()))
 
-    @pytest.mark.xfail(
-        reason="OVOS-MSG-1 §2 MUST: a consumer MUST NOT reject a Message over "
-               "an unknown top-level key and MUST ignore it. The reference "
-               "envelope rejects unknown top-level keys.",
-        strict=True,
-    )
     def test_reference_ignores_unknown_top_level_key(self):
         """§2 cross-check: the reference envelope MUST ignore an unknown
         top-level key rather than reject the Message. MUST."""
