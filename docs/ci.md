@@ -100,6 +100,22 @@ BACKCOMPAT_SKILL_PYTHON=/tmp/venvs/venv_skill_old/bin/python \
   /tmp/venvs/venv_core_new/bin/pytest test/backcompat/ -v -rxX
 ```
 
+Two of the boundary cells' files need a third venv, one that is older than
+`ovos-spec-tools` itself. `venv_wire_twin_old` is a bare
+`ovos-bus-client==1.5.0` client, exported as `BACKCOMPAT_WIRE_TWIN_PYTHON`,
+and `test_wire_twin_old_listener.py` reads it. `venv_skill_twin_old` is that
+same client with `ovos-workshop==7.0.9a1` on top, exported as
+`BACKCOMPAT_SKILL_TWIN_PYTHON`, and `test_fallback_poll_two_vintages.py` reads
+it. The two names are separate because one file spawns a bare listener and the
+other spawns a real fallback skill: a skill needs `ovos_workshop`, and the
+listener venv does not carry it.
+
+Both names are exported in the two `new-core` cells only. The pytest process is
+the core venv, so the core venv is the emitter, and both files assert that a
+modern emitter's send-side legacy twin reaches a pre-spec-tools consumer.
+`venv_core_old` pins an `ovos-bus-client` with no send-side twin, so that
+quadrant does not exist on the old-core axis and the cells skip there.
+
 Four cells pin the exact releases either side of a known behavior boundary
 (`old-*` / `new-*`). The other four — `stable-skill/dev-core`,
 `dev-skill/stable-core`, `testing-skill/dev-core`, `dev-skill/testing-core` —
