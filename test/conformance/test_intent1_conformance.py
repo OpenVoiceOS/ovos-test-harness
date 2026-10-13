@@ -34,7 +34,11 @@ Coverage map (clause -> status against ovos-spec-tools):
 - §3.6 empty-sample template rejected ............................ green
 - §3.6 slot-only template rejected ............................... green
 - §3.6 adjacent slots rejected (surface + expanded) .............. green
-- §3.6 repeated slot name rejected ............................... green
+- §3.6 repeated slot name rejected, input direction ............... green
+- §3.6 repeated slot name rejected, input direction, typed form ... green
+- §3.6 repeated slot name accepted, output direction (expand) ..... xfail (spec-tools rejects it)
+- §3.6 repeated slot name accepted, output direction (render) ..... xfail (spec-tools rejects it)
+- §3.4 slot-name syntax holds in the output direction ............. green
 - §3.6 undefined vocabulary reference rejected ................... green
 - §3.6 cyclic vocabulary reference rejected ...................... green
 - §3.7 ``<name>`` expands to its vocabulary as alternatives ...... green
@@ -42,16 +46,22 @@ Coverage map (clause -> status against ovos-spec-tools):
 - §4.1 whitespace normalized / duplicates removed ................ green
 - §4.2 worked example sample set exact ........................... green
 - §5.1 dialog: unfilled slot MUST NOT render ..................... green
+- §5.1 dialog: slot never filled from an .entity set ............. xfail (spec-tools fills it from the .entity)
+- §5.1 dialog: caller value renders despite a matching .entity ... green
 - §5.5 dialog: mixed slot sets MUST be rejected .................. green
 - §5.5 intent: mixed slot sets MUST be accepted .................. green
 """
 import importlib.util
+import tempfile
 import time
+from pathlib import Path
 from unittest import TestCase
 
 import pytest
 
 from ovos_spec_tools import (
+    DialogRenderer,
+    LocaleResources,
     MalformedTemplate,
     UnfilledSlot,
     expand,
@@ -62,6 +72,27 @@ from ovos_spec_tools import (
 # The grammar clauses are pure spec-tools API. The e2e match counterpart needs
 # the full ovos-core stack the harness pins in requirements.txt; skip it
 # wholesale when that stack is absent so the direct-API suite still runs.
+_OUTPUT_REPEAT_GAP = pytest.mark.xfail(
+    strict=True,
+    raises=MalformedTemplate,
+    reason="OVOS-INTENT-1 §3.6 MUST NOT: a tool MUST NOT reject an "
+           "output-direction template because it repeats a slot name. "
+           "ovos-spec-tools raises MalformedTemplate ('repeated slot name') "
+           "for a repeated slot in a .dialog phrase and in expand(..., "
+           "direction='output'); the release that accepts it lifts this mark.",
+)
+
+_ENTITY_FILL_GAP = pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="OVOS-INTENT-2 §4.2 / OVOS-INTENT-1 §5.1 MUST NOT: an "
+           "implementation MUST NOT take a dialog slot value from an .entity "
+           "value set, and a phrase with an unfilled slot MUST NOT be sent to "
+           "TTS. ovos-spec-tools DialogRenderer.render fills an unfilled slot "
+           "with a random member of the slot's .entity set instead of "
+           "raising UnfilledSlot.",
+)
+
 _HAS_STACK = importlib.util.find_spec("ovoscope") is not None and \
     importlib.util.find_spec("ovos_workshop") is not None
 
@@ -255,10 +286,49 @@ class TestSec3_6Malformed(TestCase):
             expand("{a} [foo] {b}")
 
     def test_repeated_slot_name_rejected(self):
-        """"Repeated slot name — using the same ``{name}`` more than once in one
-        template" MUST be rejected (§3.6)."""
+        """"Repeated slot name, in an **input-direction** template (§2) only —
+        using the same ``{name}`` more than once in one template" is malformed
+        (§3.6)."""
         with self.assertRaises(MalformedTemplate):
             expand("{x} and {x}")
+        with self.assertRaises(MalformedTemplate):
+            expand("{x} and {x}", direction="input")
+
+    def test_repeated_slot_name_rejected_across_typed_form(self):
+        """"The comparison is on the slot **name**, so ``{x} and {date:x}``
+        repeats a name and is malformed" in an input-direction template
+        (§3.6)."""
+        with self.assertRaises(MalformedTemplate):
+            expand("{x} and {date:x}")
+
+    @_OUTPUT_REPEAT_GAP
+    def test_repeated_slot_name_accepted_in_output_direction(self):
+        """A repeated slot name is well formed in an output-direction template
+        (§2, §3.6): "A tool MUST NOT reject an output-direction template
+        because it repeats a slot name." The expander, called for the output
+        direction, keeps both occurrences."""
+        self.assertEqual(
+            expand("You may roll at most {number} dice. {number} is the limit.",
+                   direction="output"),
+            ["You may roll at most {number} dice. {number} is the limit."],
+        )
+
+    @_OUTPUT_REPEAT_GAP
+    def test_repeated_slot_renders_one_value_in_every_place(self):
+        """In a ``.dialog`` each occurrence of a repeated slot takes the same
+        value (§3.6, §5.1): rendering with ``number=6`` fills both places."""
+        self.assertEqual(
+            render(["You may roll at most {number} dice. {number} is the limit."],
+                   {"number": 6}),
+            "You may roll at most 6 dice. 6 is the limit.",
+        )
+
+    def test_slot_name_syntax_holds_in_output_direction(self):
+        """Slot-name syntax (§3.4) applies to both directions: a name outside
+        the lowercase, digit and underscore set is malformed in an
+        output-direction template too."""
+        with self.assertRaises(MalformedTemplate):
+            expand("say {Bad} now", direction="output")
 
     def test_undefined_vocabulary_reference_rejected(self):
         """"Undefined vocabulary reference — a ``<name>`` … for which no
@@ -364,6 +434,40 @@ class TestSec5_1DialogFill(TestCase):
         rather than emit it (§5.1)."""
         with self.assertRaises(UnfilledSlot):
             render(["it is {temperature} degrees"], {})
+
+
+class TestSec5_1DialogNeverFillsFromEntity(TestCase):
+    """OVOS-INTENT-2 §4.2: "An implementation MUST NOT take a dialog slot value
+    from an ``.entity`` value set, because ``.entity`` serves ``.intent`` files
+    only. A slot the caller leaves unfilled makes the phrase unrenderable, and
+    it MUST NOT be sent to TTS." (INTENT-1 §5.1)."""
+
+    def _renderer(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        lang = Path(tmp.name) / "en-US"
+        lang.mkdir()
+        (lang / "weather.dialog").write_text("it is {temperature} degrees\n")
+        (lang / "temperature.entity").write_text("eighteen\ntwenty\n")
+        return DialogRenderer(LocaleResources(skill_locale=tmp.name), "weather")
+
+    @_ENTITY_FILL_GAP
+    def test_unfilled_slot_is_not_filled_from_entity(self):
+        """A ``.dialog`` slot the caller leaves unfilled, with a matching
+        ``.entity`` file present, does not render."""
+        try:
+            text = self._renderer().render("en-US")
+        except UnfilledSlot:
+            return
+        self.fail(f"rendered {text!r} from the .entity set instead of "
+                  "raising UnfilledSlot")
+
+    def test_caller_value_renders_despite_entity(self):
+        """The caller's value is the only source: it renders as given."""
+        self.assertEqual(
+            self._renderer().render("en-US", {"temperature": "18"}),
+            "it is 18 degrees",
+        )
 
 
 class TestSec5_5SlotConsistency(TestCase):
