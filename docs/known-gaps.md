@@ -21,6 +21,39 @@ conformant.
 These reasons are the canonical record of the gap. They are kept verbatim
 from the test decorators so this page stays accurate.
 
+## OVOS-INTENT-1
+
+### §3.6: a repeated slot name is well formed in an output-direction template
+
+- **Spec mandates:** a repeated slot name is malformed in an input-direction
+  template only. In an output-direction template (`.dialog`) each occurrence
+  takes the same value, and "a tool MUST NOT reject an output-direction
+  template because it repeats a slot name."
+
+- **Current impl:** `ovos-spec-tools` raises `MalformedTemplate` ("repeated
+  slot name") for a repeated slot in a `.dialog` phrase, in `render` and in
+  `expand(..., direction="output")`.
+
+- **Test:** `TestSec3_6Malformed.test_repeated_slot_name_accepted_in_output_direction`,
+  `TestSec3_6Malformed.test_repeated_slot_renders_one_value_in_every_place`
+
+- **`reason`:** `"OVOS-INTENT-1 §3.6 MUST NOT: a tool MUST NOT reject an output-direction template because it repeats a slot name. ovos-spec-tools raises MalformedTemplate ('repeated slot name') for a repeated slot in a .dialog phrase and in expand(..., direction='output'); the release that accepts it lifts this mark."`
+
+### §5.1: a dialog slot is never filled from an `.entity`
+
+- **Spec mandates:** "An implementation MUST NOT take a dialog slot value from
+  an `.entity` value set, because `.entity` serves `.intent` files only. A slot
+  the caller leaves unfilled makes the phrase unrenderable, and it MUST NOT be
+  sent to TTS." (OVOS-INTENT-2 §4.2; OVOS-INTENT-1 §5.1)
+
+- **Current impl:** `ovos_spec_tools.DialogRenderer.render` fills a slot the
+  caller left unfilled with a random member of the slot's `.entity` set instead
+  of raising `UnfilledSlot`.
+
+- **Test:** `TestSec5_1DialogNeverFillsFromEntity.test_unfilled_slot_is_not_filled_from_entity`
+
+- **`reason`:** `"OVOS-INTENT-2 §4.2 / OVOS-INTENT-1 §5.1 MUST NOT: an implementation MUST NOT take a dialog slot value from an .entity value set, and a phrase with an unfilled slot MUST NOT be sent to TTS. ovos-spec-tools DialogRenderer.render fills an unfilled slot with a random member of the slot's .entity set instead of raising UnfilledSlot."`
+
 ## OVOS-MSG-1
 
 ### §2: unknown top-level keys MUST be ignored, not rejected

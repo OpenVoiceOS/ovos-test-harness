@@ -376,7 +376,8 @@ Dialog renderer, slot model) against `ovos-spec-tools`, the reference
 implementation. INTENT-1 is a file-format/grammar spec with no bus surface,
 so almost every clause is asserted directly against the spec-tools API;
 one class also drives an end-to-end registration/match round. Every clause
-is green: `ovos-spec-tools` already conforms.
+is green except the output-direction repeated slot name, which
+`ovos-spec-tools` still rejects (see [known-gaps.md](known-gaps.md)).
 
 | Class | Clause(s) | Asserts | Status |
 |-------|-----------|---------|--------|
@@ -385,10 +386,12 @@ is green: `ovos-spec-tools` already conforms.
 | `TestSec3_3Optionals` | §3.3 | `[x]` is exactly equivalent to `(x\|)`. | green |
 | `TestSec3_4NamedSlots` | §3.4 | `{name}`/`{{name}}` fold to the same slot; slot names use the lowercase/digit/underscore charset with no leading digit. | green |
 | `TestSec3_5Nesting` | §3.5 | Expansion groups nest without limit. | green |
-| `TestSec3_6Malformed` | §3.6 | A tool MUST reject unbalanced metacharacters, the empty group `()`, empty-sample templates, slot-only templates, adjacent slots, repeated slot names, and undefined/cyclic vocabulary references. | green |
+| `TestSec3_6Malformed` | §3.6 | A tool MUST reject unbalanced metacharacters, the empty group `()`, empty-sample templates, slot-only templates, adjacent slots, and undefined/cyclic vocabulary references. A repeated slot name is malformed in an input-direction template (`{x} and {x}`, `{x} and {date:x}`). | green |
+| `TestSec3_6Malformed` (output direction) | §3.6, §5.1 | A repeated slot name is well formed in an output-direction template: `You may roll at most {number} dice. {number} is the limit.` is accepted in a `.dialog`, and renders with `number=6` as `You may roll at most 6 dice. 6 is the limit.`. Slot-name syntax (§3.4) still holds. Tests: `test_repeated_slot_name_accepted_in_output_direction`, `test_repeated_slot_renders_one_value_in_every_place`. | xfail: `ovos-spec-tools` rejects the repeated name |
 | `TestSec3_7VocabularyReference` | §3.7 | `<name>` expands to its named vocabulary as alternatives. | green |
 | `TestSec4Expansion` | §4 | A template expands to a finite sample set; slots stay opaque through expansion; whitespace is normalized and duplicates removed. | green |
 | `TestSec5_1DialogFill` | §5.1 | A `.dialog` template with an unfilled slot MUST NOT render. | green |
+| `TestSec5_1DialogNeverFillsFromEntity` | INTENT-2 §4.2, §5.1 | A `.dialog` slot is never filled from an `.entity` value set: an unfilled slot with a matching `.entity` raises `UnfilledSlot`, and a caller value renders as given. Tests: `test_unfilled_slot_is_not_filled_from_entity`, `test_caller_value_renders_despite_entity`. | xfail: `ovos-spec-tools` fills the slot from the `.entity` |
 | `TestSec5_5SlotConsistency` | §5.5 | A `.dialog` definition MUST NOT mix templates declaring different slot sets; an intent template MAY. | green |
 | `TestE2EExpansionDrivesMatch` | §4, §6 | A template registered as training data, once expanded, actually drives an utterance match end-to-end. | green |
 
