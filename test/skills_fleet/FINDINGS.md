@@ -154,12 +154,12 @@ below is derived from `xfail_registry.json`, `golden_utterances.jsonl` and
 them again. Read the block, not the history.
 
 <!-- FLEET-COUNTS:BEGIN - derived from the registry and the corpus. test_findings_counts.py asserts these -->
-- exercised rows: 578
-- correct: 555
+- exercised rows: 576
+- correct: 553
 - conflict entries: 4
 - coverage-gap entries: 19
 - registry entries: 23
-- quarantined rows: 86
+- quarantined rows: 88
 <!-- FLEET-COUNTS:END -->
 
 `correct` is every exercised row with no registry entry, so correct plus
